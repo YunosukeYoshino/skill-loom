@@ -200,13 +200,15 @@ export function TristateList({
         </div>
         <SortHeader sortKey={sortKey} sortAsc={sortAsc} onToggle={toggleSort} />
       </div>
-      <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)]">
-        <div className="divide-y divide-[var(--color-rule)]">
-          {sortedRows.map((row) => (
-            <TristateRow key={row.name} row={row} value={states[row.name] || "off"} onChange={setOne} />
-          ))}
+      {sortedRows.length > 0 ? (
+        <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)]">
+          <div className="divide-y divide-[var(--color-rule)]">
+            {sortedRows.map((row) => (
+              <TristateRow key={row.name} row={row} value={states[row.name] || "off"} onChange={setOne} />
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
       {archiveRows.length ? (
         <details className="mt-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)]">
           <summary className="cursor-pointer px-3 py-2.5 text-sm text-[var(--color-ink-2)] transition-colors hover:text-[var(--color-ink)]">
@@ -383,30 +385,32 @@ export function CheckboxList({
           {pendingLabel(!!busy, submitLabel, "処理中…")}
         </Button>
       </div>
-      <div className="divide-y divide-[var(--color-rule)] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)]">
-        {filtered.map((row) => (
-          <label key={row.name} className="flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={!!selected[row.name]}
-              onChange={(e) => setSelected((prev) => ({ ...prev, [row.name]: e.target.checked }))}
-            />
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <code className="font-[family-name:var(--font-mono)] text-sm font-medium">{row.name}</code>
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${pillClass[row.state] || ""}`}>
-                  {row.state}
-                </span>
+      {filtered.length > 0 ? (
+        <div className="divide-y divide-[var(--color-rule)] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)]">
+          {filtered.map((row) => (
+            <label key={row.name} className="flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={!!selected[row.name]}
+                onChange={(e) => setSelected((prev) => ({ ...prev, [row.name]: e.target.checked }))}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <code className="font-[family-name:var(--font-mono)] text-sm font-medium">{row.name}</code>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${pillClass[row.state] || ""}`}>
+                    {row.state}
+                  </span>
+                </div>
+                <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">{row.description}</p>
+                <div className="mt-1 font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-ink-2)]">
+                  {row.category} · {row.source}
+                </div>
               </div>
-              <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">{row.description}</p>
-              <div className="mt-1 font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-ink-2)]">
-                {row.category} · {row.source}
-              </div>
-            </div>
-          </label>
-        ))}
-      </div>
+            </label>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

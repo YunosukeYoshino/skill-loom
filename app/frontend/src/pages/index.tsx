@@ -769,26 +769,28 @@ function SelectableSkills({
           </Button>
         ))}
       </div>
-      <div className="divide-y divide-[var(--color-rule)] rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)]">
-        {filtered.map((row) => (
-          <label key={row.name} className="flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={selected.includes(row.name)}
-              onChange={(e) =>
-                setSelected((prev) =>
-                  e.target.checked ? [...prev, row.name] : prev.filter((n) => n !== row.name),
-                )
-              }
-            />
-            <div className="min-w-0">
-              <code className="font-[family-name:var(--font-mono)] text-sm font-medium">{row.name}</code>
-              <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">{row.description}</p>
-            </div>
-          </label>
-        ))}
-      </div>
+      {filtered.length > 0 ? (
+        <div className="divide-y divide-[var(--color-rule)] rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)]">
+          {filtered.map((row) => (
+            <label key={row.name} className="flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={selected.includes(row.name)}
+                onChange={(e) =>
+                  setSelected((prev) =>
+                    e.target.checked ? [...prev, row.name] : prev.filter((n) => n !== row.name),
+                  )
+                }
+              />
+              <div className="min-w-0">
+                <code className="font-[family-name:var(--font-mono)] text-sm font-medium">{row.name}</code>
+                <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">{row.description}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }
