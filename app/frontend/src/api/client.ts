@@ -25,9 +25,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     ...init,
   })
-  const body = await res.json().catch(() => ({}))
+  const contentType = res.headers.get("content-type") || ""
+  const text = await res.text()
+  const trimmed = text.trimStart()
+  const looksJson = contentType.includes("application/json") || trimmed.startsWith("{") || trimmed.startsWith("[")
+
+  let body: unknown = {}
+  if (text.length > 0 && looksJson) {
+    try {
+      body = JSON.parse(text)
+    } catch {
+      throw new ApiError(res.status, `Invalid JSON response (${res.status})`, text.slice(0, 200))
+    }
+  } else if (res.ok) {
+    // Vite 直叩きなどで SPA index（text/html）が 200 で返ると、旧実装は {} を成功扱いし
+    // ExternalSourcesPage などが undefined.map で落ちていた。
+    const hint = contentType.includes("text/html")
+      ? "API returned HTML instead of JSON. Open the Skill Loom UI public port (skill-loom ui / --dev), not the Vite port."
+      : `Unexpected non-JSON response (${res.status})`
+    throw new ApiError(res.status, hint, text.slice(0, 200))
+  }
+
   if (!res.ok) {
-    const message = typeof body?.message === "string" ? body.message : `Request failed (${res.status})`
+    const message =
+      body && typeof body === "object" && typeof (body as { message?: unknown }).message === "string"
+        ? (body as { message: string }).message
+        : `Request failed (${res.status})`
     throw new ApiError(res.status, message, body)
   }
   return body as T
