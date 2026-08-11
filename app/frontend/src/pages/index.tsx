@@ -304,7 +304,9 @@ function PresetsPanel({
   const [selected, setSelected] = useState(presets[0]?.name || "")
   const [newPresetName, setNewPresetName] = useState("")
   const [savingAsNew, setSavingAsNew] = useState(false)
+  const [saveMenuOpen, setSaveMenuOpen] = useState(false)
   const newPresetInputRef = useRef<HTMLInputElement>(null)
+  const saveMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (presets.length && !presets.some((preset) => preset.name === selected)) {
@@ -317,9 +319,30 @@ function PresetsPanel({
     newPresetInputRef.current?.focus()
   }, [savingAsNew])
 
+  useEffect(() => {
+    if (!saveMenuOpen) return
+    const onPointerDown = (event: MouseEvent) => {
+      if (!saveMenuRef.current?.contains(event.target as Node)) setSaveMenuOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSaveMenuOpen(false)
+    }
+    document.addEventListener("mousedown", onPointerDown)
+    document.addEventListener("keydown", onKeyDown)
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown)
+      document.removeEventListener("keydown", onKeyDown)
+    }
+  }, [saveMenuOpen])
+
   const closeSaveAsNew = () => {
     setSavingAsNew(false)
     setNewPresetName("")
+  }
+
+  const openSaveAsNew = () => {
+    setSaveMenuOpen(false)
+    setSavingAsNew(true)
   }
 
   const saveAsNew = () => {
@@ -329,6 +352,10 @@ function PresetsPanel({
     setSelected(name)
     closeSaveAsNew()
   }
+
+  const canUseSelected = Boolean(selected) && !busy && !preview
+  const menuItemClass =
+    "block w-full cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-sm transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
 
   return (
     <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
@@ -350,31 +377,69 @@ function PresetsPanel({
             <option value="">保存済みプリセットなし</option>
           )}
         </select>
-        <Button disabled={busy || !selected || !!preview} onClick={() => onApplyRequest(selected)}>
+        <Button
+          variant="primary"
+          disabled={!canUseSelected}
+          onClick={() => onApplyRequest(selected)}
+        >
           {pendingLabel(!!busy, "適用", "処理中…")}
         </Button>
-        <Button disabled={busy || !selected || !!preview} onClick={() => onOverwriteSave(selected)}>
-          {pendingLabel(!!busy, "上書き保存", "処理中…")}
-        </Button>
-        <Button
-          disabled={busy || !selected || !!preview}
+        <div className="relative" ref={saveMenuRef}>
+          <Button
+            disabled={busy || !!preview}
+            aria-expanded={saveMenuOpen}
+            aria-haspopup="menu"
+            onClick={() => setSaveMenuOpen((open) => !open)}
+          >
+            保存
+            <span className="ml-1 text-[10px] text-[var(--color-ink-2)]" aria-hidden>
+              ▾
+            </span>
+          </Button>
+          {saveMenuOpen ? (
+            <div
+              role="menu"
+              className="absolute top-[calc(100%+4px)] left-0 z-30 min-w-[11rem] rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--surface)] p-1 shadow-[var(--shadow-lift)]"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className={menuItemClass}
+                disabled={!canUseSelected}
+                onClick={() => {
+                  setSaveMenuOpen(false)
+                  onOverwriteSave(selected)
+                }}
+              >
+                上書き保存
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={menuItemClass}
+                disabled={busy || !!preview}
+                onClick={openSaveAsNew}
+              >
+                別名で保存…
+              </button>
+            </div>
+          ) : null}
+        </div>
+        {hasPrevious ? (
+          <Button disabled={busy || !!preview} onClick={onRestoreRequest}>
+            {pendingLabel(!!busy, "直前に戻す", "処理中…")}
+          </Button>
+        ) : null}
+        <button
+          type="button"
+          disabled={!canUseSelected}
           onClick={() => {
             if (confirm(`プリセット "${selected}" を削除しますか？`)) onDelete(selected)
           }}
+          className="ml-auto cursor-pointer rounded-[var(--radius-sm)] px-2 py-1.5 text-sm text-[var(--color-ink-2)] transition-[transform,color,background] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {pendingLabel(!!busy, "削除", "処理中…")}
-        </Button>
-        <Button disabled={busy || !hasPrevious || !!preview} onClick={onRestoreRequest}>
-          {pendingLabel(!!busy, "直前に戻す", "処理中…")}
-        </Button>
-        {!savingAsNew ? (
-          <Button
-            disabled={busy || !!preview}
-            onClick={() => setSavingAsNew(true)}
-          >
-            別名で保存
-          </Button>
-        ) : null}
+        </button>
       </div>
       {savingAsNew ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-rule)] pt-3">
@@ -397,7 +462,7 @@ function PresetsPanel({
             spellCheck={false}
             className="min-w-[200px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
           />
-          <Button disabled={busy || !newPresetName.trim() || !!preview} onClick={saveAsNew}>
+          <Button variant="primary" disabled={busy || !newPresetName.trim() || !!preview} onClick={saveAsNew}>
             {pendingLabel(!!busy, "保存", "処理中…")}
           </Button>
           <Button disabled={busy} onClick={closeSaveAsNew}>
