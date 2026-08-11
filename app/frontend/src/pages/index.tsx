@@ -12,7 +12,7 @@ import type {
   Tristate,
 } from "@shared/api-types"
 import { CheckboxList, ExternalImportForm, SearchField, TristateList } from "@/components/lists"
-import { ActionStatus, BusyRegion, Button, Masthead, Message, Nav, PageLoading, Shell, pendingLabel } from "@/components/ui"
+import { ActionStatus, BusyRegion, Button, Masthead, Message, Nav, PageError, PageLoading, Shell, pendingLabel } from "@/components/ui"
 
 function errMessage(err: unknown): string | undefined {
   return err instanceof Error ? err.message : undefined
@@ -506,7 +506,9 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
   })
 
   if (q.isPending) return <PageLoading variant="list" withCounts />
-  if (q.isError) return <Shell><p>Error: {(q.error as Error).message}</p></Shell>
+  if (q.isError) {
+    return <PageError current="global" message={(q.error as Error).message} />
+  }
   const data = q.data
   const customCheckBusy = checkCustom.isPending
   const customUpdateBusy = updateCustomOne.isPending || updateCustomAll.isPending
@@ -652,7 +654,14 @@ export function ExternalPreviewPage({ source, deck }: { source: string; deck: st
 
   if (!source) return <Shell><p>source がありません</p></Shell>
   if (q.isPending) return <PageLoading variant="list" />
-  if (q.isError) return <Shell><p>Error: {(q.error as Error).message}</p></Shell>
+  if (q.isError) {
+    return (
+      <PageError
+        current={deck ? `project:${deck}` : "global"}
+        message={(q.error as Error).message}
+      />
+    )
+  }
   const data = q.data
   const previewBusy = install.isPending || addDeck.isPending
 
@@ -806,7 +815,9 @@ export function ExternalSourcesPage() {
   }, [viewMode])
 
   if (q.isPending) return <PageLoading variant="cards" />
-  if (q.isError) return <Shell><p>Error: {(q.error as Error).message}</p></Shell>
+  if (q.isError) {
+    return <PageError current="external-sources" message={(q.error as Error).message} />
+  }
   const data = q.data
   const sourcesBusy = checkAll.isPending || updateAll.isPending
 
@@ -961,7 +972,9 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
   }, [someActive])
 
   if (q.isPending) return <PageLoading variant="detail" />
-  if (q.isError) return <Shell><p>Error: {(q.error as Error).message}</p></Shell>
+  if (q.isError) {
+    return <PageError current="external-sources" message={(q.error as Error).message} />
+  }
   const data = q.data
   const detailBusy =
     updateAll.isPending ||
@@ -1106,7 +1119,9 @@ export function DraftsPage() {
   })
 
   if (q.isPending) return <PageLoading variant="list" />
-  if (q.isError) return <Shell><p>Error: {(q.error as Error).message}</p></Shell>
+  if (q.isError) {
+    return <PageError current="drafts" message={(q.error as Error).message} />
+  }
   const data = q.data
 
   return (
@@ -1168,7 +1183,9 @@ export function ProjectDeckPage({ deckName, catalog }: { deckName: string; catal
   })
 
   if (q.isPending) return <PageLoading variant="list" withCounts />
-  if (q.isError) return <Shell><p>Error: {(q.error as Error).message}</p></Shell>
+  if (q.isError) {
+    return <PageError current={`project:${deckName}`} message={(q.error as Error).message} />
+  }
   const data = q.data
 
   return (

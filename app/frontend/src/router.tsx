@@ -4,6 +4,7 @@ import {
   createRoute,
   createRouter,
   redirect,
+  useRouterState,
 } from "@tanstack/react-router"
 import {
   DraftsPage,
@@ -13,9 +14,42 @@ import {
   GlobalPage,
   ProjectDeckPage,
 } from "@/pages"
+import { PageError } from "@/components/ui"
+
+function navCurrentFromPath(pathname: string): string {
+  if (pathname.startsWith("/drafts")) return "drafts"
+  if (pathname.startsWith("/external-sources")) return "external-sources"
+  if (pathname.startsWith("/project-decks/")) {
+    return `project:${pathname.split("/")[2] || ""}`
+  }
+  return "global"
+}
+
+function RouteError({ error }: { error: Error }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  return (
+    <PageError
+      current={navCurrentFromPath(pathname)}
+      title="Something went wrong"
+      message={error.message || "予期しないエラーが発生しました。"}
+    />
+  )
+}
+
+function RouteNotFound() {
+  return (
+    <PageError
+      current="global"
+      title="Not Found"
+      message="指定されたページが見つかりませんでした。"
+    />
+  )
+}
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
+  errorComponent: RouteError,
+  notFoundComponent: RouteNotFound,
 })
 
 const indexRoute = createRoute({

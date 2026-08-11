@@ -285,6 +285,29 @@ export function PageLoading({
   )
 }
 
+export function PageError({
+  current,
+  title = "読み込みに失敗しました",
+  message,
+  decks = [],
+}: {
+  current: string
+  title?: string
+  message: string
+  decks?: string[]
+}) {
+  return (
+    <Shell>
+      <Masthead title={title} />
+      <Nav current={current} decks={decks} />
+      <Message text={message} />
+      <p className="m-0 text-sm text-[var(--color-ink-2)]">
+        ナビから別の画面へ移動するか、ページを再読み込みしてください。開発時は Vite の内部ポートではなく、起動ログの公開 URL（Skill Loom UI）を開いているか確認してください。
+      </p>
+    </Shell>
+  )
+}
+
 export function Shell({ children }: { children: ReactNode }) {
   return <main className="mx-auto max-w-[1080px] px-4 py-5 pb-14">{children}</main>
 }
