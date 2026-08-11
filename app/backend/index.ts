@@ -1089,5 +1089,5 @@ const server = Bun.serve({
   websocket: wsHandlers,
 })
 
-if (vitePort !== null) console.log(`Vite dev server on 127.0.0.1:${vitePort} (proxied)`)
+if (vitePort !== null) console.log(`Vite dev server on 127.0.0.1:${vitePort} (proxied; do not open directly)`)
 console.log(`Skill Loom UI on http://${args.host}:${server.port}`)
