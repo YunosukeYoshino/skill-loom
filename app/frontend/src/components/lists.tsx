@@ -172,11 +172,17 @@ export function TristateList({
   }
 
   const dirty = Object.entries(states).some(([name, value]) => initial[name] !== value)
+  // 表示行が無いのにソート見出しだけ残ると、枠の下半分が空洞に見える。
+  const showSortHeader = sortedRows.length > 0
 
   return (
     <div>
       <div className="sticky top-0 z-20 mb-2 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
-        <div className="flex flex-wrap gap-2 border-b border-[var(--color-rule)] px-2 py-2">
+        <div
+          className={`flex flex-wrap gap-2 px-2 py-2${
+            showSortHeader ? " border-b border-[var(--color-rule)]" : ""
+          }`}
+        >
           <SearchField value={filter} onChange={setFilter} />
           <Button variant="primary" disabled={!dirty || busy} onClick={() => onApply(states)}>
             {pendingLabel(!!busy, "反映", "反映中…")}
@@ -198,7 +204,9 @@ export function TristateList({
             </Button>
           ) : null}
         </div>
-        <SortHeader sortKey={sortKey} sortAsc={sortAsc} onToggle={toggleSort} />
+        {showSortHeader ? (
+          <SortHeader sortKey={sortKey} sortAsc={sortAsc} onToggle={toggleSort} />
+        ) : null}
       </div>
       {sortedRows.length > 0 ? (
         <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)]">
