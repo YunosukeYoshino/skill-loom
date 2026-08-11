@@ -9,12 +9,13 @@
  *   bun register-skill-lock.ts LOCK_FILE SKILL_NAME SOURCE SOURCE_URL SKILL_PATH
  */
 
-import fs from "node:fs"
 import process from "node:process"
+import { updateInventoryLock, type LockObject } from "./update-inventory-lock"
 
-type LockFile = {
-  external?: Record<string, { source: string; sourceUrl: string; skillPath: string }>
-  [key: string]: unknown
+type ExternalEntry = { source: string; sourceUrl: string; skillPath: string }
+
+type LockFile = LockObject & {
+  external?: Record<string, ExternalEntry>
 }
 
 function main(): void {
@@ -24,35 +25,26 @@ function main(): void {
     process.exit(2)
   }
 
-  let lock: LockFile
   try {
-    lock = JSON.parse(fs.readFileSync(lockPath, "utf-8")) as LockFile
-  } catch {
-    console.error(`Error: Cannot read or parse lock file: ${lockPath}`)
+    updateInventoryLock(lockPath, (raw) => {
+      const lock = raw as LockFile
+      if (lock.external === undefined) {
+        lock.external = {}
+      } else if (
+        typeof lock.external !== "object" ||
+        lock.external === null ||
+        Array.isArray(lock.external)
+      ) {
+        throw new Error(`Lock file external section must be an object: ${lockPath}`)
+      }
+      lock.external[skillName] = { source, sourceUrl, skillPath }
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`Error: ${message}`)
     process.exit(1)
   }
 
-  if (typeof lock !== "object" || lock === null || Array.isArray(lock)) {
-    console.error(`Error: Lock file is not a JSON object: ${lockPath}`)
-    process.exit(1)
-  }
-
-  if (lock.external === undefined) {
-    lock.external = {}
-  } else if (
-    typeof lock.external !== "object" ||
-    lock.external === null ||
-    Array.isArray(lock.external)
-  ) {
-    console.error(`Error: Lock file external section must be an object: ${lockPath}`)
-    process.exit(1)
-  }
-
-  lock.external[skillName] = { source, sourceUrl, skillPath }
-
-  const tmp = `${lockPath}.tmp`
-  fs.writeFileSync(tmp, `${JSON.stringify(lock, null, 2)}\n`)
-  fs.renameSync(tmp, lockPath)
   process.stdout.write("  -> Registered in skills.lock.json\n")
 }
 

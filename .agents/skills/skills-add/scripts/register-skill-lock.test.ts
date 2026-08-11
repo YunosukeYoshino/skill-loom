@@ -89,4 +89,31 @@ describe("register-skill-lock", () => {
     const lock = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as Record<string, unknown>
     expect(lock["external"]).toEqual([])
   })
+
+  test("並行する2件の登録が両方保存される", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "register-conc-"))
+    const lockFile = path.join(dir, "skills.lock.json")
+    fs.writeFileSync(lockFile, JSON.stringify({ version: 3, custom: { skills: {} }, external: {} }, null, 2))
+
+    const makers = ["alpha", "beta"].map((name) =>
+      Bun.spawn(["bun", SCRIPT, lockFile, name, "owner/repo", "https://github.com/owner/repo.git", `skills/${name}/SKILL.md`], {
+        stdout: "pipe",
+        stderr: "pipe",
+      }),
+    )
+    const codes = await Promise.all(makers.map((proc) => proc.exited))
+    expect(codes).toEqual([0, 0])
+
+    const lock = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as { external: Record<string, unknown> }
+    expect(lock.external["alpha"]).toEqual({
+      source: "owner/repo",
+      sourceUrl: "https://github.com/owner/repo.git",
+      skillPath: "skills/alpha/SKILL.md",
+    })
+    expect(lock.external["beta"]).toEqual({
+      source: "owner/repo",
+      sourceUrl: "https://github.com/owner/repo.git",
+      skillPath: "skills/beta/SKILL.md",
+    })
+  })
 })

@@ -23,12 +23,8 @@ description: "外部skillをフォークしてカスタマイズ (description日
 
 ```bash
 # .skill-lock.json で source が my-skills でないことを確認
-bun -e '
-const fs=require("node:fs"), os=require("node:os");
-const lock=JSON.parse(fs.readFileSync(os.homedir()+"/.agents/.skill-lock.json","utf8"));
-const skill=lock?.skills?.[process.argv[1]] ?? {};
-console.log(`Source: ${skill.source ?? "NOT FOUND"}`);
-' '{skill-name}'
+bun "$ENGINE_ROOT/.agents/skills/vendor-fork/scripts/lock-lookup.ts" \
+  global-source '{skill-name}'
 ```
 
 既に `$CATALOG_ROOT/vendor/{skill-name}` が存在する場合はエラー。

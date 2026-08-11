@@ -14,6 +14,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import process from "node:process"
+import { updateInventoryLock } from "../../skills-add/scripts/update-inventory-lock"
 
 const CATALOG_ROOT_ENV = "MY_SKILLS_CATALOG_DIR"
 const REPO_ROOT_ENV = "REPO_ROOT"
@@ -92,12 +93,6 @@ function loadJson(filePath: string): JsonData {
   } catch {
     return null
   }
-}
-
-function saveJson(filePath: string, data: Record<string, unknown>): void {
-  const tmp = `${filePath}.tmp`
-  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`)
-  fs.renameSync(tmp, filePath)
 }
 
 export function getRepoRoot(): string {
@@ -363,14 +358,14 @@ export function main(argv: string[]): void {
   }
 
   const results: Record<string, { added: unknown[]; skipped: unknown[] }> = {}
-  if (Object.keys(customSkills).length > 0) {
-    results["custom"] = registerSkills(lock, customSkills, "custom")
-  }
-  if (Object.keys(externalSkills).length > 0) {
-    results["external"] = registerSkills(lock, externalSkills, "external")
-  }
-
-  saveJson(lockPath, lock)
+  updateInventoryLock(lockPath, (freshLock) => {
+    if (Object.keys(customSkills).length > 0) {
+      results["custom"] = registerSkills(freshLock, customSkills, "custom")
+    }
+    if (Object.keys(externalSkills).length > 0) {
+      results["external"] = registerSkills(freshLock, externalSkills, "external")
+    }
+  })
   process.stdout.write(`\n✅ Updated ${lockPath}\n`)
 
   for (const [mode, result] of Object.entries(results)) {

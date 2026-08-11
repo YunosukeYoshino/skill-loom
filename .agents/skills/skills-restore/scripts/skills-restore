@@ -120,14 +120,12 @@ if [ "$CLEAN" = true ]; then
 fi
 
 echo "=== 1/3 Installing external skills ==="
-# Group by source and install (using Python helper)
-while IFS= read -r cmd; do
-  [ -z "$cmd" ] && continue
-  echo "  $cmd"
-  if [ "$DRY_RUN" = false ]; then
-    bash -c "$cmd"
-  fi
-done < <(bun "$SCRIPT_DIR/restore-lock.ts" "$LOCK_FILE")
+# Group by source and install (argv 実行。shell -c は使わない)
+if [ "$DRY_RUN" = true ]; then
+  bun "$SCRIPT_DIR/restore-lock.ts" "$LOCK_FILE" | sed 's/^/  /'
+else
+  bun "$SCRIPT_DIR/restore-lock.ts" --install "$LOCK_FILE" | sed 's/^/  /'
+fi
 
 echo ""
 echo "=== 2/3 Installing custom + vendor skills ==="

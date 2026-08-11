@@ -48,12 +48,7 @@ skipped=0
 
 lookup_external_source() {
     local skill_name="$1"
-    bun -e '
-const fs=require("node:fs");
-const lock=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-const meta=lock?.external?.[process.argv[2]] ?? {};
-process.stdout.write((meta.source ?? "") + "\n");
-' "$LOCK_FILE" "$skill_name"
+    bun "$DIR/lock-lookup.ts" external-source "$LOCK_FILE" "$skill_name"
 }
 
 sync_upstream_skill() {
