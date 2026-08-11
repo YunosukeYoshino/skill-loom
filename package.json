@@ -1,6 +1,7 @@
 {
   "name": "skillloom",
   "private": true,
+  "license": "MIT",
   "devDependencies": {
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.0",
     "@types/bun": "^1.3.14",

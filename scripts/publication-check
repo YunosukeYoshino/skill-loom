@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
+if [ ! -f LICENSE ]; then
+  echo "Missing required publication file: LICENSE" >&2
+  exit 1
+fi
+
 violations=$(git ls-files | rg -n -f scripts/publication-denylist.txt || true)
 if [ -n "$violations" ]; then
   echo "Publication denylist violations:" >&2
