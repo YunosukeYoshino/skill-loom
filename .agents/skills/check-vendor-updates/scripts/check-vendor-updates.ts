@@ -99,8 +99,8 @@ function main(): void {
   const installed = new Set<string>()
   const strAgentsDir = `${os.homedir()}/.agents/skills`
   if (fs.existsSync(strAgentsDir)) {
-    for (const name of fs.readdirSync(strAgentsDir)) {
-      if (name !== ".system") installed.add(name)
+    for (const entry of fs.readdirSync(strAgentsDir, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name !== ".system") installed.add(entry.name)
     }
   }
   const unmanaged = [...installed].filter((n) => !managed.has(n) && !ignored.has(n)).sort()

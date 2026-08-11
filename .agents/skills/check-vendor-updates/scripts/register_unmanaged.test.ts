@@ -18,10 +18,16 @@ describe("is_custom_skill", () => {
     expect(isCustomSkill("external-only", dir, {}, "owner/catalog")).toBe(false)
   })
 
-  test("global lock source が catalog repo から始まれば custom と判定", () => {
+  test("global lock source が catalog repo と完全一致すれば custom と判定", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ru-c2-"))
     const globalLock = { "catalog-skill": { source: "owner/catalog" } }
     expect(isCustomSkill("catalog-skill", dir, globalLock as never, "owner/catalog")).toBe(true)
+  })
+
+  test("catalog repo の接頭辞一致だけでは custom と判定しない", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ru-c3-"))
+    const globalLock = { "fork-skill": { source: "owner/catalog-fork" } }
+    expect(isCustomSkill("fork-skill", dir, globalLock as never, "owner/catalog")).toBe(false)
   })
 })
 

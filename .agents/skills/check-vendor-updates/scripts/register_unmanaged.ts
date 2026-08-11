@@ -104,7 +104,11 @@ export function getRepoRoot(): string {
   const env = process.env[CATALOG_ROOT_ENV] || process.env[REPO_ROOT_ENV]
   if (env) return path.resolve(env.replace(/^~(?=$|\/)/, os.homedir()))
   const result = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"])
-  return result.stdout.toString().trim()
+  const repoRoot = result.stdout.toString().trim()
+  if (result.exitCode !== 0 || repoRoot === "") {
+    throw new Error("Cannot determine repository root")
+  }
+  return repoRoot
 }
 
 function getManagedSets(lock: Record<string, unknown>): { external: Set<string>; custom: Set<string>; vendor: Set<string>; lockIgnored: Set<string> } {
@@ -163,7 +167,7 @@ export function isCustomSkill(skillName: string, repoRoot: string, globalLock: R
   if (fs.existsSync(localSkillDir) && fs.statSync(localSkillDir).isDirectory()) return true
 
   const source = (globalLock[skillName]?.source as string | undefined) ?? ""
-  if (customRepo && source.startsWith(customRepo)) return true
+  if (customRepo && source === customRepo) return true
 
   return false
 }
@@ -375,5 +379,11 @@ export function main(argv: string[]): void {
 }
 
 if (import.meta.main) {
-  main(process.argv.slice(2))
+  try {
+    main(process.argv.slice(2))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    process.stderr.write(`Error: ${message}\n`)
+    process.exit(1)
+  }
 }

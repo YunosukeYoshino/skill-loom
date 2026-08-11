@@ -37,8 +37,15 @@ function main(): void {
     process.exit(1)
   }
 
-  if (typeof lock.external !== "object" || lock.external === null) {
+  if (lock.external === undefined) {
     lock.external = {}
+  } else if (
+    typeof lock.external !== "object" ||
+    lock.external === null ||
+    Array.isArray(lock.external)
+  ) {
+    console.error(`Error: Lock file external section must be an object: ${lockPath}`)
+    process.exit(1)
   }
 
   lock.external[skillName] = { source, sourceUrl, skillPath }

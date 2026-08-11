@@ -76,4 +76,17 @@ describe("register-skill-lock", () => {
       skillPath: "skills/alpha/SKILL.md",
     })
   })
+
+  test("external が配列の lock は schema error で exit 1 にする", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "register-arr-"))
+    const lockFile = path.join(dir, "skills.lock.json")
+    fs.writeFileSync(lockFile, JSON.stringify({ version: 3, external: [] }))
+
+    const out = runRegister([lockFile, "alpha", "owner/repo", "https://github.com/owner/repo.git", "skills/alpha/SKILL.md"])
+    expect(out.exitCode).toBe(1)
+    expect(out.stderr).toContain("external section must be an object")
+
+    const lock = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as Record<string, unknown>
+    expect(lock["external"]).toEqual([])
+  })
 })
