@@ -10,42 +10,45 @@
  * commit できなかったことを理由に skill の除外そのものを巻き戻したりはしない。
  */
 
-import { existsSync, realpathSync } from "node:fs"
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
-import { catalogRoot } from "../domain/config"
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { catalogRoot } from "../domain/config";
 
 /** Python の `Path.resolve()` 相当。存在しないパスでも正規化だけはする。 */
 function resolvePath(path: string): string {
-  let ancestor = path
-  const missing: string[] = []
+  let ancestor = path;
+  const missing: string[] = [];
   while (!existsSync(ancestor)) {
-    const parent = dirname(ancestor)
-    if (parent === ancestor) return resolve(path)
-    missing.unshift(basename(ancestor))
-    ancestor = parent
+    const parent = dirname(ancestor);
+    if (parent === ancestor) return resolve(path);
+    missing.unshift(basename(ancestor));
+    ancestor = parent;
   }
-  return resolve(realpathSync(ancestor), ...missing)
+  return resolve(realpathSync(ancestor), ...missing);
 }
 
 /** リポジトリ外のパスは黙って捨てる。git add に渡せないため。 */
 export function repoRelativePaths(paths: Iterable<string>): string[] {
-  const repoRoot = resolvePath(catalogRoot())
-  const out: string[] = []
+  const repoRoot = resolvePath(catalogRoot());
+  const out: string[] = [];
   for (const path of paths) {
-    const rel = relative(repoRoot, resolvePath(path))
-    if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) continue
-    out.push(rel)
+    const rel = relative(repoRoot, resolvePath(path));
+    if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) continue;
+    out.push(rel);
   }
-  return out
+  return out;
 }
 
 function git(args: string[]): { code: number; stdout: string; stderr: string } {
-  const result = Bun.spawnSync(["git", "-C", catalogRoot(), ...args], { stdout: "pipe", stderr: "pipe" })
+  const result = Bun.spawnSync(["git", "-C", catalogRoot(), ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   return {
     code: result.exitCode,
     stdout: result.stdout.toString(),
     stderr: result.stderr.toString(),
-  }
+  };
 }
 
 /**
@@ -54,30 +57,39 @@ function git(args: string[]): { code: number; stdout: string; stderr: string } {
  * 戻り値が空文字なのは「何も commit しなかった」場合（自動 commit 無効、
  * リポジトリ外のパスだけ、git 管理下でない、差分なし）で、いずれも異常ではない。
  */
-export function commitRepoChanges(message: string, paths: Iterable<string>): string {
-  if (process.env.MY_SKILLS_AUTO_COMMIT === "0") return ""
-  const relativePaths = repoRelativePaths(paths)
-  if (relativePaths.length === 0) return ""
+export function commitRepoChanges(
+  message: string,
+  paths: Iterable<string>
+): string {
+  if (process.env.MY_SKILLS_AUTO_COMMIT === "0") return "";
+  const relativePaths = repoRelativePaths(paths);
+  if (relativePaths.length === 0) return "";
 
   try {
-    const inside = git(["rev-parse", "--is-inside-work-tree"])
-    if (inside.code !== 0) return " / git commit 失敗（手動でcommitしてください）"
-    if (inside.stdout.trim() !== "true") return ""
+    const inside = git(["rev-parse", "--is-inside-work-tree"]);
+    if (inside.code !== 0)
+      return " / git commit 失敗（手動でcommitしてください）";
+    if (inside.stdout.trim() !== "true") return "";
 
-    const added = git(["add", "--", ...relativePaths])
-    if (added.code !== 0) return " / git commit 失敗（手動でcommitしてください）"
+    const added = git(["add", "--", ...relativePaths]);
+    if (added.code !== 0)
+      return " / git commit 失敗（手動でcommitしてください）";
 
     // `diff --cached --quiet` は差分が無いとき 0。stage されていなければ commit しない。
-    if (git(["diff", "--cached", "--quiet"]).code === 0) return ""
+    if (git(["diff", "--cached", "--quiet"]).code === 0) return "";
 
-    const commit = git(["commit", "-m", message])
+    const commit = git(["commit", "-m", message]);
     if (commit.code !== 0) {
-      const detail = (commit.stderr || commit.stdout || "").trim().split("\n").filter(Boolean)
-      const hint = detail.length > 0 ? detail[detail.length - 1] : "unknown git error"
-      return ` / git commit 失敗（${hint}）`
+      const detail = (commit.stderr || commit.stdout || "")
+        .trim()
+        .split("\n")
+        .filter(Boolean);
+      const hint =
+        detail.length > 0 ? detail[detail.length - 1] : "unknown git error";
+      return ` / git commit 失敗（${hint}）`;
     }
-    return " / git commit 済み"
+    return " / git commit 済み";
   } catch {
-    return " / git commit 失敗（手動でcommitしてください）"
+    return " / git commit 失敗（手動でcommitしてください）";
   }
 }

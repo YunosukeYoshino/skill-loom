@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useNavigate } from "@tanstack/react-router"
-import { ApiError, api } from "@/api/client"
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { ApiError, api } from "@/api/client";
 import type {
   CustomUpdatable,
   ExternalSourceDetailPayload,
@@ -10,12 +10,28 @@ import type {
   PresetSummary,
   SkillRow,
   Tristate,
-} from "@shared/api-types"
-import { CheckboxList, ExternalImportForm, SearchField, TristateList } from "@/components/lists"
-import { ActionStatus, BusyRegion, Button, Masthead, Message, Nav, PageError, PageLoading, Shell, pendingLabel } from "@/components/ui"
+} from "@shared/api-types";
+import {
+  CheckboxList,
+  ExternalImportForm,
+  SearchField,
+  TristateList,
+} from "@/components/lists";
+import {
+  ActionStatus,
+  BusyRegion,
+  Button,
+  Masthead,
+  Message,
+  Nav,
+  PageError,
+  PageLoading,
+  Shell,
+  pendingLabel,
+} from "@/components/ui";
 
 function errMessage(err: unknown): string | undefined {
-  return err instanceof Error ? err.message : undefined
+  return err instanceof Error ? err.message : undefined;
 }
 
 function useOgp(source: string) {
@@ -24,26 +40,32 @@ function useOgp(source: string) {
     queryFn: () => api.ogp(source),
     staleTime: 60 * 60 * 1000,
     retry: false,
-  })
+  });
 }
 
-type ViewMode = "grid" | "list"
+type ViewMode = "grid" | "list";
 
-const VIEW_MODE_STORAGE_KEY = "external-sources-view-mode"
+const VIEW_MODE_STORAGE_KEY = "external-sources-view-mode";
 
 function readViewMode(): ViewMode {
   try {
-    const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY)
-    if (stored === "grid" || stored === "list") return stored
+    const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    if (stored === "grid" || stored === "list") return stored;
   } catch {
     /* ignore */
   }
-  return "grid"
+  return "grid";
 }
 
-function ViewModeToggle({ value, onChange }: { value: ViewMode; onChange: (mode: ViewMode) => void }) {
+function ViewModeToggle({
+  value,
+  onChange,
+}: {
+  value: ViewMode;
+  onChange: (mode: ViewMode) => void;
+}) {
   const item = (mode: ViewMode, label: string, icon: ReactNode) => {
-    const active = value === mode
+    const active = value === mode;
     return (
       <button
         type="button"
@@ -60,8 +82,8 @@ function ViewModeToggle({ value, onChange }: { value: ViewMode; onChange: (mode:
         {icon}
         <span>{label}</span>
       </button>
-    )
-  }
+    );
+  };
 
   return (
     <div
@@ -72,31 +94,105 @@ function ViewModeToggle({ value, onChange }: { value: ViewMode; onChange: (mode:
       {item(
         "grid",
         "グリッド",
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-          <rect x="1" y="1" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-          <rect x="8.5" y="1" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-          <rect x="1" y="8.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-          <rect x="8.5" y="8.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-        </svg>,
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          fill="none"
+          aria-hidden="true"
+        >
+          <rect
+            x="1"
+            y="1"
+            width="4.5"
+            height="4.5"
+            rx="1"
+            stroke="currentColor"
+            strokeWidth="1.2"
+          />
+          <rect
+            x="8.5"
+            y="1"
+            width="4.5"
+            height="4.5"
+            rx="1"
+            stroke="currentColor"
+            strokeWidth="1.2"
+          />
+          <rect
+            x="1"
+            y="8.5"
+            width="4.5"
+            height="4.5"
+            rx="1"
+            stroke="currentColor"
+            strokeWidth="1.2"
+          />
+          <rect
+            x="8.5"
+            y="8.5"
+            width="4.5"
+            height="4.5"
+            rx="1"
+            stroke="currentColor"
+            strokeWidth="1.2"
+          />
+        </svg>
       )}
       {item(
         "list",
         "リスト",
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-          <rect x="1" y="2" width="12" height="2.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-          <rect x="1" y="6.75" width="12" height="2.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-          <rect x="1" y="11.5" width="12" height="2.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-        </svg>,
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          fill="none"
+          aria-hidden="true"
+        >
+          <rect
+            x="1"
+            y="2"
+            width="12"
+            height="2.5"
+            rx="1"
+            stroke="currentColor"
+            strokeWidth="1.2"
+          />
+          <rect
+            x="1"
+            y="6.75"
+            width="12"
+            height="2.5"
+            rx="1"
+            stroke="currentColor"
+            strokeWidth="1.2"
+          />
+          <rect
+            x="1"
+            y="11.5"
+            width="12"
+            height="2.5"
+            rx="1"
+            stroke="currentColor"
+            strokeWidth="1.2"
+          />
+        </svg>
       )}
     </div>
-  )
+  );
 }
 
-function OgpPreview({ source, variant = "list" }: { source: string; variant?: ViewMode }) {
-  const q = useOgp(source)
+function OgpPreview({
+  source,
+  variant = "list",
+}: {
+  source: string;
+  variant?: ViewMode;
+}) {
+  const q = useOgp(source);
 
   if (variant === "list") {
-    if (!q.data?.image) return null
+    if (!q.data?.image) return null;
     return (
       <img
         src={q.data.image}
@@ -104,10 +200,10 @@ function OgpPreview({ source, variant = "list" }: { source: string; variant?: Vi
         loading="lazy"
         className="h-16 w-28 flex-none rounded-[var(--radius-sm)] border border-[var(--color-rule)] object-cover"
         onError={(e) => {
-          e.currentTarget.style.display = "none"
+          e.currentTarget.style.display = "none";
         }}
       />
-    )
+    );
   }
 
   return (
@@ -119,22 +215,30 @@ function OgpPreview({ source, variant = "list" }: { source: string; variant?: Vi
           loading="lazy"
           className="h-full w-full object-cover"
           onError={(e) => {
-            e.currentTarget.style.display = "none"
+            e.currentTarget.style.display = "none";
           }}
         />
       ) : null}
     </div>
-  )
+  );
 }
 
 function ExternalSourceMeta({
   src,
 }: {
-  src: { source: string; owner: string; repo: string; skills: { length: number }; statusLabel: string }
+  src: {
+    source: string;
+    owner: string;
+    repo: string;
+    skills: { length: number };
+    statusLabel: string;
+  };
 }) {
   return (
     <>
-      <h2 className="m-0 mb-1.5 text-base font-semibold text-[var(--color-ink)]">{src.source}</h2>
+      <h2 className="m-0 mb-1.5 text-base font-semibold text-[var(--color-ink)]">
+        {src.source}
+      </h2>
       <div className="flex flex-wrap gap-3 font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink-2)]">
         <span>author {src.owner}</span>
         <span>repo {src.repo}</span>
@@ -142,12 +246,12 @@ function ExternalSourceMeta({
         {src.statusLabel ? <span>{src.statusLabel}</span> : null}
       </div>
     </>
-  )
+  );
 }
 
 function OgpBanner({ source }: { source: string }) {
-  const q = useOgp(source)
-  if (!q.data || (!q.data.image && !q.data.description)) return null
+  const q = useOgp(source);
+  if (!q.data || (!q.data.image && !q.data.description)) return null;
   return (
     <div className="mb-3 flex gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
       {q.data.image ? (
@@ -157,24 +261,30 @@ function OgpBanner({ source }: { source: string }) {
           loading="lazy"
           className="h-20 w-36 flex-none rounded-[var(--radius-sm)] border border-[var(--color-rule)] object-cover"
           onError={(e) => {
-            e.currentTarget.style.display = "none"
+            e.currentTarget.style.display = "none";
           }}
         />
       ) : null}
       <div className="min-w-0">
-        <p className="m-0 mb-1 text-sm font-semibold text-[var(--color-ink)]">{q.data.title || source}</p>
-        {q.data.description ? <p className="m-0 text-xs text-[var(--color-ink-2)]">{q.data.description}</p> : null}
+        <p className="m-0 mb-1 text-sm font-semibold text-[var(--color-ink)]">
+          {q.data.title || source}
+        </p>
+        {q.data.description ? (
+          <p className="m-0 text-xs text-[var(--color-ink-2)]">
+            {q.data.description}
+          </p>
+        ) : null}
       </div>
     </div>
-  )
+  );
 }
 
 function applyErrorBody<T>(err: unknown, set: (body: T) => void) {
   if (err instanceof ApiError && err.body && typeof err.body === "object") {
-    const body = err.body as T & { page?: unknown; decks?: unknown }
+    const body = err.body as T & { page?: unknown; decks?: unknown };
     // FastAPI 既定の {detail} など不完全なエラー体でキャッシュを壊さない
-    if (body.page == null && !Array.isArray(body.decks)) return
-    set(err.body as T)
+    if (body.page == null && !Array.isArray(body.decks)) return;
+    set(err.body as T);
   }
 }
 
@@ -184,26 +294,37 @@ function CustomUpdatesPanel({
   onUpdateOne,
   onUpdateAll,
 }: {
-  items: CustomUpdatable[]
-  busy?: boolean
-  onUpdateOne: (name: string) => void
-  onUpdateAll: () => void
+  items: CustomUpdatable[];
+  busy?: boolean;
+  onUpdateOne: (name: string) => void;
+  onUpdateAll: () => void;
 }) {
-  if (!items.length) return null
+  if (!items.length) return null;
   return (
     <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 className="m-0 text-sm font-semibold">正本が新しい ({items.length})</h2>
+        <h2 className="m-0 text-sm font-semibold">
+          正本が新しい ({items.length})
+        </h2>
         <Button variant="primary" disabled={busy} onClick={onUpdateAll}>
-          {pendingLabel(!!busy, `更新があるものをすべてupdate (${items.length})`, "更新中…")}
+          {pendingLabel(
+            !!busy,
+            `更新があるものをすべてupdate (${items.length})`,
+            "更新中…"
+          )}
         </Button>
       </div>
       <div className="grid gap-3">
         {items.map((item) => (
-          <details key={item.name} className="rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-3">
+          <details
+            key={item.name}
+            className="rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-3"
+          >
             <summary className="cursor-pointer list-none">
               <div className="flex flex-wrap items-center gap-2">
-                <code className="font-[family-name:var(--font-mono)] text-sm font-medium">{item.name}</code>
+                <code className="font-[family-name:var(--font-mono)] text-sm font-medium">
+                  {item.name}
+                </code>
                 <span className="rounded px-1.5 py-0.5 text-[11px] bg-[var(--color-warn-soft)] text-[var(--color-warn)]">
                   正本が新しい
                 </span>
@@ -213,8 +334,8 @@ function CustomUpdatesPanel({
                 <Button
                   disabled={busy}
                   onClick={(e) => {
-                    e.preventDefault()
-                    onUpdateOne(item.name)
+                    e.preventDefault();
+                    onUpdateOne(item.name);
                   }}
                 >
                   {pendingLabel(!!busy, "個別update", "更新中…")}
@@ -227,7 +348,9 @@ function CustomUpdatesPanel({
                   {item.skillDiff}
                 </pre>
               ) : (
-                <p className="m-0 text-xs text-[var(--color-ink-2)]">SKILL.md は一致。他ファイルに差分があります。</p>
+                <p className="m-0 text-xs text-[var(--color-ink-2)]">
+                  SKILL.md は一致。他ファイルに差分があります。
+                </p>
               )}
               {item.otherChangedFiles.length ? (
                 <p className="m-0 font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink-2)]">
@@ -239,11 +362,16 @@ function CustomUpdatesPanel({
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 function PresetPreviewPanel({ preview }: { preview: PresetPreview }) {
-  const delta = preview.preview || { active: [], off: [], install: [], unresolved: [] }
+  const delta = preview.preview || {
+    active: [],
+    off: [],
+    install: [],
+    unresolved: [],
+  };
   const rows = [
     { label: "active になる", items: delta.active || [] },
     { label: "off になる", items: delta.off || [] },
@@ -252,10 +380,12 @@ function PresetPreviewPanel({ preview }: { preview: PresetPreview }) {
       label: preview.name === "_last" ? "復元スキップ" : "unresolved",
       items: delta.unresolved || [],
     },
-  ].filter((row) => row.items.length > 0)
+  ].filter((row) => row.items.length > 0);
 
   if (!rows.length) {
-    return <p className="m-0 text-sm text-[var(--color-ink-2)]">変更はありません</p>
+    return (
+      <p className="m-0 text-sm text-[var(--color-ink-2)]">変更はありません</p>
+    );
   }
 
   return (
@@ -271,7 +401,7 @@ function PresetPreviewPanel({ preview }: { preview: PresetPreview }) {
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 function PresetsPanel({
@@ -288,78 +418,81 @@ function PresetsPanel({
   onDelete,
   onCancelPreview,
 }: {
-  presets: PresetSummary[]
-  hasPrevious: boolean
-  busy?: boolean
-  preview: PresetPreview | null
-  onApplyRequest: (name: string) => void
-  onApplyConfirm: () => void
-  onRestoreRequest: () => void
-  onRestoreConfirm: () => void
-  onOverwriteSave: (name: string) => void
-  onSaveAsNew: (name: string) => void
-  onDelete: (name: string) => void
-  onCancelPreview: () => void
+  presets: PresetSummary[];
+  hasPrevious: boolean;
+  busy?: boolean;
+  preview: PresetPreview | null;
+  onApplyRequest: (name: string) => void;
+  onApplyConfirm: () => void;
+  onRestoreRequest: () => void;
+  onRestoreConfirm: () => void;
+  onOverwriteSave: (name: string) => void;
+  onSaveAsNew: (name: string) => void;
+  onDelete: (name: string) => void;
+  onCancelPreview: () => void;
 }) {
-  const [selected, setSelected] = useState(presets[0]?.name || "")
-  const [newPresetName, setNewPresetName] = useState("")
-  const [savingAsNew, setSavingAsNew] = useState(false)
-  const [saveMenuOpen, setSaveMenuOpen] = useState(false)
-  const newPresetInputRef = useRef<HTMLInputElement>(null)
-  const saveMenuRef = useRef<HTMLDivElement>(null)
+  const [selected, setSelected] = useState(presets[0]?.name || "");
+  const [newPresetName, setNewPresetName] = useState("");
+  const [savingAsNew, setSavingAsNew] = useState(false);
+  const [saveMenuOpen, setSaveMenuOpen] = useState(false);
+  const newPresetInputRef = useRef<HTMLInputElement>(null);
+  const saveMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (presets.length && !presets.some((preset) => preset.name === selected)) {
-      setSelected(presets[0]?.name || "")
+      setSelected(presets[0]?.name || "");
     }
-  }, [presets, selected])
+  }, [presets, selected]);
 
   useEffect(() => {
-    if (!savingAsNew) return
-    newPresetInputRef.current?.focus()
-  }, [savingAsNew])
+    if (!savingAsNew) return;
+    newPresetInputRef.current?.focus();
+  }, [savingAsNew]);
 
   useEffect(() => {
-    if (!saveMenuOpen) return
+    if (!saveMenuOpen) return;
     const onPointerDown = (event: MouseEvent) => {
-      if (!saveMenuRef.current?.contains(event.target as Node)) setSaveMenuOpen(false)
-    }
+      if (!saveMenuRef.current?.contains(event.target as Node))
+        setSaveMenuOpen(false);
+    };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSaveMenuOpen(false)
-    }
-    document.addEventListener("mousedown", onPointerDown)
-    document.addEventListener("keydown", onKeyDown)
+      if (event.key === "Escape") setSaveMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
     return () => {
-      document.removeEventListener("mousedown", onPointerDown)
-      document.removeEventListener("keydown", onKeyDown)
-    }
-  }, [saveMenuOpen])
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [saveMenuOpen]);
 
   const closeSaveAsNew = () => {
-    setSavingAsNew(false)
-    setNewPresetName("")
-  }
+    setSavingAsNew(false);
+    setNewPresetName("");
+  };
 
   const openSaveAsNew = () => {
-    setSaveMenuOpen(false)
-    setSavingAsNew(true)
-  }
+    setSaveMenuOpen(false);
+    setSavingAsNew(true);
+  };
 
   const saveAsNew = () => {
-    const name = newPresetName.trim()
-    if (!name) return
-    onSaveAsNew(name)
-    setSelected(name)
-    closeSaveAsNew()
-  }
+    const name = newPresetName.trim();
+    if (!name) return;
+    onSaveAsNew(name);
+    setSelected(name);
+    closeSaveAsNew();
+  };
 
-  const canUseSelected = Boolean(selected) && !busy && !preview
+  const canUseSelected = Boolean(selected) && !busy && !preview;
   const menuItemClass =
-    "block w-full cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-sm transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
+    "block w-full cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-sm transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45";
 
   return (
     <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
-      <div className={`flex flex-wrap items-center gap-2${savingAsNew ? " mb-3" : ""}`}>
+      <div
+        className={`flex flex-wrap items-center gap-2${savingAsNew ? " mb-3" : ""}`}
+      >
         <h2 className="m-0 text-sm font-semibold">プリセット</h2>
         <select
           value={selected}
@@ -392,7 +525,10 @@ function PresetsPanel({
             onClick={() => setSaveMenuOpen((open) => !open)}
           >
             保存
-            <span className="ml-1 text-[10px] text-[var(--color-ink-2)]" aria-hidden>
+            <span
+              className="ml-1 text-[10px] text-[var(--color-ink-2)]"
+              aria-hidden
+            >
               ▾
             </span>
           </Button>
@@ -407,8 +543,8 @@ function PresetsPanel({
                 className={menuItemClass}
                 disabled={!canUseSelected}
                 onClick={() => {
-                  setSaveMenuOpen(false)
-                  onOverwriteSave(selected)
+                  setSaveMenuOpen(false);
+                  onOverwriteSave(selected);
                 }}
               >
                 上書き保存
@@ -434,7 +570,8 @@ function PresetsPanel({
           type="button"
           disabled={!canUseSelected}
           onClick={() => {
-            if (confirm(`プリセット "${selected}" を削除しますか？`)) onDelete(selected)
+            if (confirm(`プリセット "${selected}" を削除しますか？`))
+              onDelete(selected);
           }}
           className="ml-auto cursor-pointer rounded-[var(--radius-sm)] px-2 py-1.5 text-sm text-[var(--color-ink-2)] transition-[transform,color,background] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
         >
@@ -443,7 +580,10 @@ function PresetsPanel({
       </div>
       {savingAsNew ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-rule)] pt-3">
-          <label htmlFor="new-preset-name" className="text-sm text-[var(--color-ink-2)]">
+          <label
+            htmlFor="new-preset-name"
+            className="text-sm text-[var(--color-ink-2)]"
+          >
             新しいプリセット名
           </label>
           <input
@@ -453,8 +593,8 @@ function PresetsPanel({
             value={newPresetName}
             onChange={(e) => setNewPresetName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") saveAsNew()
-              if (e.key === "Escape") closeSaveAsNew()
+              if (e.key === "Enter") saveAsNew();
+              if (e.key === "Escape") closeSaveAsNew();
             }}
             disabled={busy || !!preview}
             placeholder="新しいプリセット名"
@@ -462,7 +602,11 @@ function PresetsPanel({
             spellCheck={false}
             className="min-w-[200px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
           />
-          <Button variant="primary" disabled={busy || !newPresetName.trim() || !!preview} onClick={saveAsNew}>
+          <Button
+            variant="primary"
+            disabled={busy || !newPresetName.trim() || !!preview}
+            onClick={saveAsNew}
+          >
             {pendingLabel(!!busy, "保存", "処理中…")}
           </Button>
           <Button disabled={busy} onClick={closeSaveAsNew}>
@@ -473,11 +617,20 @@ function PresetsPanel({
       {preview ? (
         <div className="rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-3">
           <p className="m-0 mb-2 text-sm font-semibold">
-            {preview.name === "_last" ? "直前の active 構成" : `プリセット "${preview.name}"`} を適用
+            {preview.name === "_last"
+              ? "直前の active 構成"
+              : `プリセット "${preview.name}"`}{" "}
+            を適用
           </p>
           <PresetPreviewPanel preview={preview} />
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="primary" disabled={busy || preview.blocked} onClick={preview.name === "_last" ? onRestoreConfirm : onApplyConfirm}>
+            <Button
+              variant="primary"
+              disabled={busy || preview.blocked}
+              onClick={
+                preview.name === "_last" ? onRestoreConfirm : onApplyConfirm
+              }
+            >
               {pendingLabel(!!busy, "実行", "処理中…")}
             </Button>
             <Button disabled={busy} onClick={onCancelPreview}>
@@ -487,132 +640,158 @@ function PresetsPanel({
         </div>
       ) : null}
     </div>
-  )
+  );
 }
 
 export function GlobalPage({ catalog }: { catalog: boolean }) {
-  const qc = useQueryClient()
-  const navigate = useNavigate()
-  const q = useQuery({ queryKey: ["global", catalog], queryFn: () => api.global(catalog) })
-  const [presetPreview, setPresetPreview] = useState<PresetPreview | null>(null)
-  const [pendingPresetName, setPendingPresetName] = useState("")
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const q = useQuery({
+    queryKey: ["global", catalog],
+    queryFn: () => api.global(catalog),
+  });
+  const [presetPreview, setPresetPreview] = useState<PresetPreview | null>(
+    null
+  );
+  const [pendingPresetName, setPendingPresetName] = useState("");
 
   const apply = useMutation({
     mutationFn: (states: Record<string, Tristate>) => api.apply(states),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) => applyErrorBody(err, (body) => qc.setQueryData(["global", catalog], body)),
-  })
+    onError: (err) =>
+      applyErrorBody(err, (body) => qc.setQueryData(["global", catalog], body)),
+  });
 
   const bulkOff = useMutation({
     mutationFn: () => api.bulkOff(),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) => applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
-  })
+    onError: (err) =>
+      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+  });
 
   const checkCustom = useMutation({
     mutationFn: () => api.checkCustomUpdates(),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) => applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
-  })
+    onError: (err) =>
+      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+  });
 
   const updateCustomOne = useMutation({
     mutationFn: (skill: string) => api.updateCustomSkill(skill),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) => applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
-  })
+    onError: (err) =>
+      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+  });
 
   const updateCustomAll = useMutation({
     mutationFn: () => api.updateAllCustomSkills(),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) => applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
-  })
+    onError: (err) =>
+      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+  });
 
   const externalPreview = useMutation({
     mutationFn: (source: string) => api.previewExternal(source, ""),
     onSuccess: (data) => {
-      qc.setQueryData(["external-preview", "", data.source], data)
-      navigate({ to: "/external-preview", search: { source: data.source, deck: "" } })
+      qc.setQueryData(["external-preview", "", data.source], data);
+      navigate({
+        to: "/external-preview",
+        search: { source: data.source, deck: "" },
+      });
     },
-  })
+  });
 
   const presetApplyPreview = useMutation({
     mutationFn: (name: string) => api.applyPreset(name, false),
     onSuccess: (data) => {
       if (data.presetPreview) {
-        setPresetPreview(data.presetPreview)
-        setPendingPresetName(data.presetPreview.name)
+        setPresetPreview(data.presetPreview);
+        setPendingPresetName(data.presetPreview.name);
       }
     },
-    onError: (err) => applyErrorBody(err, (body) => {
-      qc.setQueryData(["global", false], body)
-      if (body && typeof body === "object" && "presetPreview" in body) {
-        setPresetPreview((body as { presetPreview?: PresetPreview }).presetPreview || null)
-      }
-    }),
-  })
+    onError: (err) =>
+      applyErrorBody(err, (body) => {
+        qc.setQueryData(["global", false], body);
+        if (body && typeof body === "object" && "presetPreview" in body) {
+          setPresetPreview(
+            (body as { presetPreview?: PresetPreview }).presetPreview || null
+          );
+        }
+      }),
+  });
 
   const presetApplyConfirm = useMutation({
     mutationFn: (name: string) => api.applyPreset(name, true),
     onSuccess: (data) => {
-      setPresetPreview(null)
-      setPendingPresetName("")
-      qc.setQueryData(["global", false], data)
+      setPresetPreview(null);
+      setPendingPresetName("");
+      qc.setQueryData(["global", false], data);
     },
-    onError: (err) => applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
-  })
+    onError: (err) =>
+      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+  });
 
   const presetRestorePreview = useMutation({
     mutationFn: () => api.restorePreset(false),
     onSuccess: (data) => {
       if (data.presetPreview) {
-        setPresetPreview({ ...data.presetPreview, name: "_last" })
+        setPresetPreview({ ...data.presetPreview, name: "_last" });
       }
     },
-    onError: (err) => applyErrorBody(err, (body) => {
-      qc.setQueryData(["global", false], body)
-      if (body && typeof body === "object" && "presetPreview" in body) {
-        setPresetPreview({ ...(body as { presetPreview: PresetPreview }).presetPreview, name: "_last" })
-      }
-    }),
-  })
+    onError: (err) =>
+      applyErrorBody(err, (body) => {
+        qc.setQueryData(["global", false], body);
+        if (body && typeof body === "object" && "presetPreview" in body) {
+          setPresetPreview({
+            ...(body as { presetPreview: PresetPreview }).presetPreview,
+            name: "_last",
+          });
+        }
+      }),
+  });
 
   const presetRestoreConfirm = useMutation({
     mutationFn: () => api.restorePreset(true),
     onSuccess: (data) => {
-      setPresetPreview(null)
-      qc.setQueryData(["global", false], data)
+      setPresetPreview(null);
+      qc.setQueryData(["global", false], data);
     },
-    onError: (err) => applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
-  })
+    onError: (err) =>
+      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+  });
 
   const presetSave = useMutation({
-    mutationFn: ({ name, overwrite }: { name: string; overwrite: boolean }) => api.savePreset(name, overwrite),
+    mutationFn: ({ name, overwrite }: { name: string; overwrite: boolean }) =>
+      api.savePreset(name, overwrite),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) => applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
-  })
+    onError: (err) =>
+      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+  });
 
   const presetDelete = useMutation({
     mutationFn: (name: string) => api.deletePreset(name),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) => applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
-  })
+    onError: (err) =>
+      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+  });
 
-  if (q.isPending) return <PageLoading variant="list" withCounts />
+  if (q.isPending) return <PageLoading variant="list" withCounts />;
   if (q.isError) {
-    return <PageError current="global" message={(q.error as Error).message} />
+    return <PageError current="global" message={(q.error as Error).message} />;
   }
-  const data = q.data
-  const customCheckBusy = checkCustom.isPending
-  const customUpdateBusy = updateCustomOne.isPending || updateCustomAll.isPending
-  const customBusy = customCheckBusy || customUpdateBusy
+  const data = q.data;
+  const customCheckBusy = checkCustom.isPending;
+  const customUpdateBusy =
+    updateCustomOne.isPending || updateCustomAll.isPending;
+  const customBusy = customCheckBusy || customUpdateBusy;
   const presetBusy =
     presetApplyPreview.isPending ||
     presetApplyConfirm.isPending ||
     presetRestorePreview.isPending ||
     presetRestoreConfirm.isPending ||
     presetSave.isPending ||
-    presetDelete.isPending
-  const listBusy = apply.isPending || bulkOff.isPending || presetBusy
+    presetDelete.isPending;
+  const listBusy = apply.isPending || bulkOff.isPending || presetBusy;
 
   return (
     <Shell>
@@ -654,15 +833,25 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
       />
       <div className="mb-3 flex flex-wrap gap-2">
         {catalog ? (
-          <Link to="/global" className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm">
+          <Link
+            to="/global"
+            className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm"
+          >
             globalに戻る
           </Link>
         ) : (
           <>
-            <Link to="/global" search={{ catalog: true }} className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm">
+            <Link
+              to="/global"
+              search={{ catalog: true }}
+              className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm"
+            >
               skillsを追加
             </Link>
-            <Button disabled={customBusy || listBusy} onClick={() => checkCustom.mutate()}>
+            <Button
+              disabled={customBusy || listBusy}
+              onClick={() => checkCustom.mutate()}
+            >
               {pendingLabel(customCheckBusy, "更新を確認", "確認中…")}
             </Button>
           </>
@@ -683,20 +872,27 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
           busy={listBusy}
           preview={presetPreview}
           onApplyRequest={(name) => presetApplyPreview.mutate(name)}
-          onApplyConfirm={() => pendingPresetName && presetApplyConfirm.mutate(pendingPresetName)}
+          onApplyConfirm={() =>
+            pendingPresetName && presetApplyConfirm.mutate(pendingPresetName)
+          }
           onRestoreRequest={() => presetRestorePreview.mutate()}
           onRestoreConfirm={() => presetRestoreConfirm.mutate()}
-          onOverwriteSave={(name) => presetSave.mutate({ name, overwrite: true })}
+          onOverwriteSave={(name) =>
+            presetSave.mutate({ name, overwrite: true })
+          }
           onSaveAsNew={(name) => presetSave.mutate({ name, overwrite: false })}
           onDelete={(name) => presetDelete.mutate(name)}
           onCancelPreview={() => {
-            setPresetPreview(null)
-            setPendingPresetName("")
+            setPresetPreview(null);
+            setPendingPresetName("");
           }}
         />
       ) : null}
       {catalog ? (
-        <ExternalImportForm onPreview={(s) => externalPreview.mutate(s)} busy={externalPreview.isPending} />
+        <ExternalImportForm
+          onPreview={(s) => externalPreview.mutate(s)}
+          busy={externalPreview.isPending}
+        />
       ) : (
         <TristateList
           rows={data.rows || []}
@@ -708,60 +904,85 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
         />
       )}
     </Shell>
-  )
+  );
 }
 
-export function ExternalPreviewPage({ source, deck }: { source: string; deck: string }) {
-  const qc = useQueryClient()
-  const navigate = useNavigate()
-  const cached = qc.getQueryData(["external-preview", deck, source])
+export function ExternalPreviewPage({
+  source,
+  deck,
+}: {
+  source: string;
+  deck: string;
+}) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const cached = qc.getQueryData(["external-preview", deck, source]);
 
   const q = useQuery({
     queryKey: ["external-preview", deck, source],
     queryFn: () => api.previewExternal(source, deck),
     enabled: !!source,
-    initialData: cached as Awaited<ReturnType<typeof api.previewExternal>> | undefined,
-  })
+    initialData: cached as
+      | Awaited<ReturnType<typeof api.previewExternal>>
+      | undefined,
+  });
 
   const install = useMutation({
     mutationFn: (skills: string[]) => api.installExternal(source, skills, deck),
     onSuccess: (data) => {
       if (deck) {
-        qc.setQueryData(["project-deck", deck, true], data)
-        navigate({ to: "/project-decks/$deckName", params: { deckName: deck }, search: { catalog: true } })
+        qc.setQueryData(["project-deck", deck, true], data);
+        navigate({
+          to: "/project-decks/$deckName",
+          params: { deckName: deck },
+          search: { catalog: true },
+        });
       } else {
-        qc.setQueryData(["global", true], data)
-        navigate({ to: "/global", search: { catalog: true } })
+        qc.setQueryData(["global", true], data);
+        navigate({ to: "/global", search: { catalog: true } });
       }
     },
-  })
+  });
 
   const addDeck = useMutation({
     mutationFn: (skills: string[]) => api.addToDeck(source, skills, deck),
     onSuccess: (data) => {
-      qc.setQueryData(["project-deck", deck, true], data)
-      navigate({ to: "/project-decks/$deckName", params: { deckName: deck }, search: { catalog: true } })
+      qc.setQueryData(["project-deck", deck, true], data);
+      navigate({
+        to: "/project-decks/$deckName",
+        params: { deckName: deck },
+        search: { catalog: true },
+      });
     },
-  })
+  });
 
-  if (!source) return <Shell><p>source がありません</p></Shell>
-  if (q.isPending) return <PageLoading variant="list" />
+  if (!source)
+    return (
+      <Shell>
+        <p>source がありません</p>
+      </Shell>
+    );
+  if (q.isPending) return <PageLoading variant="list" />;
   if (q.isError) {
     return (
       <PageError
         current={deck ? `project:${deck}` : "global"}
         message={(q.error as Error).message}
       />
-    )
+    );
   }
-  const data = q.data
-  const previewBusy = install.isPending || addDeck.isPending
+  const data = q.data;
+  const previewBusy = install.isPending || addDeck.isPending;
 
   return (
     <Shell>
       <Masthead title={data.title} />
       <Nav current={deck ? `project:${deck}` : "global"} decks={data.decks} />
-      <Message text={data.message || errMessage(install.error) || errMessage(addDeck.error)} />
+      <Message
+        text={
+          data.message || errMessage(install.error) || errMessage(addDeck.error)
+        }
+      />
       <ActionStatus
         text={previewBusy ? "選択したスキルを追加しています…" : undefined}
       />
@@ -776,7 +997,11 @@ export function ExternalPreviewPage({ source, deck }: { source: string; deck: st
             catalogに戻る
           </Link>
         ) : (
-          <Link to="/global" search={{ catalog: true }} className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm">
+          <Link
+            to="/global"
+            search={{ catalog: true }}
+            className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm"
+          >
             globalに戻る
           </Link>
         )}
@@ -787,14 +1012,27 @@ export function ExternalPreviewPage({ source, deck }: { source: string; deck: st
         actions={
           deck
             ? [
-                { label: "deckにだけ追加", onClick: (skills) => addDeck.mutate(skills) },
-                { label: "installして追加", primary: true, onClick: (skills) => install.mutate(skills) },
+                {
+                  label: "deckにだけ追加",
+                  onClick: (skills) => addDeck.mutate(skills),
+                },
+                {
+                  label: "installして追加",
+                  primary: true,
+                  onClick: (skills) => install.mutate(skills),
+                },
               ]
-            : [{ label: "installしてglobalに追加", primary: true, onClick: (skills) => install.mutate(skills) }]
+            : [
+                {
+                  label: "installしてglobalに追加",
+                  primary: true,
+                  onClick: (skills) => install.mutate(skills),
+                },
+              ]
         }
       />
     </Shell>
-  )
+  );
 }
 
 function SelectableSkills({
@@ -803,31 +1041,40 @@ function SelectableSkills({
   busy,
   presetChecked = false,
 }: {
-  rows: SkillRow[]
-  actions: { label: string; primary?: boolean; onClick: (skills: string[]) => void }[]
-  busy?: boolean
-  presetChecked?: boolean
+  rows: SkillRow[];
+  actions: {
+    label: string;
+    primary?: boolean;
+    onClick: (skills: string[]) => void;
+  }[];
+  busy?: boolean;
+  presetChecked?: boolean;
 }) {
-  const [selected, setSelected] = useState<string[]>([])
-  const [filter, setFilter] = useState("")
+  const [selected, setSelected] = useState<string[]>([]);
+  const [filter, setFilter] = useState("");
 
   useEffect(() => {
-    setSelected(presetChecked ? rows.filter((r) => r.checked).map((r) => r.name) : [])
-  }, [rows, presetChecked])
+    setSelected(
+      presetChecked ? rows.filter((r) => r.checked).map((r) => r.name) : []
+    );
+  }, [rows, presetChecked]);
 
   const filtered = rows.filter((row) => {
-    const q = filter.trim().toLowerCase()
-    if (!q) return true
+    const q = filter.trim().toLowerCase();
+    if (!q) return true;
     return (
       row.name.toLowerCase().includes(q) ||
       row.category.toLowerCase().includes(q) ||
       row.description.toLowerCase().includes(q)
-    )
-  })
-  const filteredNames = filtered.map((row) => row.name)
+    );
+  });
+  const filteredNames = filtered.map((row) => row.name);
   const allFilteredSelected =
-    filteredNames.length > 0 && filteredNames.every((name) => selected.includes(name))
-  const someFilteredSelected = filteredNames.some((name) => selected.includes(name))
+    filteredNames.length > 0 &&
+    filteredNames.every((name) => selected.includes(name));
+  const someFilteredSelected = filteredNames.some((name) =>
+    selected.includes(name)
+  );
 
   return (
     <div>
@@ -836,7 +1083,9 @@ function SelectableSkills({
         <Button
           disabled={busy || filteredNames.length === 0 || allFilteredSelected}
           onClick={() =>
-            setSelected((prev) => Array.from(new Set([...prev, ...filteredNames])))
+            setSelected((prev) =>
+              Array.from(new Set([...prev, ...filteredNames]))
+            )
           }
         >
           すべて選択
@@ -844,8 +1093,8 @@ function SelectableSkills({
         <Button
           disabled={busy || !someFilteredSelected}
           onClick={() => {
-            const remove = new Set(filteredNames)
-            setSelected((prev) => prev.filter((name) => !remove.has(name)))
+            const remove = new Set(filteredNames);
+            setSelected((prev) => prev.filter((name) => !remove.has(name)));
           }}
         >
           すべて解除
@@ -864,62 +1113,85 @@ function SelectableSkills({
       {filtered.length > 0 ? (
         <div className="divide-y divide-[var(--color-rule)] rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)]">
           {filtered.map((row) => (
-            <label key={row.name} className="flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]">
+            <label
+              key={row.name}
+              className="flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]"
+            >
               <input
                 type="checkbox"
                 className="mt-1"
                 checked={selected.includes(row.name)}
                 onChange={(e) =>
                   setSelected((prev) =>
-                    e.target.checked ? [...prev, row.name] : prev.filter((n) => n !== row.name),
+                    e.target.checked
+                      ? [...prev, row.name]
+                      : prev.filter((n) => n !== row.name)
                   )
                 }
               />
               <div className="min-w-0">
-                <code className="font-[family-name:var(--font-mono)] text-sm font-medium">{row.name}</code>
-                <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">{row.description}</p>
+                <code className="font-[family-name:var(--font-mono)] text-sm font-medium">
+                  {row.name}
+                </code>
+                <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">
+                  {row.description}
+                </p>
               </div>
             </label>
           ))}
         </div>
       ) : null}
     </div>
-  )
+  );
 }
 
 export function ExternalSourcesPage() {
-  const qc = useQueryClient()
-  const [viewMode, setViewMode] = useState<ViewMode>(readViewMode)
-  const q = useQuery({ queryKey: ["external-sources"], queryFn: () => api.externalSources() })
+  const qc = useQueryClient();
+  const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
+  const q = useQuery({
+    queryKey: ["external-sources"],
+    queryFn: () => api.externalSources(),
+  });
   const checkAll = useMutation({
     mutationFn: () => api.checkAllUpdates(),
     onSuccess: (data) => qc.setQueryData(["external-sources"], data),
-  })
+  });
   const updateAll = useMutation({
     mutationFn: () => api.updateAll(),
     onSuccess: (data) => qc.setQueryData(["external-sources"], data),
-  })
+  });
 
   useEffect(() => {
     try {
-      localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode)
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
     } catch {
       /* ignore */
     }
-  }, [viewMode])
+  }, [viewMode]);
 
-  if (q.isPending) return <PageLoading variant="cards" />
+  if (q.isPending) return <PageLoading variant="cards" />;
   if (q.isError) {
-    return <PageError current="external-sources" message={(q.error as Error).message} />
+    return (
+      <PageError
+        current="external-sources"
+        message={(q.error as Error).message}
+      />
+    );
   }
-  const data = q.data
-  const sourcesBusy = checkAll.isPending || updateAll.isPending
+  const data = q.data;
+  const sourcesBusy = checkAll.isPending || updateAll.isPending;
 
   return (
     <Shell>
       <Masthead title={data.title} />
       <Nav current="external-sources" decks={data.decks} />
-      <Message text={data.message || errMessage(checkAll.error) || errMessage(updateAll.error)} />
+      <Message
+        text={
+          data.message ||
+          errMessage(checkAll.error) ||
+          errMessage(updateAll.error)
+        }
+      />
       <ActionStatus
         text={
           checkAll.isPending
@@ -934,167 +1206,187 @@ export function ExternalSourcesPage() {
           {pendingLabel(checkAll.isPending, "すべて更新を確認", "確認中…")}
         </Button>
         {data.totalUpdatable > 0 ? (
-          <Button variant="primary" onClick={() => updateAll.mutate()} disabled={sourcesBusy}>
+          <Button
+            variant="primary"
+            onClick={() => updateAll.mutate()}
+            disabled={sourcesBusy}
+          >
             {pendingLabel(
               updateAll.isPending,
               `更新があるものをすべてupdate (${data.totalUpdatable})`,
-              "更新中…",
+              "更新中…"
             )}
           </Button>
         ) : null}
         <ViewModeToggle value={viewMode} onChange={setViewMode} />
       </div>
       <BusyRegion busy={sourcesBusy}>
-      {viewMode === "grid" ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-          {data.sources.map((src) => (
-            <Link
-              key={src.source}
-              to="/external-sources/$source"
-              params={{ source: src.source }}
-              className="block overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)] transition-all duration-200 hover:-translate-y-1 hover:shadow-md"
-            >
-              <OgpPreview source={src.source} variant="grid" />
-              <div className="p-3">
-                <ExternalSourceMeta src={src} />
-              </div>
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <div className="grid gap-3">
-          {data.sources.map((src) => (
-            <Link
-              key={src.source}
-              to="/external-sources/$source"
-              params={{ source: src.source }}
-              className="flex gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 transition-colors duration-200 hover:bg-[var(--color-paper-2)]"
-            >
-              <OgpPreview source={src.source} variant="list" />
-              <div className="min-w-0 flex-1">
-                <ExternalSourceMeta src={src} />
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
+        {viewMode === "grid" ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+            {data.sources.map((src) => (
+              <Link
+                key={src.source}
+                to="/external-sources/$source"
+                params={{ source: src.source }}
+                className="block overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)] transition-all duration-200 hover:-translate-y-1 hover:shadow-md"
+              >
+                <OgpPreview source={src.source} variant="grid" />
+                <div className="p-3">
+                  <ExternalSourceMeta src={src} />
+                </div>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {data.sources.map((src) => (
+              <Link
+                key={src.source}
+                to="/external-sources/$source"
+                params={{ source: src.source }}
+                className="flex gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 transition-colors duration-200 hover:bg-[var(--color-paper-2)]"
+              >
+                <OgpPreview source={src.source} variant="list" />
+                <div className="min-w-0 flex-1">
+                  <ExternalSourceMeta src={src} />
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </BusyRegion>
     </Shell>
-  )
+  );
 }
 
 export function ExternalSourceDetailPage({ source }: { source: string }) {
-  const qc = useQueryClient()
-  const navigate = useNavigate()
-  const q = useQuery({ queryKey: ["external-source", source], queryFn: () => api.externalSource(source) })
-  const allGlobalRef = useRef<HTMLInputElement>(null)
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const q = useQuery({
+    queryKey: ["external-source", source],
+    queryFn: () => api.externalSource(source),
+  });
+  const allGlobalRef = useRef<HTMLInputElement>(null);
 
   const updateOne = useMutation({
     mutationFn: (skill: string) => api.updateSkill(skill),
     onSuccess: () => q.refetch(),
-  })
+  });
   const updateAll = useMutation({
     mutationFn: () => api.updateAll(source),
     onSuccess: (data) => {
-      if ("installed" in data) qc.setQueryData(["external-source", source], data)
+      if ("installed" in data)
+        qc.setQueryData(["external-source", source], data);
     },
-  })
+  });
   const remove = useMutation({
     mutationFn: (skill: string) => api.removeSkill(skill),
     onSuccess: async (data) => {
-      qc.setQueryData(["external-sources"], data)
+      qc.setQueryData(["external-sources"], data);
       // refetch を使うと失敗時にクエリが error 状態になり、一覧へ戻る前にエラー画面が一瞬出る。
       // 直接 API を叩いて反映することで、空になった source や失敗時も画面を飛ばさず一覧へ戻せる。
       try {
-        const detail = await api.externalSource(source)
+        const detail = await api.externalSource(source);
         if (detail.installed.length === 0) {
-          navigate({ to: "/external-sources" })
+          navigate({ to: "/external-sources" });
         } else {
-          qc.setQueryData(["external-source", source], detail)
+          qc.setQueryData(["external-source", source], detail);
         }
       } catch {
-        navigate({ to: "/external-sources" })
+        navigate({ to: "/external-sources" });
       }
     },
-  })
+  });
   const install = useMutation({
     mutationFn: (skills: string[]) => api.installExternal(source, skills, ""),
     onSuccess: () => q.refetch(),
-  })
+  });
   const applyGlobal = useMutation({
     mutationFn: (states: Record<string, Tristate>) => api.apply(states),
     onMutate: async (states) => {
-      await qc.cancelQueries({ queryKey: ["external-source", source] })
-      const prev = qc.getQueryData<ExternalSourceDetailPayload>(["external-source", source])
+      await qc.cancelQueries({ queryKey: ["external-source", source] });
+      const prev = qc.getQueryData<ExternalSourceDetailPayload>([
+        "external-source",
+        source,
+      ]);
       if (prev) {
-        qc.setQueryData<ExternalSourceDetailPayload>(["external-source", source], {
-          ...prev,
-          message: "",
-          installed: prev.installed.map((skill) =>
-            skill.name in states
-              ? {
-                  ...skill,
-                  state: states[skill.name]!,
-                  hasUpdate: states[skill.name] === "active" ? skill.hasUpdate : false,
-                }
-              : skill,
-          ),
-          updatable: prev.updatable.filter((name) => states[name] !== "off"),
-        })
+        qc.setQueryData<ExternalSourceDetailPayload>(
+          ["external-source", source],
+          {
+            ...prev,
+            message: "",
+            installed: prev.installed.map((skill) =>
+              skill.name in states
+                ? {
+                    ...skill,
+                    state: states[skill.name]!,
+                    hasUpdate:
+                      states[skill.name] === "active" ? skill.hasUpdate : false,
+                  }
+                : skill
+            ),
+            updatable: prev.updatable.filter((name) => states[name] !== "off"),
+          }
+        );
       }
-      return { prev }
+      return { prev };
     },
     onError: (_err, _states, ctx) => {
-      if (ctx?.prev) qc.setQueryData(["external-source", source], ctx.prev)
+      if (ctx?.prev) qc.setQueryData(["external-source", source], ctx.prev);
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["global"] })
-      void qc.invalidateQueries({ queryKey: ["external-source", source] })
+      void qc.invalidateQueries({ queryKey: ["global"] });
+      void qc.invalidateQueries({ queryKey: ["external-source", source] });
     },
-  })
+  });
 
-  const installed = q.data?.installed ?? []
-  const isGlobalOn = (skill: InstalledExternal) => skill.state === "active"
-  const activeCount = installed.filter(isGlobalOn).length
-  const allActive = installed.length > 0 && activeCount === installed.length
-  const someActive = activeCount > 0 && !allActive
+  const installed = q.data?.installed ?? [];
+  const isGlobalOn = (skill: InstalledExternal) => skill.state === "active";
+  const activeCount = installed.filter(isGlobalOn).length;
+  const allActive = installed.length > 0 && activeCount === installed.length;
+  const someActive = activeCount > 0 && !allActive;
 
   useEffect(() => {
     if (allGlobalRef.current) {
-      allGlobalRef.current.indeterminate = someActive
+      allGlobalRef.current.indeterminate = someActive;
     }
-  }, [someActive])
+  }, [someActive]);
 
-  if (q.isPending) return <PageLoading variant="detail" />
+  if (q.isPending) return <PageLoading variant="detail" />;
   if (q.isError) {
-    return <PageError current="external-sources" message={(q.error as Error).message} />
+    return (
+      <PageError
+        current="external-sources"
+        message={(q.error as Error).message}
+      />
+    );
   }
-  const data = q.data
+  const data = q.data;
   const detailBusy =
     updateAll.isPending ||
     updateOne.isPending ||
     remove.isPending ||
     install.isPending ||
-    applyGlobal.isPending
+    applyGlobal.isPending;
 
   const setGlobal = (name: string, on: boolean) => {
-    applyGlobal.mutate({ [name]: on ? "active" : "off" })
-  }
+    applyGlobal.mutate({ [name]: on ? "active" : "off" });
+  };
 
   const setAllGlobal = (on: boolean) => {
-    if (!installed.length) return
-    const states: Record<string, Tristate> = {}
+    if (!installed.length) return;
+    const states: Record<string, Tristate> = {};
     if (on) {
       for (const skill of installed) {
-        if (!isGlobalOn(skill)) states[skill.name] = "active"
+        if (!isGlobalOn(skill)) states[skill.name] = "active";
       }
     } else {
       for (const skill of installed) {
-        if (isGlobalOn(skill)) states[skill.name] = "off"
+        if (isGlobalOn(skill)) states[skill.name] = "off";
       }
     }
-    if (Object.keys(states).length) applyGlobal.mutate(states)
-  }
+    if (Object.keys(states).length) applyGlobal.mutate(states);
+  };
 
   return (
     <Shell>
@@ -1118,15 +1410,22 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       />
       <OgpBanner source={source} />
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Link to="/external-sources" className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm">
+        <Link
+          to="/external-sources"
+          className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm"
+        >
           sourcesに戻る
         </Link>
         {data.updatable.length ? (
-          <Button variant="primary" disabled={detailBusy} onClick={() => updateAll.mutate()}>
+          <Button
+            variant="primary"
+            disabled={detailBusy}
+            onClick={() => updateAll.mutate()}
+          >
             {pendingLabel(
               updateAll.isPending,
               `このsourceをすべてupdate (${data.updatable.length})`,
-              "更新中…",
+              "更新中…"
             )}
           </Button>
         ) : null}
@@ -1148,7 +1447,10 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       ) : null}
       <BusyRegion busy={detailBusy} className="mb-4 grid gap-3">
         {installed.map((skill) => (
-          <div key={skill.name} className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
+          <div
+            key={skill.name}
+            className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3"
+          >
             <div className="mb-1 flex flex-wrap items-center gap-3">
               <label className="flex cursor-pointer items-center gap-2 text-sm">
                 <input
@@ -1161,15 +1463,22 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
               </label>
               <h2 className="m-0 text-base font-semibold">{skill.name}</h2>
             </div>
-            <p className="m-0 mb-2 text-sm text-[var(--color-ink-2)]">{skill.description}</p>
+            <p className="m-0 mb-2 text-sm text-[var(--color-ink-2)]">
+              {skill.description}
+            </p>
             <div className="mb-2 font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink-2)]">
               {skill.path} · {skill.state}
             </div>
             {skill.hasUpdate ? (
               <div className="mb-2">
-                <span className="text-xs text-[var(--color-warn)]">更新あり</span>
+                <span className="text-xs text-[var(--color-warn)]">
+                  更新あり
+                </span>
                 <div className="mt-2">
-                  <Button disabled={detailBusy} onClick={() => updateOne.mutate(skill.name)}>
+                  <Button
+                    disabled={detailBusy}
+                    onClick={() => updateOne.mutate(skill.name)}
+                  >
                     {pendingLabel(updateOne.isPending, "個別update", "更新中…")}
                   </Button>
                 </div>
@@ -1178,8 +1487,12 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             <Button
               disabled={detailBusy}
               onClick={() => {
-                if (confirm("管理から外しますか？ global remove、skills.lock.json、project-decks に反映します。")) {
-                  remove.mutate(skill.name)
+                if (
+                  confirm(
+                    "管理から外しますか？ global remove、skills.lock.json、project-decks に反映します。"
+                  )
+                ) {
+                  remove.mutate(skill.name);
                 }
               }}
             >
@@ -1190,7 +1503,9 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       </BusyRegion>
       {data.available.length ? (
         <>
-          <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink-2)]">Available to install</h2>
+          <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink-2)]">
+            Available to install
+          </h2>
           <CheckboxList
             rows={data.available}
             submitLabel="選択してinstall"
@@ -1200,32 +1515,37 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
         </>
       ) : null}
     </Shell>
-  )
+  );
 }
 
 export function DraftsPage() {
-  const qc = useQueryClient()
-  const q = useQuery({ queryKey: ["drafts"], queryFn: () => api.drafts() })
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["drafts"], queryFn: () => api.drafts() });
   const run = useMutation({
-    mutationFn: ({ action, skills }: { action: string; skills: string[] }) => api.draftsAction(action, skills),
+    mutationFn: ({ action, skills }: { action: string; skills: string[] }) =>
+      api.draftsAction(action, skills),
     onSuccess: (data) => qc.setQueryData(["drafts"], data),
-    onError: (err) => applyErrorBody(err, (body) => qc.setQueryData(["drafts"], body)),
-  })
+    onError: (err) =>
+      applyErrorBody(err, (body) => qc.setQueryData(["drafts"], body)),
+  });
 
-  if (q.isPending) return <PageLoading variant="list" />
+  if (q.isPending) return <PageLoading variant="list" />;
   if (q.isError) {
-    return <PageError current="drafts" message={(q.error as Error).message} />
+    return <PageError current="drafts" message={(q.error as Error).message} />;
   }
-  const data = q.data
+  const data = q.data;
 
   return (
     <Shell>
       <Masthead title={data.title} />
       <Nav current="drafts" decks={data.decks} />
       <Message text={data.message || errMessage(run.error)} />
-      <ActionStatus text={run.isPending ? "draft操作を実行しています…" : undefined} />
+      <ActionStatus
+        text={run.isPending ? "draft操作を実行しています…" : undefined}
+      />
       <div className="mb-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 text-sm text-[var(--color-ink-2)]">
-        draft解除で正式配置とlock登録を行います。global追加は ~/.agents/skills にも反映します。
+        draft解除で正式配置とlock登録を行います。global追加は ~/.agents/skills
+        にも反映します。
       </div>
       {data.confirmSelected.length ? (
         <div className="mb-3 rounded-[var(--radius-lg)] border border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-3">
@@ -1233,10 +1553,27 @@ export function DraftsPage() {
             選択したdraftは既に正式登録済み、または正式配置先が存在します。上書きする場合だけ続行してください。
           </p>
           <div className="flex flex-wrap gap-2">
-            <Button disabled={run.isPending} onClick={() => run.mutate({ action: "promote-force", skills: data.confirmSelected })}>
+            <Button
+              disabled={run.isPending}
+              onClick={() =>
+                run.mutate({
+                  action: "promote-force",
+                  skills: data.confirmSelected,
+                })
+              }
+            >
               {pendingLabel(run.isPending, "上書きしてdraft解除", "処理中…")}
             </Button>
-            <Button variant="primary" disabled={run.isPending} onClick={() => run.mutate({ action: "install-force", skills: data.confirmSelected })}>
+            <Button
+              variant="primary"
+              disabled={run.isPending}
+              onClick={() =>
+                run.mutate({
+                  action: "install-force",
+                  skills: data.confirmSelected,
+                })
+              }
+            >
               {pendingLabel(run.isPending, "上書きしてglobalに追加", "処理中…")}
             </Button>
           </div>
@@ -1246,41 +1583,63 @@ export function DraftsPage() {
         rows={data.rows}
         busy={run.isPending}
         actions={[
-          { label: "draft解除", onClick: (skills) => run.mutate({ action: "promote", skills }) },
-          { label: "draft解除してglobalに追加", primary: true, onClick: (skills) => run.mutate({ action: "install", skills }) },
+          {
+            label: "draft解除",
+            onClick: (skills) => run.mutate({ action: "promote", skills }),
+          },
+          {
+            label: "draft解除してglobalに追加",
+            primary: true,
+            onClick: (skills) => run.mutate({ action: "install", skills }),
+          },
         ]}
       />
     </Shell>
-  )
+  );
 }
 
-export function ProjectDeckPage({ deckName, catalog }: { deckName: string; catalog: boolean }) {
-  const qc = useQueryClient()
-  const navigate = useNavigate()
+export function ProjectDeckPage({
+  deckName,
+  catalog,
+}: {
+  deckName: string;
+  catalog: boolean;
+}) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
   const q = useQuery({
     queryKey: ["project-deck", deckName, catalog],
     queryFn: () => api.projectDeck(deckName, catalog),
-  })
+  });
 
   const action = useMutation({
     mutationFn: ({ act, skills }: { act: string; skills: string[] }) =>
       api.projectDeckAction(deckName, act, skills),
-    onSuccess: (data) => qc.setQueryData(["project-deck", deckName, catalog], data),
-  })
+    onSuccess: (data) =>
+      qc.setQueryData(["project-deck", deckName, catalog], data),
+  });
 
   const preview = useMutation({
     mutationFn: (source: string) => api.previewExternal(source, deckName),
     onSuccess: (data) => {
-      qc.setQueryData(["external-preview", deckName, data.source], data)
-      navigate({ to: "/external-preview", search: { source: data.source, deck: deckName } })
+      qc.setQueryData(["external-preview", deckName, data.source], data);
+      navigate({
+        to: "/external-preview",
+        search: { source: data.source, deck: deckName },
+      });
     },
-  })
+  });
 
-  if (q.isPending) return <PageLoading variant="list" withCounts />
+  if (q.isPending) return <PageLoading variant="list" withCounts />;
   if (q.isError) {
-    return <PageError current={`project:${deckName}`} message={(q.error as Error).message} />
+    return (
+      <PageError
+        current={`project:${deckName}`}
+        message={(q.error as Error).message}
+      />
+    );
   }
-  const data = q.data
+  const data = q.data;
 
   return (
     <Shell>
@@ -1304,24 +1663,42 @@ export function ProjectDeckPage({ deckName, catalog }: { deckName: string; catal
           <pre className="m-0 overflow-x-auto text-xs whitespace-pre-wrap">
             {data.installCommands.map((c) => `$ ${c}`).join("\n")}
           </pre>
-          <Button className="mt-2" onClick={() => navigator.clipboard.writeText(data.installCommands.join("\n"))}>
+          <Button
+            className="mt-2"
+            onClick={() =>
+              navigator.clipboard.writeText(data.installCommands.join("\n"))
+            }
+          >
             copy
           </Button>
         </div>
       ) : null}
       <div className="mb-3 flex flex-wrap gap-2">
         {catalog ? (
-          <Link to="/project-decks/$deckName" params={{ deckName }} className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm">
+          <Link
+            to="/project-decks/$deckName"
+            params={{ deckName }}
+            className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm"
+          >
             deckだけ表示
           </Link>
         ) : (
-          <Link to="/project-decks/$deckName" params={{ deckName }} search={{ catalog: true }} className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm">
+          <Link
+            to="/project-decks/$deckName"
+            params={{ deckName }}
+            search={{ catalog: true }}
+            className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm"
+          >
             skillsを追加
           </Link>
         )}
       </div>
       {catalog ? (
-        <ExternalImportForm deck={deckName} onPreview={(s) => preview.mutate(s)} busy={preview.isPending} />
+        <ExternalImportForm
+          deck={deckName}
+          onPreview={(s) => preview.mutate(s)}
+          busy={preview.isPending}
+        />
       ) : null}
       <SelectableSkills
         rows={data.rows}
@@ -1329,13 +1706,26 @@ export function ProjectDeckPage({ deckName, catalog }: { deckName: string; catal
         busy={action.isPending}
         actions={
           catalog
-            ? [{ label: "deckを保存", primary: true, onClick: (skills) => action.mutate({ act: "save", skills }) }]
+            ? [
+                {
+                  label: "deckを保存",
+                  primary: true,
+                  onClick: (skills) => action.mutate({ act: "save", skills }),
+                },
+              ]
             : [
-                { label: "このdeckを適用", onClick: (skills) => action.mutate({ act: "apply", skills }) },
-                { label: "globalに追加", primary: true, onClick: (skills) => action.mutate({ act: "merge", skills }) },
+                {
+                  label: "このdeckを適用",
+                  onClick: (skills) => action.mutate({ act: "apply", skills }),
+                },
+                {
+                  label: "globalに追加",
+                  primary: true,
+                  onClick: (skills) => action.mutate({ act: "merge", skills }),
+                },
               ]
         }
       />
     </Shell>
-  )
+  );
 }

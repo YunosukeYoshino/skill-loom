@@ -18,12 +18,12 @@ MY_SKILLS_CATALOG_DIR="$CATALOG_ROOT" \
 
 ## スクリプトが出力する分類
 
-| 分類 | 意味 |
-|------|------|
-| CUSTOM | Catalog 由来の Custom／Vendor Skill |
-| EXTERNAL | 外部repo由来のスキル（sourceごとにグループ化） |
-| IGNORED | `.skills-ignore.json` で明示的に除外済み |
-| UNMANAGED | lock にも ignore にもない未知スキル |
+| 分類      | 意味                                           |
+| --------- | ---------------------------------------------- |
+| CUSTOM    | Catalog 由来の Custom／Vendor Skill            |
+| EXTERNAL  | 外部repo由来のスキル（sourceごとにグループ化） |
+| IGNORED   | `.skills-ignore.json` で明示的に除外済み       |
+| UNMANAGED | lock にも ignore にもない未知スキル            |
 
 ## Issues
 
@@ -32,6 +32,7 @@ MY_SKILLS_CATALOG_DIR="$CATALOG_ROOT" \
 ## ユーザーへの報告
 
 実行後、以下をユーザーに報告:
+
 1. Issues 件数（0なら "ALL CLEAN"）
 2. UNMANAGED スキルがあれば、`/skills-add` で lock 登録するか `.skills-ignore.json` で除外を提案
 3. 欠落があれば `/skills-restore` での修復を提案

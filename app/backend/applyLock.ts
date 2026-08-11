@@ -13,19 +13,20 @@
  * boolean で足りる。
  */
 
-let held = false
+let held = false;
 
 export function tryAcquireApply(): boolean {
-  if (held) return false
-  held = true
-  return true
+  if (held) return false;
+  held = true;
+  return true;
 }
 
 export function releaseApply(): void {
-  held = false
+  held = false;
 }
 
-export const APPLY_BUSY_MESSAGE = "Apply already running. Wait for the current apply to finish."
+export const APPLY_BUSY_MESSAGE =
+  "Apply already running. Wait for the current apply to finish.";
 
 /**
  * 移植前は「FastAPI 側に残った書き込みルート」も、proxy へ入る手前でこのロックを

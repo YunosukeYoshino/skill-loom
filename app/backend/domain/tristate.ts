@@ -10,10 +10,7 @@
  * 書き込みは 1 バイトも起こしてはいけない。
  */
 
-import {
-  activeDir,
-  archiveDir,
-} from "./config"
+import { activeDir, archiveDir } from "./config";
 import {
   ignoredSkills,
   type Lock,
@@ -21,43 +18,60 @@ import {
   sortNames,
   trackedSkills,
   visibleInstalledNames,
-} from "./inventory"
+} from "./inventory";
 
-export const TRISTATE_VALUES: ReadonlySet<string> = new Set(["off", "active", "archive"])
+export const TRISTATE_VALUES: ReadonlySet<string> = new Set([
+  "off",
+  "active",
+  "archive",
+]);
 
 export type ApplyDelta = {
-  extra: Set<string>
-  restore: Set<string>
-  install: Set<string>
-  remove: Set<string>
-  unresolved: Set<string>
-}
+  extra: Set<string>;
+  restore: Set<string>;
+  install: Set<string>;
+  remove: Set<string>;
+  unresolved: Set<string>;
+};
 
 /** リクエスト body の `states` から、値が tristate として妥当なものだけを拾う。 */
 export function parseTristateStates(body: unknown): Record<string, Selection> {
-  const raw = (body as { states?: unknown } | null)?.states
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {}
+  const raw = (body as { states?: unknown } | null)?.states;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
 
-  const states: Record<string, Selection> = {}
+  const states: Record<string, Selection> = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    const desired = String(value)
-    if (TRISTATE_VALUES.has(desired)) states[String(key)] = desired as Selection
+    const desired = String(value);
+    if (TRISTATE_VALUES.has(desired))
+      states[String(key)] = desired as Selection;
   }
-  return states
+  return states;
 }
 
-function projectionState(name: string, active: Set<string>, archived: Set<string>): Selection {
-  if (active.has(name)) return "active"
-  if (archived.has(name)) return "archive"
-  return "off"
+function projectionState(
+  name: string,
+  active: Set<string>,
+  archived: Set<string>
+): Selection {
+  if (active.has(name)) return "active";
+  if (archived.has(name)) return "archive";
+  return "off";
 }
 
-export function computeTristateApplyDelta(states: Record<string, Selection>, lock: Lock): ApplyDelta {
-  const currentActive = visibleInstalledNames(lock, activeDir())
-  const currentArchive = visibleInstalledNames(lock, archiveDir())
-  const managed = trackedSkills(lock)
-  const unmanaged = ignoredSkills()
-  const known = new Set([...managed, ...unmanaged, ...currentActive, ...currentArchive])
+export function computeTristateApplyDelta(
+  states: Record<string, Selection>,
+  lock: Lock
+): ApplyDelta {
+  const currentActive = visibleInstalledNames(lock, activeDir());
+  const currentArchive = visibleInstalledNames(lock, archiveDir());
+  const managed = trackedSkills(lock);
+  const unmanaged = ignoredSkills();
+  const known = new Set([
+    ...managed,
+    ...unmanaged,
+    ...currentActive,
+    ...currentArchive,
+  ]);
 
   const delta: ApplyDelta = {
     extra: new Set(),
@@ -65,58 +79,63 @@ export function computeTristateApplyDelta(states: Record<string, Selection>, loc
     install: new Set(),
     remove: new Set(),
     unresolved: new Set(),
-  }
+  };
 
   for (const [name, desired] of Object.entries(states)) {
     // 変化のない skill は触らない。ここで弾かないと、既に正しい状態のものまで
     // move や symlink 張り直しの対象になる。
-    if (desired === projectionState(name, currentActive, currentArchive)) continue
+    if (desired === projectionState(name, currentActive, currentArchive))
+      continue;
 
-    const inActive = currentActive.has(name)
-    const inArchive = currentArchive.has(name)
+    const inActive = currentActive.has(name);
+    const inArchive = currentArchive.has(name);
 
     if (desired === "off") {
-      if (inActive || inArchive) delta.remove.add(name)
-      continue
+      if (inActive || inArchive) delta.remove.add(name);
+      continue;
     }
 
     if (desired === "active") {
-      if (inArchive) delta.restore.add(name)
+      if (inArchive) delta.restore.add(name);
       else if (!inActive) {
-        if (managed.has(name)) delta.install.add(name)
-        else if (!known.has(name)) delta.unresolved.add(name)
+        if (managed.has(name)) delta.install.add(name);
+        else if (!known.has(name)) delta.unresolved.add(name);
       }
-      continue
+      continue;
     }
 
     if (desired === "archive") {
-      if (inActive) delta.extra.add(name)
-      else if (inArchive) continue
+      if (inActive) delta.extra.add(name);
+      else if (inArchive) continue;
       else if (managed.has(name)) {
         // 未 install のものを archive にするには、一度 install してから移す。
-        delta.install.add(name)
-        delta.extra.add(name)
-      } else if (!known.has(name)) delta.unresolved.add(name)
+        delta.install.add(name);
+        delta.extra.add(name);
+      } else if (!known.has(name)) delta.unresolved.add(name);
     }
   }
 
-  return delta
+  return delta;
 }
 
 export function formatTristateApplySummary(
   extra: Set<string>,
   restore: Set<string>,
   install: Set<string>,
-  remove: Set<string>,
+  remove: Set<string>
 ): string {
-  const changed = new Set([...extra, ...restore, ...install, ...remove])
-  const parts: string[] = []
+  const changed = new Set([...extra, ...restore, ...install, ...remove]);
+  const parts: string[] = [];
 
-  if (restore.size > 0) parts.push(`復帰 ${restore.size}: ${sortNames(restore).join(", ")}`)
-  if (install.size > 0) parts.push(`新規追加 ${install.size}: ${sortNames(install).join(", ")}`)
-  if (extra.size > 0) parts.push(`archive ${extra.size}: ${sortNames(extra).join(", ")}`)
-  if (remove.size > 0) parts.push(`off(除去) ${remove.size}: ${sortNames(remove).join(", ")}`)
+  if (restore.size > 0)
+    parts.push(`復帰 ${restore.size}: ${sortNames(restore).join(", ")}`);
+  if (install.size > 0)
+    parts.push(`新規追加 ${install.size}: ${sortNames(install).join(", ")}`);
+  if (extra.size > 0)
+    parts.push(`archive ${extra.size}: ${sortNames(extra).join(", ")}`);
+  if (remove.size > 0)
+    parts.push(`off(除去) ${remove.size}: ${sortNames(remove).join(", ")}`);
 
-  if (parts.length === 0) return "変更はありません"
-  return `Applied (${changed.size} skill): ${parts.join("; ")}`
+  if (parts.length === 0) return "変更はありません";
+  return `Applied (${changed.size} skill): ${parts.join("; ")}`;
 }

@@ -1,10 +1,15 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react"
-import { Link } from "@tanstack/react-router"
+import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
 
 type MastheadProps = {
-  title: string
-  counts?: { active: number; off: number; archive: number; total: number } | null
-}
+  title: string;
+  counts?: {
+    active: number;
+    off: number;
+    archive: number;
+    total: number;
+  } | null;
+};
 
 export function Masthead({ title, counts }: MastheadProps) {
   return (
@@ -35,16 +40,16 @@ export function Masthead({ title, counts }: MastheadProps) {
         ) : null}
       </div>
     </header>
-  )
+  );
 }
 
 type NavProps = {
-  current: string
-  decks: string[]
-}
+  current: string;
+  decks: string[];
+};
 
 export function Nav({ current, decks }: NavProps) {
-  const deckList = decks ?? []
+  const deckList = decks ?? [];
   const items: { to: string; label: string; id: string }[] = [
     { to: "/global", label: "Global", id: "global" },
     { to: "/external-sources", label: "External", id: "external-sources" },
@@ -54,7 +59,7 @@ export function Nav({ current, decks }: NavProps) {
       label: d,
       id: `project:${d}`,
     })),
-  ]
+  ];
 
   return (
     <nav className="mb-4 flex flex-wrap gap-1 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-1 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
@@ -62,7 +67,8 @@ export function Nav({ current, decks }: NavProps) {
         nav
       </span>
       {items.map((item) => {
-        const active = current === item.id || (item.id === "global" && current === "")
+        const active =
+          current === item.id || (item.id === "global" && current === "");
         return (
           <Link
             key={item.id}
@@ -75,29 +81,27 @@ export function Nav({ current, decks }: NavProps) {
           >
             {item.label}
           </Link>
-        )
+        );
       })}
     </nav>
-  )
+  );
 }
 
 export function Message({ text }: { text?: string }) {
-  if (!text) return null
+  if (!text) return null;
   return (
     <div className="mb-3 rounded-[var(--radius-md)] border border-[var(--color-accent-soft)] bg-[var(--color-accent-soft)] px-3.5 py-2.5 text-sm text-[var(--color-ink)]">
       {text}
     </div>
-  )
+  );
 }
 
-
-
 export function pendingLabel(pending: boolean, idle: string, loading: string) {
-  return pending ? loading : idle
+  return pending ? loading : idle;
 }
 
 export function ActionStatus({ text }: { text?: string }) {
-  if (!text) return null
+  if (!text) return null;
   return (
     <div
       className="mb-3 flex items-center gap-2.5 rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3.5 py-2.5 text-sm text-[var(--color-ink-2)]"
@@ -110,7 +114,7 @@ export function ActionStatus({ text }: { text?: string }) {
       />
       {text}
     </div>
-  )
+  );
 }
 
 export function BusyRegion({
@@ -118,9 +122,9 @@ export function BusyRegion({
   children,
   className = "",
 }: {
-  busy?: boolean
-  children: ReactNode
-  className?: string
+  busy?: boolean;
+  children: ReactNode;
+  className?: string;
 }) {
   return (
     <div
@@ -129,7 +133,7 @@ export function BusyRegion({
     >
       {children}
     </div>
-  )
+  );
 }
 
 export function Button({
@@ -138,25 +142,27 @@ export function Button({
   className = "",
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary"
+  variant?: "primary" | "secondary";
 }) {
   const base =
-    "cursor-pointer rounded-[var(--radius-sm)] border px-3 py-1.5 text-sm font-medium transition-[transform,background,border-color,opacity] duration-100 ease-out active:scale-[0.97] disabled:opacity-45"
+    "cursor-pointer rounded-[var(--radius-sm)] border px-3 py-1.5 text-sm font-medium transition-[transform,background,border-color,opacity] duration-100 ease-out active:scale-[0.97] disabled:opacity-45";
   const styles =
     variant === "primary"
       ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-hover)]"
-      : "border-[var(--color-rule)] bg-[var(--surface)] text-[var(--color-ink)] hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
+      : "border-[var(--color-rule)] bg-[var(--surface)] text-[var(--color-ink)] hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]";
   return (
-    <button type="button" className={`${base} ${styles} ${className}`} {...props}>
+    <button
+      type="button"
+      className={`${base} ${styles} ${className}`}
+      {...props}
+    >
       {children}
     </button>
-  )
+  );
 }
 
-
-
 function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`skeleton-block ${className}`} aria-hidden />
+  return <div className={`skeleton-block ${className}`} aria-hidden />;
 }
 
 function LoadingMasthead({ withCounts = false }: { withCounts?: boolean }) {
@@ -181,7 +187,7 @@ function LoadingMasthead({ withCounts = false }: { withCounts?: boolean }) {
         )}
       </div>
     </header>
-  )
+  );
 }
 
 function LoadingNav() {
@@ -195,7 +201,7 @@ function LoadingNav() {
         <Skeleton key={i} className="h-7 w-16 rounded-[var(--radius-sm)]" />
       ))}
     </nav>
-  )
+  );
 }
 
 function LoadingListRows({ count = 6 }: { count?: number }) {
@@ -203,7 +209,10 @@ function LoadingListRows({ count = 6 }: { count?: number }) {
     <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)]">
       <div className="divide-y divide-[var(--color-rule)]">
         {Array.from({ length: count }).map((_, i) => (
-          <div key={i} className="grid grid-cols-[minmax(0,1fr)_12rem] items-center gap-x-3 px-3 py-3">
+          <div
+            key={i}
+            className="grid grid-cols-[minmax(0,1fr)_12rem] items-center gap-x-3 px-3 py-3"
+          >
             <div className="min-w-0 space-y-2">
               <Skeleton className="h-4 w-2/5" />
               <Skeleton className="h-3 w-full max-w-md" />
@@ -213,7 +222,7 @@ function LoadingListRows({ count = 6 }: { count?: number }) {
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 function LoadingCardGrid({ count = 6 }: { count?: number }) {
@@ -236,14 +245,17 @@ function LoadingCardGrid({ count = 6 }: { count?: number }) {
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 function LoadingDetailBlocks({ count = 2 }: { count?: number }) {
   return (
     <div className="grid gap-3">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]">
+        <div
+          key={i}
+          className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]"
+        >
           <Skeleton className="mb-2 h-5 w-1/3" />
           <Skeleton className="mb-3 h-4 w-full max-w-lg" />
           <Skeleton className="mb-3 h-3 w-2/5" />
@@ -251,19 +263,19 @@ function LoadingDetailBlocks({ count = 2 }: { count?: number }) {
         </div>
       ))}
     </div>
-  )
+  );
 }
 
-export type PageLoadingVariant = "list" | "cards" | "detail"
+export type PageLoadingVariant = "list" | "cards" | "detail";
 
 export function PageLoading({
   variant = "list",
   withCounts = false,
   label = "読み込み中",
 }: {
-  variant?: PageLoadingVariant
-  withCounts?: boolean
-  label?: string
+  variant?: PageLoadingVariant;
+  withCounts?: boolean;
+  label?: string;
 }) {
   return (
     <Shell>
@@ -282,7 +294,7 @@ export function PageLoading({
       {variant === "list" ? <LoadingListRows /> : null}
       {variant === "detail" ? <LoadingDetailBlocks /> : null}
     </Shell>
-  )
+  );
 }
 
 export function PageError({
@@ -291,10 +303,10 @@ export function PageError({
   message,
   decks = [],
 }: {
-  current: string
-  title?: string
-  message: string
-  decks?: string[]
+  current: string;
+  title?: string;
+  message: string;
+  decks?: string[];
 }) {
   return (
     <Shell>
@@ -302,12 +314,16 @@ export function PageError({
       <Nav current={current} decks={decks} />
       <Message text={message} />
       <p className="m-0 text-sm text-[var(--color-ink-2)]">
-        ナビから別の画面へ移動するか、ページを再読み込みしてください。開発時は Vite の内部ポートではなく、起動ログの公開 URL（Skill Loom UI）を開いているか確認してください。
+        ナビから別の画面へ移動するか、ページを再読み込みしてください。開発時は
+        Vite の内部ポートではなく、起動ログの公開 URL（Skill Loom
+        UI）を開いているか確認してください。
       </p>
     </Shell>
-  )
+  );
 }
 
 export function Shell({ children }: { children: ReactNode }) {
-  return <main className="mx-auto max-w-[1080px] px-4 py-5 pb-14">{children}</main>
+  return (
+    <main className="mx-auto max-w-[1080px] px-4 py-5 pb-14">{children}</main>
+  );
 }

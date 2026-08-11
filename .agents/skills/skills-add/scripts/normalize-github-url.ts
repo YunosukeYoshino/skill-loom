@@ -13,7 +13,7 @@
  *   → better-auth/skills
  */
 
-import process from "node:process"
+import process from "node:process";
 
 /**
  * GitHub URL を owner/repo 形式へ正規化する。解析できない場合は null を返す。
@@ -21,26 +21,26 @@ import process from "node:process"
  */
 export function normalizeGithubUrl(url: string): string | null {
   const m = url.match(
-    /^(?:https?:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)?([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/,
-  )
-  if (!m) return null
-  return m[1]
+    /^(?:https?:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)?([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/
+  );
+  if (!m) return null;
+  return m[1];
 }
 
 function main(): void {
-  const url = process.argv[2]
+  const url = process.argv[2];
   if (url === undefined) {
-    console.error("Error: Missing GitHub URL argument")
-    process.exit(2)
+    console.error("Error: Missing GitHub URL argument");
+    process.exit(2);
   }
-  const ownerRepo = normalizeGithubUrl(url)
+  const ownerRepo = normalizeGithubUrl(url);
   if (ownerRepo === null) {
-    console.error(`Error: Cannot parse GitHub URL: ${url}`)
-    process.exit(1)
+    console.error(`Error: Cannot parse GitHub URL: ${url}`);
+    process.exit(1);
   }
-  process.stdout.write(`${ownerRepo}\n`)
+  process.stdout.write(`${ownerRepo}\n`);
 }
 
 if (import.meta.main) {
-  main()
+  main();
 }

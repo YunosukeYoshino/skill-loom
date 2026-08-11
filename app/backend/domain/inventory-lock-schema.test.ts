@@ -1,17 +1,17 @@
-import { describe, expect, test } from "bun:test"
-import { parseInventoryLock } from "./inventory-lock-schema"
+import { describe, expect, test } from "bun:test";
+import { parseInventoryLock } from "./inventory-lock-schema";
 
 const emptyLock = {
   version: 1 as const,
   custom: { repo: "owner/catalog", skills: {} },
   external: {},
   vendor: {},
-}
+};
 
 describe("parseInventoryLock", () => {
   test("accepts a valid empty version 1 Lock", () => {
-    expect(parseInventoryLock(emptyLock)).toEqual(emptyLock)
-  })
+    expect(parseInventoryLock(emptyLock)).toEqual(emptyLock);
+  });
 
   test("accepts the current version 1 metadata shape", () => {
     const lock = {
@@ -19,7 +19,10 @@ describe("parseInventoryLock", () => {
       custom: {
         repo: "owner/catalog",
         skills: {
-          custom: { repoPath: "skills/engineering/custom", category: "engineering" },
+          custom: {
+            repoPath: "skills/engineering/custom",
+            category: "engineering",
+          },
         },
       },
       external: {
@@ -32,29 +35,32 @@ describe("parseInventoryLock", () => {
         },
       },
       vendor: { forked: { source: "owner/upstream" } },
-    }
+    };
 
-    expect(parseInventoryLock(lock)).toEqual(lock)
-  })
+    expect(parseInventoryLock(lock)).toEqual(lock);
+  });
 
   test("rejects missing required fields with their JSON path", () => {
-    expect(() => parseInventoryLock({ ...emptyLock, custom: undefined })).toThrow(
-      "Inventory Lock.custom: is required",
-    )
-  })
+    expect(() =>
+      parseInventoryLock({ ...emptyLock, custom: undefined })
+    ).toThrow("Inventory Lock.custom: is required");
+  });
 
   test("rejects unsupported versions", () => {
     expect(() => parseInventoryLock({ ...emptyLock, version: 2 })).toThrow(
-      "Inventory Lock.version: unsupported version 2; expected 1",
-    )
-  })
+      "Inventory Lock.version: unsupported version 2; expected 1"
+    );
+  });
 
   test("rejects invalid metadata types with their JSON path", () => {
     expect(() =>
       parseInventoryLock({
         ...emptyLock,
-        custom: { ...emptyLock.custom, skills: { broken: { repoPath: 42, category: "engineering" } } },
-      }),
-    ).toThrow("Inventory Lock.custom.skills.broken.repoPath: expected string")
-  })
-})
+        custom: {
+          ...emptyLock.custom,
+          skills: { broken: { repoPath: 42, category: "engineering" } },
+        },
+      })
+    ).toThrow("Inventory Lock.custom.skills.broken.repoPath: expected string");
+  });
+});

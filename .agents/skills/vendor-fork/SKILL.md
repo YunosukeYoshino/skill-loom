@@ -48,6 +48,7 @@ bash "$ENGINE_ROOT/.agents/skills/vendor-fork/scripts/skills-vendor-fork" \
 カスタマイズ内容に応じて `$CATALOG_ROOT/vendor/{skill-name}/SKILL.md` を編集。
 
 frontmatter ルール (CLAUDE.md 準拠):
+
 - `name` と `description` のみ
 - YAML特殊文字はクォート必須
 
@@ -97,6 +98,7 @@ bash "$ENGINE_ROOT/.agents/skills/vendor-fork/scripts/skills-audit-vendor" --cat
 ```
 
 差分がある場合、ユーザーに以下を提示:
+
 1. upstream の変更内容 (diff)
 2. マージ提案 (カスタマイズを維持しつつ upstream の変更を取り込み)
 3. ユーザー確認後に vendor/ を更新

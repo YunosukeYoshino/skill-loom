@@ -5,20 +5,19 @@
  * 残るのはハンドラ同士の相互排他だけ。
  */
 
-import { afterEach, describe, expect, test } from "bun:test"
-import { releaseApply, tryAcquireApply } from "./applyLock"
+import { afterEach, describe, expect, test } from "bun:test";
+import { releaseApply, tryAcquireApply } from "./applyLock";
 
 afterEach(() => {
-  releaseApply()
-})
+  releaseApply();
+});
 
 describe("排他制御", () => {
   test("2 本目は取れず、release すれば取り直せる", () => {
-    expect(tryAcquireApply()).toBe(true)
-    expect(tryAcquireApply()).toBe(false)
+    expect(tryAcquireApply()).toBe(true);
+    expect(tryAcquireApply()).toBe(false);
 
-    releaseApply()
-    expect(tryAcquireApply()).toBe(true)
-  })
-})
-
+    releaseApply();
+    expect(tryAcquireApply()).toBe(true);
+  });
+});

@@ -15,9 +15,13 @@ import type {
   ProjectDeckPayload,
   InstalledExternal,
   SkillRow,
-} from "@shared/api-types"
-import { listProjectDecks, loadDeck, projectDeckInstallCommands } from "./domain/decks"
-import { draftRows } from "./domain/drafts"
+} from "@shared/api-types";
+import {
+  listProjectDecks,
+  loadDeck,
+  projectDeckInstallCommands,
+} from "./domain/decks";
+import { draftRows } from "./domain/drafts";
 import {
   activeExternalSkillNames,
   externalSourceStatusLabel,
@@ -25,10 +29,10 @@ import {
   externalUpdateCommand,
   skillHasRemoteUpdate,
   type SourceUpdateStatus,
-} from "./domain/external"
-import { activeDir, archiveDir } from "./domain/config"
-import type { ExternalCandidate } from "./infrastructure/github"
-import { normalizeGithubSource } from "./infrastructure/github"
+} from "./domain/external";
+import { activeDir, archiveDir } from "./domain/config";
+import type { ExternalCandidate } from "./infrastructure/github";
+import { normalizeGithubSource } from "./infrastructure/github";
 import {
   allSkillNames,
   globalTristateRows,
@@ -40,30 +44,37 @@ import {
   sortNames,
   type TristateRow,
   visibleInstalledNames,
-} from "./domain/inventory"
-import { hasPreviousPreset, listUserPresets } from "./domain/presets"
+} from "./domain/inventory";
+import { hasPreviousPreset, listUserPresets } from "./domain/presets";
 
 export function deckNames(): string[] {
-  return listProjectDecks()
+  return listProjectDecks();
 }
 
-export function countsDict(mainRows: TristateRow[], archivedRows: TristateRow[]): Counts {
+export function countsDict(
+  mainRows: TristateRow[],
+  archivedRows: TristateRow[]
+): Counts {
   return {
     active: mainRows.filter((row) => row.selection === "active").length,
     off: mainRows.filter((row) => row.selection === "off").length,
     archive: archivedRows.length,
     total: mainRows.length + archivedRows.length,
-  }
+  };
 }
 
 type GlobalPayloadOptions = {
-  showCatalog?: boolean
-  customUpdatesChecked?: boolean
-  customUpdatable?: GlobalPayload["customUpdatable"]
-}
+  showCatalog?: boolean;
+  customUpdatesChecked?: boolean;
+  customUpdatable?: GlobalPayload["customUpdatable"];
+};
 
-export function globalPayload(lock: Lock, message = "", options: GlobalPayloadOptions = {}): GlobalPayload {
-  const decks = deckNames()
+export function globalPayload(
+  lock: Lock,
+  message = "",
+  options: GlobalPayloadOptions = {}
+): GlobalPayload {
+  const decks = deckNames();
 
   // catalog 表示は tristate ではなく「全 skill のカタログ」を返す別形。
   if (options.showCatalog) {
@@ -81,10 +92,10 @@ export function globalPayload(lock: Lock, message = "", options: GlobalPayloadOp
       presets: listUserPresets(),
       hasPreviousPreset: hasPreviousPreset(),
       hasManagedActive: managedActiveSkills(lock).size > 0,
-    }
+    };
   }
 
-  const [mainRows, archivedRows] = globalTristateRows(lock)
+  const [mainRows, archivedRows] = globalTristateRows(lock);
   return {
     page: "global",
     title: "Global skills",
@@ -99,7 +110,7 @@ export function globalPayload(lock: Lock, message = "", options: GlobalPayloadOp
     presets: listUserPresets(),
     hasPreviousPreset: hasPreviousPreset(),
     hasManagedActive: managedActiveSkills(lock).size > 0,
-  }
+  };
 }
 
 // ---- 外部 source（#70 で移植）----
@@ -111,27 +122,30 @@ export function globalPayload(lock: Lock, message = "", options: GlobalPayloadOp
 export function externalSourcesPayload(
   lock: Lock,
   message = "",
-  updateStatusBySource: Record<string, SourceUpdateStatus> = {},
+  updateStatusBySource: Record<string, SourceUpdateStatus> = {}
 ): ExternalSourcesPayload {
   const rows = externalSourceSummary(lock).map((row) => {
-    const status = updateStatusBySource[row.source]
+    const status = updateStatusBySource[row.source];
     return {
       ...row,
       statusLabel: externalSourceStatusLabel(status),
       updatable: [...(status?.updatable ?? [])],
       checked: Boolean(status?.checked),
       error: status?.error ?? null,
-    }
-  })
+    };
+  });
   return {
     page: "external-sources",
     title: "External sources",
     message,
     decks: deckNames(),
     sources: rows,
-    totalUpdatable: rows.reduce((total, row) => total + (row.checked ? row.updatable.length : 0), 0),
+    totalUpdatable: rows.reduce(
+      (total, row) => total + (row.checked ? row.updatable.length : 0),
+      0
+    ),
     updateStatusBySource,
-  }
+  };
 }
 
 /**
@@ -144,39 +158,44 @@ export async function externalSourceDetailPayload(
   lock: Lock,
   source: string,
   candidates: ExternalCandidate[],
-  message = "",
+  message = ""
 ): Promise<ExternalSourceDetailPayload> {
-  const ownerRepo = normalizeGithubSource(source)
+  const ownerRepo = normalizeGithubSource(source);
   const installed = Object.fromEntries(
-    Object.entries(lock.external ?? {}).filter(([, meta]) => meta.source === ownerRepo),
-  )
+    Object.entries(lock.external ?? {}).filter(
+      ([, meta]) => meta.source === ownerRepo
+    )
+  );
 
   const candidateByName = new Map<string, ExternalCandidate>(
-    candidates.map((candidate) => [candidate.name, candidate]),
-  )
+    candidates.map((candidate) => [candidate.name, candidate])
+  );
   for (const [name, meta] of Object.entries(installed)) {
     if (!candidateByName.has(name)) {
       candidateByName.set(name, {
         name,
         description: skillDescription(lock, name),
         path: meta.skillPath ?? "",
-      })
+      });
     }
   }
 
-  const installedSkills: InstalledExternal[] = []
-  const availableRows: SkillRow[] = []
-  const updatableSkills: string[] = []
-  const activeExternal = activeExternalSkillNames(lock)
+  const installedSkills: InstalledExternal[] = [];
+  const availableRows: SkillRow[] = [];
+  const updatableSkills: string[] = [];
+  const activeExternal = activeExternalSkillNames(lock);
   const archivedExternal = new Set(
-    [...visibleInstalledNames(lock, archiveDir())].filter((name) => name in installed),
-  )
+    [...visibleInstalledNames(lock, archiveDir())].filter(
+      (name) => name in installed
+    )
+  );
 
   for (const name of sortNames(candidateByName.keys())) {
-    const candidate = candidateByName.get(name) as ExternalCandidate
+    const candidate = candidateByName.get(name) as ExternalCandidate;
     // active でないものは更新確認しない。update しても projection に出ないため。
-    const hasUpdate = activeExternal.has(name) && (await skillHasRemoteUpdate(name, candidate))
-    if (hasUpdate) updatableSkills.push(name)
+    const hasUpdate =
+      activeExternal.has(name) && (await skillHasRemoteUpdate(name, candidate));
+    if (hasUpdate) updatableSkills.push(name);
 
     if (name in installed) {
       installedSkills.push({
@@ -187,8 +206,8 @@ export async function externalSourceDetailPayload(
         hasUpdate,
         updateCommand: hasUpdate ? externalUpdateCommand(name).join(" ") : "",
         managed: true,
-      })
-      continue
+      });
+      continue;
     }
 
     availableRows.push({
@@ -198,7 +217,7 @@ export async function externalSourceDetailPayload(
       source: "external",
       state: "missing",
       checked: false,
-    })
+    });
   }
 
   return {
@@ -210,7 +229,7 @@ export async function externalSourceDetailPayload(
     installed: installedSkills,
     available: availableRows,
     updatable: updatableSkills,
-  }
+  };
 }
 
 // ---- draft（#72 で移植）----
@@ -219,9 +238,13 @@ export async function externalSourceDetailPayload(
  * draft 一覧。`confirmSelected` が空でなければ、フロントは「既に正式登録済み」の
  * 確認パネルを出して force 付きで押し直させる。
  */
-export function draftsPayload(lock: Lock, message = "", confirmSelected: string[] = []): DraftsPayload {
-  const rows = draftRows(lock)
-  const draftCount = rows.filter((row) => row.state === "draft").length
+export function draftsPayload(
+  lock: Lock,
+  message = "",
+  confirmSelected: string[] = []
+): DraftsPayload {
+  const rows = draftRows(lock);
+  const draftCount = rows.filter((row) => row.state === "draft").length;
   return {
     page: "drafts",
     title: `Draft skills · draft ${draftCount} · total ${rows.length}`,
@@ -229,7 +252,7 @@ export function draftsPayload(lock: Lock, message = "", confirmSelected: string[
     decks: deckNames(),
     rows,
     confirmSelected: sortNames(confirmSelected),
-  }
+  };
 }
 
 // ---- project deck（#73 で移植）----
@@ -245,18 +268,22 @@ export function projectDeckPayload(
   lock: Lock,
   deckName: string,
   message = "",
-  options: { showCatalog?: boolean } = {},
+  options: { showCatalog?: boolean } = {}
 ): ProjectDeckPayload {
-  const showCatalog = options.showCatalog ?? false
-  const [, skills] = loadDeck(deckName, new Set(), true)
-  const skillSet = new Set(skills)
+  const showCatalog = options.showCatalog ?? false;
+  const [, skills] = loadDeck(deckName, new Set(), true);
+  const skillSet = new Set(skills);
   const rows = showCatalog
     ? skillRows(lock, skillSet, allSkillNames(lock))
     : skillRows(
         lock,
-        new Set([...skillSet].filter((name) => visibleInstalledNames(lock, activeDir()).has(name))),
-        skillSet,
-      )
+        new Set(
+          [...skillSet].filter((name) =>
+            visibleInstalledNames(lock, activeDir()).has(name)
+          )
+        ),
+        skillSet
+      );
   return {
     page: "project-deck",
     title: `${capitalize(deckName)} deck`,
@@ -267,7 +294,7 @@ export function projectDeckPayload(
     rows,
     installCommands: projectDeckInstallCommands(lock, skills),
     skillNames: sortNames(skillSet),
-  }
+  };
 }
 
 /**
@@ -281,11 +308,11 @@ export function externalPreviewPayload(
   deckName: string,
   source: string,
   candidates: ExternalCandidate[],
-  message = "",
+  message = ""
 ): ExternalPreviewPayload {
-  const ownerRepo = normalizeGithubSource(source)
-  const active = visibleInstalledNames(lock, activeDir())
-  const archived = visibleInstalledNames(lock, archiveDir())
+  const ownerRepo = normalizeGithubSource(source);
+  const active = visibleInstalledNames(lock, activeDir());
+  const archived = visibleInstalledNames(lock, archiveDir());
   return {
     page: "external-preview",
     title: `外部skillsを取り込む - ${ownerRepo}`,
@@ -298,13 +325,17 @@ export function externalPreviewPayload(
       category: candidate.path ?? ownerRepo,
       description: candidate.description ?? "",
       source: "external",
-      state: active.has(candidate.name) ? "active" : archived.has(candidate.name) ? "archive" : "missing",
+      state: active.has(candidate.name)
+        ? "active"
+        : archived.has(candidate.name)
+          ? "archive"
+          : "missing",
       checked: false,
     })),
-  }
+  };
 }
 
 /** Python の `str.capitalize()`。先頭だけ大文字にして、残りは小文字に潰す。 */
 function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase()
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
 }

@@ -124,13 +124,17 @@ done
 検出結果に応じて以下を提案:
 
 **更新がある場合:**
+
 > upstream 更新があります。更新しますか？
+>
 > - **yes**: `bunx skills update` → Catalog-aware sync → audit を順次実行
 > - **no**: 現状維持
 > - **select**: 特定のスキルだけ更新
 
 **未管理スキルがある場合:**
+
 > lock.json に未登録のスキルが {N} 件あります。
+>
 > - `/skills-add <owner/repo>` で lock.json に登録
 > - `.skills-ignore.json` に追加して明示的に無視
 

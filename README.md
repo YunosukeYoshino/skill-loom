@@ -99,38 +99,38 @@ If neither selector is present, the Engine Root is used as a legacy colocated Ca
 
 ## Engine and Catalog ownership
 
-| Engine owns | Catalog owns |
-| --- | --- |
-| CLI and local Web UI | Inventory Lock and ignore rules |
-| Inventory Lock v1 schema | Custom Skills and Drafts |
-| Validation and Projection rules | Vendor Skills and upstream baselines |
-| Catalog-aware management Skills | Project, Shared, and Core Decks |
-| Synthetic fixtures and public tests | Agent definitions |
+| Engine owns                         | Catalog owns                         |
+| ----------------------------------- | ------------------------------------ |
+| CLI and local Web UI                | Inventory Lock and ignore rules      |
+| Inventory Lock v1 schema            | Custom Skills and Drafts             |
+| Validation and Projection rules     | Vendor Skills and upstream baselines |
+| Catalog-aware management Skills     | Project, Shared, and Core Decks      |
+| Synthetic fixtures and public tests | Agent definitions                    |
 
 Catalog-relative paths are resolved against the real Catalog Root. Absolute paths, `..` traversal, and symlinks that escape the Catalog are rejected before file operations.
 
 ## Everyday commands
 
-| Command | Purpose |
-| --- | --- |
-| `./skill-loom status` | Summarize Inventory and Projection state |
-| `./skill-loom list` | List Project Decks |
-| `./skill-loom install-deck NAME` | Apply a Project Deck |
-| `./skill-loom all` | Preview full restoration |
-| `./skill-loom all --apply` | Restore the complete Inventory |
-| `./skill-loom ui` | Open the local checklist UI |
+| Command                          | Purpose                                  |
+| -------------------------------- | ---------------------------------------- |
+| `./skill-loom status`            | Summarize Inventory and Projection state |
+| `./skill-loom list`              | List Project Decks                       |
+| `./skill-loom install-deck NAME` | Apply a Project Deck                     |
+| `./skill-loom all`               | Preview full restoration                 |
+| `./skill-loom all --apply`       | Restore the complete Inventory           |
+| `./skill-loom ui`                | Open the local checklist UI              |
 
 The repository also ships Catalog-aware management Skills for adding, auditing, restoring, and updating External and Vendor Skills.
 
 ## Skill Loom vs. ad hoc Skill folders
 
-| | **Skill Loom** | Load everything | Hand-managed folders |
-| --- | --- | --- | --- |
-| Private source separated from tooling | **Yes** | Depends | Depends |
-| Runtime subset is explicit | **Yes** | No | Manual |
-| Inventory is reproducible | **Lock v1** | Partial | No shared contract |
-| Removal is recoverable | **Trash** | n/a | Depends |
-| CLI and local UI share one model | **Yes** | No | No |
+|                                       | **Skill Loom** | Load everything | Hand-managed folders |
+| ------------------------------------- | -------------- | --------------- | -------------------- |
+| Private source separated from tooling | **Yes**        | Depends         | Depends              |
+| Runtime subset is explicit            | **Yes**        | No              | Manual               |
+| Inventory is reproducible             | **Lock v1**    | Partial         | No shared contract   |
+| Removal is recoverable                | **Trash**      | n/a             | Depends              |
+| CLI and local UI share one model      | **Yes**        | No              | No                   |
 
 Skill Loom adds a small amount of structure in exchange for a clear ownership boundary and a Projection you can reproduce.
 

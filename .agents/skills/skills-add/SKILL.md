@@ -32,6 +32,7 @@ MY_SKILLS_CATALOG_DIR="$CATALOG_ROOT" \
 ```
 
 スクリプトが自動的に以下を処理する:
+
 - `npx skills add` でインストール
 - 対象 agent は `claude-code`、`codex`、`antigravity`
 - インストール前後の差分で新規スキルを検出
@@ -47,6 +48,7 @@ MY_SKILLS_CATALOG_DIR="$CATALOG_ROOT" \
 ## Troubleshooting
 
 **`gh: command not found`**
+
 ```bash
 brew install gh && gh auth login
 ```
@@ -55,6 +57,7 @@ brew install gh && gh auth login
 
 スクリプトが `skills/<name>/SKILL.md` をデフォルトとして使用した旨の Warning が表示される。
 実際の GitHub repo を確認して手動で修正:
+
 ```bash
 # "$CATALOG_ROOT/skills.lock.json" の skillPath を修正
 ```

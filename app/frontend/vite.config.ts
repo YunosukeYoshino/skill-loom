@@ -1,7 +1,7 @@
-import { defineConfig, type Plugin } from "vite"
-import react from "@vitejs/plugin-react"
-import tailwindcss from "@tailwindcss/vite"
-import path from "node:path"
+import { defineConfig, type Plugin } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import path from "node:path";
 
 /**
  * Vite を直接開いたときに /api/* が SPA index（HTML 200）へ落ちないようにする。
@@ -13,22 +13,22 @@ function rejectDirectApi(): Plugin {
     name: "skill-loom-reject-direct-api",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        const url = req.url || ""
+        const url = req.url || "";
         if (!url.startsWith("/api/") && url !== "/api") {
-          next()
-          return
+          next();
+          return;
         }
-        res.statusCode = 502
-        res.setHeader("Content-Type", "application/json; charset=utf-8")
+        res.statusCode = 502;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
         res.end(
           JSON.stringify({
             message:
               "API is served by Skill Loom UI (skill-loom ui / --dev), not the Vite port. Open the public UI URL printed at startup.",
-          }),
-        )
-      })
+          })
+        );
+      });
     },
-  }
+  };
 }
 
 export default defineConfig({
@@ -46,4 +46,4 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
   },
-})
+});

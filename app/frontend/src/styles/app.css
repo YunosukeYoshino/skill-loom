@@ -30,8 +30,16 @@ body {
   font: var(--text-md) / 1.47 var(--font-body);
   letter-spacing: -0.01em;
   background:
-    radial-gradient(900px 420px at 12% -8%, oklch(54% 0.19 250 / 0.12), transparent 55%),
-    radial-gradient(700px 360px at 100% 0%, oklch(70% 0.08 250 / 0.08), transparent 50%),
+    radial-gradient(
+      900px 420px at 12% -8%,
+      oklch(54% 0.19 250 / 0.12),
+      transparent 55%
+    ),
+    radial-gradient(
+      700px 360px at 100% 0%,
+      oklch(70% 0.08 250 / 0.08),
+      transparent 50%
+    ),
     var(--color-paper);
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
