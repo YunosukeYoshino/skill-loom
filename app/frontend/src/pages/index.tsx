@@ -303,6 +303,8 @@ function PresetsPanel({
 }) {
   const [selected, setSelected] = useState(presets[0]?.name || "")
   const [newPresetName, setNewPresetName] = useState("")
+  const [savingAsNew, setSavingAsNew] = useState(false)
+  const newPresetInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (presets.length && !presets.some((preset) => preset.name === selected)) {
@@ -310,17 +312,27 @@ function PresetsPanel({
     }
   }, [presets, selected])
 
+  useEffect(() => {
+    if (!savingAsNew) return
+    newPresetInputRef.current?.focus()
+  }, [savingAsNew])
+
+  const closeSaveAsNew = () => {
+    setSavingAsNew(false)
+    setNewPresetName("")
+  }
+
   const saveAsNew = () => {
     const name = newPresetName.trim()
     if (!name) return
     onSaveAsNew(name)
-    setNewPresetName("")
     setSelected(name)
+    closeSaveAsNew()
   }
 
   return (
     <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className={`flex flex-wrap items-center gap-2${savingAsNew ? " mb-3" : ""}`}>
         <h2 className="m-0 text-sm font-semibold">プリセット</h2>
         <select
           value={selected}
@@ -355,29 +367,44 @@ function PresetsPanel({
         <Button disabled={busy || !hasPrevious || !!preview} onClick={onRestoreRequest}>
           {pendingLabel(!!busy, "直前に戻す", "処理中…")}
         </Button>
+        {!savingAsNew ? (
+          <Button
+            disabled={busy || !!preview}
+            onClick={() => setSavingAsNew(true)}
+          >
+            別名で保存
+          </Button>
+        ) : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-rule)] pt-3">
-        <label htmlFor="new-preset-name" className="text-sm text-[var(--color-ink-2)]">
-          別名で保存
-        </label>
-        <input
-          id="new-preset-name"
-          type="text"
-          value={newPresetName}
-          onChange={(e) => setNewPresetName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") saveAsNew()
-          }}
-          disabled={busy || !!preview}
-          placeholder="新しいプリセット名"
-          autoComplete="off"
-          spellCheck={false}
-          className="min-w-[200px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
-        />
-        <Button disabled={busy || !newPresetName.trim() || !!preview} onClick={saveAsNew}>
-          {pendingLabel(!!busy, "保存", "処理中…")}
-        </Button>
-      </div>
+      {savingAsNew ? (
+        <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-rule)] pt-3">
+          <label htmlFor="new-preset-name" className="text-sm text-[var(--color-ink-2)]">
+            新しいプリセット名
+          </label>
+          <input
+            id="new-preset-name"
+            ref={newPresetInputRef}
+            type="text"
+            value={newPresetName}
+            onChange={(e) => setNewPresetName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveAsNew()
+              if (e.key === "Escape") closeSaveAsNew()
+            }}
+            disabled={busy || !!preview}
+            placeholder="新しいプリセット名"
+            autoComplete="off"
+            spellCheck={false}
+            className="min-w-[200px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+          />
+          <Button disabled={busy || !newPresetName.trim() || !!preview} onClick={saveAsNew}>
+            {pendingLabel(!!busy, "保存", "処理中…")}
+          </Button>
+          <Button disabled={busy} onClick={closeSaveAsNew}>
+            キャンセル
+          </Button>
+        </div>
+      ) : null}
       {preview ? (
         <div className="rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-3">
           <p className="m-0 mb-2 text-sm font-semibold">
