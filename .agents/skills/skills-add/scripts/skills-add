@@ -47,7 +47,7 @@ LOCK_FILE="$CATALOG_ROOT/skills.lock.json"
 IGNORE_FILE="$CATALOG_ROOT/.skills-ignore.json"
 
 # --- Normalize URL to owner/repo ---
-OWNER_REPO=$(python3 "$DIR/normalize-github-url.py" "$URL")
+OWNER_REPO=$(bun "$DIR/normalize-github-url.ts" "$URL")
 SOURCE_URL="https://github.com/${OWNER_REPO}.git"
 
 echo "=== Installing ${OWNER_REPO} ==="
@@ -146,28 +146,14 @@ for skill_name in "${REGISTER_TARGETS[@]}"; do
     echo "  Processing: $skill_name"
 
     # Check ignore list
-    in_ignore=$(python3 -c "
-import json, sys
-skill = sys.argv[1]
-try:
-    data = json.load(open(sys.argv[2]))
-    print('yes' if skill in data.get('ignore', []) else 'no')
-except Exception:
-    print('no')
-" "$skill_name" "$IGNORE_FILE")
+    in_ignore=$(bun "$DIR/lock-check.ts" ignore "$skill_name" "$IGNORE_FILE")
     if [ "$in_ignore" = "yes" ]; then
         echo "  → Skipping (in .skills-ignore.json)"
         continue
     fi
 
     # Check already in lock
-    already=$(python3 -c "
-import json, sys
-skill = sys.argv[1]
-lock = json.load(open(sys.argv[2]))
-all_skills = set(lock.get('external', {}).keys()) | set(lock.get('custom', {}).get('skills', {}).keys()) | set(lock.get('vendor', {}))
-print('yes' if skill in all_skills else 'no')
-" "$skill_name" "$LOCK_FILE")
+    already=$(bun "$DIR/lock-check.ts" in-lock "$skill_name" "$LOCK_FILE")
     if [ "$already" = "yes" ]; then
         echo "  → Already in skills.lock.json, skipping"
         continue
@@ -177,7 +163,7 @@ print('yes' if skill in all_skills else 'no')
     SKILL_PATH=""
     if [ "$HAS_TREE" = "true" ]; then
         SKILL_PATH=$(SKILL_NAME="$skill_name" OWNER_REPO="$OWNER_REPO" TREE_FILE="$TREE_FILE" \
-            python3 "$DIR/resolve-skill-path.py" 2>/dev/null) || true
+            bun "$DIR/resolve-skill-path.ts" 2>/dev/null) || true
     fi
 
     # Fallback: pattern matching
@@ -191,7 +177,7 @@ print('yes' if skill in all_skills else 'no')
     echo "  → skillPath: $SKILL_PATH"
 
     # Register in skills.lock.json
-    python3 "$DIR/register-skill-lock.py" "$LOCK_FILE" "$skill_name" "$OWNER_REPO" "$SOURCE_URL" "$SKILL_PATH"
+    bun "$DIR/register-skill-lock.ts" "$LOCK_FILE" "$skill_name" "$OWNER_REPO" "$SOURCE_URL" "$SKILL_PATH"
 
     REGISTERED_NAMES+=("$skill_name")
 

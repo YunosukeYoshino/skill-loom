@@ -12,80 +12,97 @@
 # hidden_global_skills に落ちて投影対象にならないので、ignore ファイル側へ寄せる。
 setup_deck_fixture() {
   local tmp_dir="$1"
-  python3 - "$tmp_dir" <<'PY'
-import json
-import os
-import sys
-from pathlib import Path
 
-tmp = Path(sys.argv[1])
-core = ["core-fixture"]
-repo_local_dir = Path(".agents/skills")
-repo_local = {p.name for p in repo_local_dir.iterdir() if p.is_dir()} if repo_local_dir.is_dir() else set()
-hidden_core = sorted(name for name in core if name in repo_local)
-visible_core = sorted(name for name in core if name not in repo_local)
+  mkdir -p "$tmp_dir/active" "$tmp_dir/archive" "$tmp_dir/claude-skills" \
+    "$tmp_dir/gemini-skills" "$tmp_dir/project-decks" "$tmp_dir/shared-decks"
 
-active = tmp / "active"
-archive = tmp / "archive"
-claude = tmp / "claude-skills"
-gemini = tmp / "gemini-skills"
-decks = tmp / "project-decks"
-shared_decks = tmp / "shared-decks"
-for path in (active, archive, claude, gemini, decks, shared_decks):
-    path.mkdir(parents=True, exist_ok=True)
+  make_skill() {
+    local base="$1" name="$2"
+    mkdir -p "$tmp_dir/$base/$name"
+    printf -- '---\nname: %s\ndescription: %s fixture\n---\n' "$name" "$name" > "$tmp_dir/$base/$name/SKILL.md"
+  }
 
+  for name in alpha beta; do
+    make_skill active "$name"
+  done
 
-def make_skill(base: Path, name: str) -> None:
-    (base / name).mkdir(parents=True, exist_ok=True)
-    (base / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {name} fixture\n---\n")
+  # core deck の skill のうち .agents/skills 配下と衝突するものは hidden 扱い
+  hidden_core=""
+  visible_core="core-fixture"
+  if [ -d ".agents/skills/core-fixture" ]; then
+    hidden_core="core-fixture"
+    visible_core=""
+  fi
+  if [ -n "$visible_core" ]; then
+    make_skill archive "$visible_core"
+  fi
 
+  managed="alpha beta"
+  [ -n "$visible_core" ] && managed="$managed $visible_core"
 
-for name in ("alpha", "beta"):
-    make_skill(active, name)
-for name in visible_core:
-    make_skill(archive, name)
+  {
+    echo "{"
+    echo "  \"version\": 1,"
+    echo "  \"custom\": {"
+    echo "    \"repo\": \"owner/catalog\","
+    echo "    \"skills\": {"
+    first=true
+    for name in $managed; do
+      [ "$first" = true ] || echo ","
+      first=false
+      printf '      "%s": {"repoPath": "skills/fixture/%s", "category": "fixture"}' "$name" "$name"
+    done
+    echo ""
+    echo "    }"
+    echo "  },"
+    echo "  \"external\": {},"
+    echo "  \"vendor\": {}"
+    echo "}"
+  } > "$tmp_dir/skills.lock.json"
 
-managed = ["alpha", "beta"] + visible_core
-(tmp / "skills.lock.json").write_text(
-    json.dumps(
-        {
-            "version": 1,
-            "custom": {
-                "repo": "owner/catalog",
-                "skills": {n: {"repoPath": f"skills/fixture/{n}", "category": "fixture"} for n in managed},
-            },
-            "external": {},
-            "vendor": {},
-        },
-        indent=2,
-    )
-)
-(tmp / ".skill-lock.json").write_text(
-    json.dumps(
-        {
-            "version": 3,
-            "dismissed": [],
-            "skills": {n: {"source": "owner/repo", "installedAt": "2026-01-01T00:00:00.000Z"} for n in managed},
-        },
-        indent=2,
-    )
-)
-(tmp / "skills-ignore.json").write_text(json.dumps({"ignore": hidden_core}, indent=2))
-(decks / "e2e-deck.json").write_text(
-    json.dumps({"name": "e2e-deck", "description": "E2E fixture deck", "skills": ["alpha"]}, indent=2)
-)
-(shared_decks / "core.json").write_text(
-    json.dumps({"name": "core", "skills": core}, indent=2) + "\n"
-)
+  {
+    echo "{"
+    echo "  \"version\": 3,"
+    echo "  \"dismissed\": [],"
+    echo "  \"skills\": {"
+    first=true
+    for name in $managed; do
+      [ "$first" = true ] || echo ","
+      first=false
+      printf '    "%s": {"source": "owner/repo", "installedAt": "2026-01-01T00:00:00.000Z"}' "$name"
+    done
+    echo ""
+    echo "  }"
+    echo "}"
+  } > "$tmp_dir/.skill-lock.json"
 
-for name in ("alpha", "beta"):
-    os.symlink(active / name, claude / name)
-    os.symlink(active / name, gemini / name)
+  printf '{"ignore": ["%s"]}' "$hidden_core" > "$tmp_dir/skills-ignore.json"
 
-# apply 側の期待値: core deck ∪ {alpha}。merge 側は active の {alpha, beta} のまま。
-(tmp / "core-sample").write_text(visible_core[0])
-(tmp / "apply-target-count").write_text(str(len(set(core) | {"alpha"})))
-PY
+  {
+    echo '{'
+    echo '  "name": "e2e-deck",'
+    echo '  "description": "E2E fixture deck",'
+    echo '  "skills": ["alpha"]'
+    echo '}'
+  } > "$tmp_dir/project-decks/e2e-deck.json"
+
+  {
+    echo '{'
+    echo '  "name": "core",'
+    echo '  "skills": ["core-fixture"]'
+    echo '}'
+    echo ""
+  } > "$tmp_dir/shared-decks/core.json"
+
+  for name in alpha beta; do
+    ln -s "$tmp_dir/active/$name" "$tmp_dir/claude-skills/$name"
+    ln -s "$tmp_dir/active/$name" "$tmp_dir/gemini-skills/$name"
+  done
+
+  # apply 側の期待値: core deck ∪ {alpha}。merge 側は active の {alpha, beta} のまま。
+  printf '%s' "$visible_core" > "$tmp_dir/core-sample"
+  printf '2' > "$tmp_dir/apply-target-count"
+
 }
 
 # ~/.claude や実 lock を巻き込まないよう、書き込み先をすべて tmp_dir へ寄せて起動する。
@@ -513,19 +530,13 @@ test_drafts_action_rejects_bad_requests() {
   local draft_dir="$tmp_dir/drafts/skills/engineering/e2e-draft-conflict"
   mkdir -p "$draft_dir"
   printf -- '---\nname: e2e-draft-conflict\ndescription: E2E draft conflict fixture\n---\n' > "$draft_dir/SKILL.md"
-  python3 - "$tmp_dir" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-lock_file = Path(sys.argv[1]) / "skills.lock.json"
-lock = json.loads(lock_file.read_text())
-lock["custom"]["skills"]["e2e-draft-conflict"] = {
-    "repoPath": "skills/engineering/e2e-draft-conflict",
-    "category": "engineering",
-}
-lock_file.write_text(json.dumps(lock, indent=2))
-PY
+  bun -e '
+const fs=require("node:fs");
+const lockFile=process.argv[1]+"/skills.lock.json";
+const lock=JSON.parse(fs.readFileSync(lockFile,"utf8"));
+lock.custom.skills["e2e-draft-conflict"]={repoPath:"skills/engineering/e2e-draft-conflict",category:"engineering"};
+fs.writeFileSync(lockFile, JSON.stringify(lock,null,2));
+' "$tmp_dir"
 
   start_deck_ui "$tmp_dir" "$port" "$tmp_dir"
 
@@ -586,16 +597,11 @@ test_install_deck_cli_restores_from_archive() {
 
   local core_sample
   core_sample=$(< "$tmp_dir/core-sample")
-  python3 - "$tmp_dir" "$core_sample" <<'DECKPY'
-import json
-import sys
-from pathlib import Path
-
-tmp, sample = Path(sys.argv[1]), sys.argv[2]
-(tmp / "project-decks" / "e2e-install.json").write_text(
-    json.dumps({"name": "e2e-install", "skills": ["alpha", sample]}, indent=2)
-)
-DECKPY
+  bun -e '
+const fs=require("node:fs");
+const tmp=process.argv[1], sample=process.argv[2];
+fs.writeFileSync(tmp+"/project-decks/e2e-install.json", JSON.stringify({name:"e2e-install",skills:["alpha",sample]},null,2));
+' "$tmp_dir" "$core_sample"
 
   local rc
   rc=$(run_deck_cli "$tmp_dir" install-deck e2e-install)
@@ -642,16 +648,11 @@ test_install_deck_cli_rejects_bad_requests() {
   TMP_DIRS+=("$tmp_dir")
   setup_deck_fixture "$tmp_dir"
 
-  python3 - "$tmp_dir" <<'DECKPY'
-import json
-import sys
-from pathlib import Path
-
-tmp = Path(sys.argv[1])
-(tmp / "project-decks" / "e2e-unresolved.json").write_text(
-    json.dumps({"name": "e2e-unresolved", "skills": ["alpha", "nowhere"]}, indent=2)
-)
-DECKPY
+  bun -e '
+const fs=require("node:fs");
+const tmp=process.argv[1];
+fs.writeFileSync(tmp+"/project-decks/e2e-unresolved.json", JSON.stringify({name:"e2e-unresolved",skills:["alpha","nowhere"]},null,2));
+' "$tmp_dir"
 
   local rc
   rc=$(run_deck_cli "$tmp_dir" install-deck e2e-unresolved)

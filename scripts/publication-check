@@ -18,4 +18,21 @@ fi
 
 git ls-files -z | xargs -0 bash scripts/secret-scan
 
+# Python 依存の再導入を拒否する（issue #1: Bun/TypeScript 単一ランタイム化）。
+# Engine は Python を必要としない。新しい .py ファイルや python/python3/uv の
+# 実行参照が入ると、Bun のみの環境でインストール・ビルド・テストが壊れる。
+py_files=$(git ls-files -- '*.py')
+if [ -n "$py_files" ]; then
+  echo "Engine-owned Python files reintroduced:" >&2
+  echo "$py_files" >&2
+  exit 1
+fi
+
+py_refs=$(git ls-files -z | xargs -0 rg -lE '(^|[^a-zA-Z])(python3|python |uv run|uv sync|uv lock|uvx|pip install|exec python)' 2>/dev/null || true)
+if [ -n "$py_refs" ]; then
+  echo "Python/uv executable references reintroduced:" >&2
+  echo "$py_refs" >&2
+  exit 1
+fi
+
 echo "Publication checks passed"

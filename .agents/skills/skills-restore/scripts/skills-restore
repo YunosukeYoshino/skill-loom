@@ -127,11 +127,11 @@ while IFS= read -r cmd; do
   if [ "$DRY_RUN" = false ]; then
     bash -c "$cmd"
   fi
-done < <(python3 "$SCRIPT_DIR/restore-lock.py" "$LOCK_FILE")
+done < <(bun "$SCRIPT_DIR/restore-lock.ts" "$LOCK_FILE")
 
 echo ""
 echo "=== 2/3 Installing custom + vendor skills ==="
-REPO=$(python3 "$SCRIPT_DIR/lock-repo.py" "$LOCK_FILE")
+REPO=$(bun "$SCRIPT_DIR/lock-repo.ts" "$LOCK_FILE")
 run npx skills add "$REPO" --skill '*' -g -a claude-code -a codex -a antigravity -y
 
 echo ""

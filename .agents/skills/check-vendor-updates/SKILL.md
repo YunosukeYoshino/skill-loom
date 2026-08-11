@@ -28,12 +28,7 @@ test -f "$CATALOG_ROOT/skills.lock.json"
 ### Step 2: skills.lock.json の external スキル一覧を取得
 
 ```bash
-python3 -c "
-import json
-lock = json.load(open('$CATALOG_ROOT/skills.lock.json'))
-for name in sorted(lock.get('external', {})):
-    print(name)
-"
+bun "$ENGINE_ROOT/.agents/skills/check-vendor-updates/scripts/check-vendor-updates.ts" --catalog-dir "$CATALOG_ROOT"
 ```
 
 ### Step 3: bunx skills check -g で更新を実行し結果を記録
@@ -54,95 +49,17 @@ sed 's/\x1b\[[0-9;]*m//g' /tmp/skills-check.txt | grep '✓ Updated' | awk '{pri
 ### Step 4: lock.json external スキルとのクロスリファレンス
 
 ```bash
-python3 -c "
-import json, subprocess, os
-
-lock = json.load(open(os.path.expanduser('$CATALOG_ROOT/skills.lock.json')))
-external = set(lock.get('external', {}).keys())
-lock_ignored = set(lock.get('ignored', []))
-file_ignored = set()
-try:
-    ignore = json.load(open(os.path.expanduser('$CATALOG_ROOT/.skills-ignore.json')))
-    file_ignored = set(ignore.get('ignore', []))
-except: pass
-ignored = lock_ignored | file_ignored
-
-# /tmp/skills-check.txt から ANSI escape code を除去して更新済みスキルを抽出
-import re as _re
-raw = open('/tmp/skills-check.txt', 'rb').read()
-clean = _re.sub(rb'\x1b\[[0-9;]*m', b'', raw).decode('utf-8')
-updated = set()
-for line in clean.strip().split('\n'):
-    m = _re.match(r'\s*✓\s+Updated\s+([a-z][a-z0-9-]*)', line)
-    if m:
-        updated.add(m.group(1))
-
-in_lock = updated & external
-not_in_lock = updated - external - ignored
-
-print('📦 lock.json 管理かつ更新あり:')
-for s in sorted(in_lock):
-    print(f'  ✅ {s}  ({lock[\"external\"][s][\"source\"]})')
-
-if not_in_lock:
-    print()
-    print('⚠️  更新ありだが lock.json 未管理:')
-    for s in sorted(not_in_lock):
-        print(f'  ⚠️  {s}')
-
-print(f'\n→ lock.json external 全体: {len(external)} 件')
-print(f'→ 更新あり (lock管理): {len(in_lock)} 件')
-print(f'→ 更新あり (未管理): {len(not_in_lock)} 件')
-"
+bun "$ENGINE_ROOT/.agents/skills/check-vendor-updates/scripts/check-vendor-updates.ts" --catalog-dir "$CATALOG_ROOT"
 ```
+
+上記のコマンドは Step 2 / Step 4 / Step 5 の棚卸し（external 一覧・更新クロスリファレンス・未管理スキル）をまとめて出力する。`/tmp/skills-check.txt` は Step 3 の `bunx skills check -g` の出力が必要。
 
 ### Step 5: 未管理スキルの棚卸し（source 付き）
 
 インストール済みだが `skills.lock.json` にも `.skills-ignore.json` にも含まれないスキルを検出。可能であれば `~/.agents/.skill-lock.json` から source も引く:
 
 ```bash
-python3 -c "
-import json, os
-
-lock = json.load(open(os.path.expanduser('$CATALOG_ROOT/skills.lock.json')))
-external = set(lock.get('external', {}).keys())
-custom = set(lock.get('custom', {}).get('skills', {}).keys())
-vendor = set(lock.get('vendor', {}).keys())
-
-# lock.json の ignored と .skills-ignore.json の両方を参照
-lock_ignored = set(lock.get('ignored', []))
-file_ignored = set()
-try:
-    ignore = json.load(open(os.path.expanduser('$CATALOG_ROOT/.skills-ignore.json')))
-    file_ignored = set(ignore.get('ignore', []))
-except: pass
-ignored = lock_ignored | file_ignored
-
-# インストール済みスキル一覧
-installed = set(os.listdir(os.path.expanduser('~/.agents/skills')))
-installed.discard('.system')
-
-# グローバル lock から source 情報を取得
-global_lock = {}
-try:
-    global_lock = json.load(open(os.path.expanduser('~/.agents/.skill-lock.json')))
-    global_lock = global_lock.get('skills', {})
-except: pass
-
-managed = external | custom | vendor
-unmanaged = installed - managed - ignored
-
-if unmanaged:
-    print('🔍 lock.json 未管理のインストール済みスキル:')
-    for s in sorted(unmanaged):
-        source = global_lock.get(s, {}).get('source', 'unknown')
-        print(f'  ❓ {s}  ({source})')
-    print(f'\n→ {len(unmanaged)} 件が未管理です。')
-    print('  /skills-add <owner/repo> で lock.json に追加するか')
-    print('  .skills-ignore.json に追加して明示的に無視してください。')
-else:
-    print('✅ 未管理スキルはありません')
-"
+bun "$ENGINE_ROOT/.agents/skills/check-vendor-updates/scripts/check-vendor-updates.ts" --catalog-dir "$CATALOG_ROOT"
 ```
 
 ### Step 6: vendor 管理スキル一覧の取得
