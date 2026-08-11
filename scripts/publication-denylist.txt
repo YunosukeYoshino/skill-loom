@@ -1,0 +1,14 @@
+^skills\.lock\.json$
+^\.skills-ignore\.json$
+^skills/
+^vendor/
+^upstream/
+^drafts/
+^agents/
+^project-decks/
+^shared-decks/
+^publish\.json$
+^portless\.json$
+(^|/)\.env($|\.)
+\.pem$
+\.key$

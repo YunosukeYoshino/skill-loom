@@ -1,0 +1,14 @@
+#!/bin/bash
+# skills-check — スキルの整合性を確認する
+#
+# 概要:
+#   ~/.agents/.skill-lock.json、~/.agents/skills/、~/.claude/skills/ の
+#   3つの状態を照合し、過不足や不整合を検出する。
+#
+# 使い方:
+#   bash scripts/skills-check
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec python3 "$SCRIPT_DIR/check-skills.py" "$@"

@@ -1,0 +1,64 @@
+#!/bin/bash
+# skills-rollback --clean で退避したスキルをロールバックする
+#
+# 概要:
+#   skills-restore --clean が ~/.agents/skills-archive/{timestamp}/ に
+#   退避したスキルを元の場所に戻す。退避ディレクトリは復元後に削除される。
+#
+# 使い方:
+#   bash scripts/skills-rollback <timestamp>
+#   例: bash scripts/skills-rollback 20260515_190333
+#
+# 利用可能なアーカイブ一覧:
+#   ls ~/.agents/skills-archive/
+
+set -euo pipefail
+
+AGENTS_SKILLS_DIR="$HOME/.agents/skills"
+CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
+AGENTS_ARCHIVE_DIR="$HOME/.agents/skills-archive"
+
+TIMESTAMP="${1:-}"
+if [ -z "$TIMESTAMP" ]; then
+  echo "Usage: bash scripts/skills-rollback <timestamp>"
+  echo ""
+  echo "Available archives:"
+  if [ -d "$AGENTS_ARCHIVE_DIR" ]; then
+    ls -1 "$AGENTS_ARCHIVE_DIR" 2>/dev/null || echo "  (none)"
+  else
+    echo "  (no archives found)"
+  fi
+  exit 1
+fi
+
+ARCHIVE_DIR="$AGENTS_ARCHIVE_DIR/$TIMESTAMP"
+if [ ! -d "$ARCHIVE_DIR" ]; then
+  echo "Error: Archive not found at $ARCHIVE_DIR"
+  exit 1
+fi
+
+echo "=== Restoring archive: $TIMESTAMP ==="
+
+# Restore ~/.agents/skills/
+if [ -d "$ARCHIVE_DIR/agents-skills" ]; then
+  COUNT=$(ls -1 "$ARCHIVE_DIR/agents-skills/" 2>/dev/null | wc -l | tr -d ' ')
+  echo "  Restoring $COUNT items to ~/.agents/skills/"
+  mkdir -p "$AGENTS_SKILLS_DIR"
+  mv "$ARCHIVE_DIR/agents-skills/"* "$AGENTS_SKILLS_DIR/" 2>/dev/null || true
+fi
+
+# Restore ~/.claude/skills/
+if [ -d "$ARCHIVE_DIR/claude-skills" ]; then
+  COUNT=$(ls -1 "$ARCHIVE_DIR/claude-skills/" 2>/dev/null | wc -l | tr -d ' ')
+  echo "  Restoring $COUNT items to ~/.claude/skills/"
+  mkdir -p "$CLAUDE_SKILLS_DIR"
+  mv "$ARCHIVE_DIR/claude-skills/"* "$CLAUDE_SKILLS_DIR/" 2>/dev/null || true
+fi
+
+# Clean up empty archive directory
+rmdir "$ARCHIVE_DIR/agents-skills" 2>/dev/null || true
+rmdir "$ARCHIVE_DIR/claude-skills" 2>/dev/null || true
+rmdir "$ARCHIVE_DIR" 2>/dev/null || true
+
+echo ""
+echo "=== Done. Run 'npx skills ls -g' to verify. ==="

@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+violations=$(git ls-files | rg -n -f scripts/publication-denylist.txt || true)
+if [ -n "$violations" ]; then
+  echo "Publication denylist violations:" >&2
+  echo "$violations" >&2
+  exit 1
+fi
+
+git ls-files -z | xargs -0 bash scripts/secret-scan
+
+echo "Publication checks passed"

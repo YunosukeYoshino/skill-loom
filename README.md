@@ -2,69 +2,79 @@
 
 ![Skill Loom turns an Agent Skills Inventory into a runtime Projection](docs/assets/skillloom-hero.png)
 
-Skill Loom is a local Catalog and Projection manager for Agent Skills. It keeps authored Skill data separate from the reusable management engine, then applies a selected Deck as a small runtime Projection for supported agents.
+[![CI](https://github.com/YunosukeYoshino/skillloom/actions/workflows/ci.yml/badge.svg)](https://github.com/YunosukeYoshino/skillloom/actions/workflows/ci.yml)
+
+Skill Loom is a local Catalog and Projection manager for Agent Skills. It keeps private authored assets in a separate Catalog, then uses a reusable engine to project only the Skills each local agent needs.
 
 > [!IMPORTANT]
-> Skill Loom is being extracted from `my-skills`. The public interface and Catalog contract are defined, but the first standalone release is not ready yet.
+> The initial release supports macOS. Off transitions use the system Trash so Skill removal remains recoverable.
 
 ## Overview
 
-Agent Skill collections grow quickly. Keeping every Skill in every agent's runtime context makes discovery noisy and makes private material difficult to separate from reusable tooling.
+Agent Skill collections grow quickly. Loading the entire collection into every agent makes discovery noisy and couples private material to reusable tooling.
 
-Skill Loom keeps the complete Inventory in a Catalog. It then applies a Core Deck or Project Deck to produce the Active Projection used by local agents. Catalog data stays outside the engine repository and remains the Catalog owner's source of truth.
+Skill Loom separates those concerns:
+
+- The **Engine** provides the CLI, local Web UI, schemas, validation, and Projection operations.
+- A **Catalog** owns the Inventory Lock, Custom/Vendor/Upstream Skills, Drafts, Decks, and Agent definitions.
+- A **Projection** keeps a selected subset Active while retaining the rest in Archive or Off state.
 
 ## Quick Start
-
-The following workflow is the target for the first standalone release:
 
 ```bash
 git clone https://github.com/YunosukeYoshino/skillloom.git
 cd skillloom
 bun install
+bun install --cwd app/frontend
 make test
-./my-skills ui --catalog-dir examples/catalog
+./my-skills --catalog-dir examples/catalog status
+./my-skills --catalog-dir examples/catalog list
 ```
 
-Skill Loom initially supports macOS. Projection removal uses the system Trash command. Linux and Windows support are outside the first release.
+Start the local UI with the same synthetic Catalog:
+
+```bash
+./my-skills --catalog-dir examples/catalog ui
+```
 
 ## Features
 
-- Keep private Custom Skills, Vendor Skills, Draft Skills, Agents, and Decks in a separate Catalog.
 - Select a Catalog with `--catalog-dir` or `MY_SKILLS_CATALOG_DIR`.
-- Apply Core Deck and Project Deck recipes without changing Active, Archive, or Off semantics.
-- Manage the same Catalog through the CLI and local Web UI.
-- Validate Inventory Locks and reject paths that escape the Catalog Root.
-- Record optional automatic commits in the Catalog repository, not the engine repository.
+- Manage the same Inventory through the CLI and local Web UI.
+- Apply Core and Project Deck recipes without changing Active, Archive, or Off semantics.
+- Validate Inventory Lock v1 and reject absolute paths, traversal, and symlink escapes.
+- Promote Draft Skills and commit changes in the Catalog repository.
+- Restore, audit, and update External and Vendor Skills with Catalog-aware management Skills.
 
 ## Usage
 
-Use an explicit Catalog for normal commands:
+Use an explicit Catalog for scripts and automation:
 
 ```bash
 ./my-skills --catalog-dir /path/to/catalog status
 ./my-skills --catalog-dir /path/to/catalog list
-./my-skills ui --catalog-dir /path/to/catalog
+./my-skills --catalog-dir /path/to/catalog deck core
 ```
 
-Wrappers can set the Catalog once:
+Set the Catalog once for a shell session:
 
 ```bash
 export MY_SKILLS_CATALOG_DIR=/path/to/catalog
 ./my-skills status
 ```
 
-If neither option is present, Skill Loom uses the engine checkout as the Catalog Root. This fallback preserves the former colocated layout.
+If neither selector is present, the Engine checkout is used as a legacy colocated Catalog.
+
+See [Catalog contract](docs/catalog-contract.md), [security model](docs/security-model.md), and [migration guide](docs/migration.md) before connecting an existing portfolio.
 
 ## Project Structure
 
 ```text
-app/                 Engine application code and shared API contracts
-examples/catalog/    Empty synthetic Catalog for tests and onboarding
+app/                 Engine backend, Web UI, and shared API contracts
+.agents/skills/      Catalog-aware management Skills
+examples/catalog/    Empty synthetic Catalog for onboarding and smoke tests
 schemas/             Versioned Inventory Lock schemas
-skills/              Generic management Skills shipped with the engine
-tests/               CLI, HTTP, security-boundary, and smoke tests
-docs/                Catalog contract, security model, and migration guides
+scripts/             Publication and secret-scan checks
+tests/               CLI, HTTP, path-boundary, and management-script tests
+docs/                Catalog, security, and migration documentation
 ```
-
-Catalog-owned data is not stored in these directories. A Catalog contains its Inventory Lock, ignore list, Custom Skills, Vendor and Upstream trees, Draft Skills, Project Decks, Shared Decks, and Agent definitions.
-

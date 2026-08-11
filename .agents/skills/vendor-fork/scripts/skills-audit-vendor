@@ -1,0 +1,78 @@
+#!/bin/bash
+# skills-audit-vendor — vendor/（カスタマイズ版）と upstream/（オリジナル）の差分を検出する
+#
+# 概要:
+#   skills-sync-upstream 実行後に使う。外部スキルのアップストリーム更新が
+#   ローカルのカスタマイズ（vendor/）にどう影響するかを確認できる。
+#   差分がある場合は SKILL.md の diff を表示する。
+#
+# 使い方:
+#   bash scripts/skills-audit-vendor [--catalog-dir PATH]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=catalog-root.sh
+source "$SCRIPT_DIR/catalog-root.sh"
+
+CATALOG_ROOT="${MY_SKILLS_CATALOG_DIR:-}"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --catalog-dir)
+      [ "$#" -ge 2 ] || { echo "Error: --catalog-dir requires a path" >&2; exit 2; }
+      CATALOG_ROOT="$2"
+      shift 2
+      ;;
+    --catalog-dir=*)
+      CATALOG_ROOT="${1#*=}"
+      shift
+      ;;
+    *)
+      echo "Error: unexpected argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+CATALOG_ROOT="$(resolve_catalog_root "$CATALOG_ROOT")"
+VENDOR_DIR="$CATALOG_ROOT/vendor"
+UPSTREAM_DIR="$CATALOG_ROOT/upstream"
+
+has_diff=0
+no_diff=0
+missing=0
+
+for vendor_skill in "$VENDOR_DIR"/*/; do
+  [ ! -d "$vendor_skill" ] && continue
+  skill_name=$(basename "$vendor_skill")
+  upstream="$UPSTREAM_DIR/$skill_name"
+
+  if [ ! -d "$upstream" ]; then
+    echo "MISSING: upstream/$skill_name/ (run skills-sync-upstream first)"
+    missing=$((missing + 1))
+    continue
+  fi
+
+  diff_output=$(diff -rq "$upstream" "$vendor_skill" 2>/dev/null || true)
+  if [ -n "$diff_output" ]; then
+    echo "CHANGED: $skill_name"
+    diff -ru "$upstream/SKILL.md" "$vendor_skill/SKILL.md" 2>/dev/null | head -30 || true
+    echo "---"
+    has_diff=$((has_diff + 1))
+  else
+    echo "OK:      $skill_name (no upstream changes)"
+    no_diff=$((no_diff + 1))
+  fi
+done
+
+echo ""
+echo "=== Summary ==="
+echo "Changed: $has_diff (review needed)"
+echo "OK:      $no_diff"
+echo "Missing: $missing"
+
+if [ "$has_diff" -gt 0 ]; then
+  echo ""
+  echo "To see full diff: diff -ru upstream/<name>/SKILL.md vendor/<name>/SKILL.md"
+  echo "After merging: commit vendor/ and upstream/ together."
+fi

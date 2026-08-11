@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "custom": {
+    "repo": "your-org/your-catalog",
+    "skills": {}
+  },
+  "external": {},
+  "vendor": {}
+}

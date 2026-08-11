@@ -1,0 +1,110 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+@theme {
+  --color-paper: var(--color-paper);
+  --color-paper-2: var(--color-paper-2);
+  --color-paper-3: var(--color-paper-3);
+  --color-ink: var(--color-ink);
+  --color-ink-2: var(--color-ink-2);
+  --color-rule: var(--color-rule);
+  --color-rule-strong: var(--color-rule-strong);
+  --color-accent: var(--color-accent);
+  --color-accent-hover: var(--color-accent-hover);
+  --color-accent-soft: var(--color-accent-soft);
+  --color-accent-ink: var(--color-accent-ink);
+  --color-warn: var(--color-warn);
+  --color-warn-soft: var(--color-warn-soft);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font: var(--text-md) / 1.47 var(--font-body);
+  letter-spacing: -0.01em;
+  background:
+    radial-gradient(900px 420px at 12% -8%, oklch(54% 0.19 250 / 0.12), transparent 55%),
+    radial-gradient(700px 360px at 100% 0%, oklch(70% 0.08 250 / 0.08), transparent 50%),
+    var(--color-paper);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Instant press feedback — pointer-down, not release */
+button,
+a,
+[role="button"],
+label {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Skeleton — subtle opacity pulse; static blocks under prefers-reduced-motion */
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.52;
+  }
+}
+
+.skeleton-pulse {
+  animation: skeleton-pulse 1.25s var(--ease-in-out) infinite;
+}
+
+.skeleton-block {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--color-paper-3) 0%,
+    var(--color-paper-2) 50%,
+    var(--color-paper-3) 100%
+  );
+  background-size: 200% 100%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton-block {
+    animation: skeleton-pulse 1.25s var(--ease-in-out) infinite;
+  }
+}
+
+@keyframes action-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.action-status-spinner {
+  animation: action-spin 0.75s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .action-status-spinner {
+    animation: none;
+    border-top-color: var(--color-accent);
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Skill Loom Inventory Lock v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "custom", "external", "vendor"],
+  "properties": {
+    "version": { "const": 1 },
+    "custom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo", "skills"],
+      "properties": {
+        "repo": { "type": "string" },
+        "skills": {
+          "type": "object",
+          "propertyNames": { "minLength": 1 },
+          "additionalProperties": { "$ref": "#/$defs/customSkill" }
+        }
+      }
+    },
+    "external": {
+      "type": "object",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": { "$ref": "#/$defs/externalSkill" }
+    },
+    "vendor": {
+      "type": "object",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": { "$ref": "#/$defs/vendorSkill" }
+    }
+  },
+  "$defs": {
+    "customSkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repoPath", "category"],
+      "properties": {
+        "repoPath": { "type": "string" },
+        "category": { "type": "string" }
+      }
+    },
+    "externalSkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "sourceUrl", "skillPath"],
+      "properties": {
+        "source": { "type": "string" },
+        "sourceUrl": { "type": "string" },
+        "skillPath": { "type": "string" },
+        "localRepoPath": { "type": "string" },
+        "installSkill": { "type": "string" },
+        "category": { "type": "string" }
+      }
+    },
+    "vendorSkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": { "type": "string" },
+        "sourceUrl": { "type": "string" },
+        "skillPath": { "type": "string" },
+        "localRepoPath": { "type": "string" }
+      }
+    }
+  }
+}

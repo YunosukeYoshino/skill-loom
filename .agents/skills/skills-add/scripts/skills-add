@@ -1,0 +1,218 @@
+#!/bin/bash
+# skills-add — 外部スキルをインストールして skills.lock.json に自動登録する
+#
+# 概要:
+#   指定した GitHub リポジトリから bunx skills add でスキルをインストールし、
+#   新規に追加されたスキルを skills.lock.json の external セクションに登録する。
+#   GitHub API で SKILL.md の name フィールドを照合し、正しい skillPath を解決する。
+#   デフォルトで git commit まで実行する（--no-commit でスキップ可能）。
+#
+# 使い方:
+#   bash scripts/skills-add [--catalog-dir PATH] <url-or-owner/repo> [--skill <name>] [--no-commit]
+
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENGINE_ROOT="$(git -C "$DIR" rev-parse --show-toplevel)"
+CATALOG_ROOT="${MY_SKILLS_CATALOG_DIR:-}"
+# shellcheck source=run-skills-cli.sh
+source "$DIR/run-skills-cli.sh"
+
+# --- Argument parsing ---
+URL=""
+NO_COMMIT=false
+SKILL_FILTERS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --catalog-dir)
+            [ "$#" -ge 2 ] || { echo "Error: --catalog-dir requires a path" >&2; exit 2; }
+            CATALOG_ROOT="$2"
+            shift 2
+            ;;
+        --catalog-dir=*) CATALOG_ROOT="${1#*=}"; shift ;;
+        --no-commit) NO_COMMIT=true; shift ;;
+        --skill) SKILL_FILTERS+=("$2"); shift 2 ;;
+        *) URL="$1"; shift ;;
+    esac
+done
+
+: "${URL:?Usage: skills-add [--catalog-dir PATH] <url-or-owner/repo> [--skill <name>] [--no-commit]}"
+if [ -z "$CATALOG_ROOT" ]; then
+    CATALOG_ROOT="$(git rev-parse --show-toplevel)"
+fi
+[ -d "$CATALOG_ROOT" ] || { echo "Error: Catalog directory not found: $CATALOG_ROOT" >&2; exit 1; }
+CATALOG_ROOT="$(cd "$CATALOG_ROOT" && pwd -P)"
+LOCK_FILE="$CATALOG_ROOT/skills.lock.json"
+IGNORE_FILE="$CATALOG_ROOT/.skills-ignore.json"
+
+# --- Normalize URL to owner/repo ---
+OWNER_REPO=$(python3 "$DIR/normalize-github-url.py" "$URL")
+SOURCE_URL="https://github.com/${OWNER_REPO}.git"
+
+echo "=== Installing ${OWNER_REPO} ==="
+
+# --- Temp files ---
+BEFORE_FILE=$(mktemp)
+AFTER_FILE=$(mktemp)
+TREE_FILE=$(mktemp)
+trap 'rm -f "$BEFORE_FILE" "$AFTER_FILE" "$TREE_FILE"' EXIT
+
+# --- Snapshot before ---
+mkdir -p "$HOME/.agents/skills"
+ls "$HOME/.agents/skills/" | grep -v '^\.' | sort > "$BEFORE_FILE"
+
+# --- Run skills add (bunx with npx fallback) ---
+if [ "${#SKILL_FILTERS[@]}" -gt 0 ]; then
+    SKILL_ARGS=()
+    for skill in "${SKILL_FILTERS[@]}"; do
+        SKILL_ARGS+=(--skill "$skill")
+    done
+    skills_cli add "$OWNER_REPO" "${SKILL_ARGS[@]}" -g -a claude-code -a codex -a antigravity -y
+else
+    skills_cli add "$OWNER_REPO" -g -a claude-code -a codex -a antigravity -y
+fi
+
+# --- Link Claude/Gemini to ~/.agents/skills (skills CLI skips ~/.gemini/config/skills) ---
+link_agent_skill_dirs() {
+    local skill_name="$1"
+    [ -n "$skill_name" ] || return 0
+    [ -d "$HOME/.agents/skills/$skill_name" ] || return 0
+    "$ENGINE_ROOT/my-skills" --catalog-dir "$CATALOG_ROOT" link-agents "$skill_name"
+}
+
+if [ "${#SKILL_FILTERS[@]}" -gt 0 ]; then
+    for skill in "${SKILL_FILTERS[@]}"; do
+        link_agent_skill_dirs "$skill"
+    done
+fi
+
+# --- Snapshot after ---
+ls "$HOME/.agents/skills/" | grep -v '^\.' | sort > "$AFTER_FILE"
+
+# --- Find new skills ---
+NEW_SKILLS=$(comm -13 "$BEFORE_FILE" "$AFTER_FILE" || true)
+
+if [ "${#SKILL_FILTERS[@]}" -eq 0 ]; then
+    while IFS= read -r skill_name; do
+        link_agent_skill_dirs "$skill_name"
+    done <<< "$NEW_SKILLS"
+fi
+
+# Skills to register in lock (include pre-installed targets from --skill filters)
+REGISTER_TARGETS=()
+if [ "${#SKILL_FILTERS[@]}" -gt 0 ]; then
+    for skill in "${SKILL_FILTERS[@]}"; do
+        if [ -d "$HOME/.agents/skills/$skill" ]; then
+            REGISTER_TARGETS+=("$skill")
+        fi
+    done
+else
+    while IFS= read -r skill_name; do
+        [ -n "$skill_name" ] && REGISTER_TARGETS+=("$skill_name")
+    done <<< "$NEW_SKILLS"
+fi
+
+if [ "${#REGISTER_TARGETS[@]}" -eq 0 ]; then
+    if [ -z "$NEW_SKILLS" ]; then
+        echo "No new skills installed (already up to date)."
+    else
+        echo "No skills to register."
+    fi
+    exit 0
+fi
+
+if [ -z "$NEW_SKILLS" ]; then
+    echo "Skills already installed globally; checking lock registration..."
+fi
+
+echo ""
+echo "=== Registering in skills.lock.json ==="
+
+# --- Fetch repo tree once ---
+echo "  Fetching repo tree from GitHub..."
+HAS_TREE=false
+if gh api "repos/${OWNER_REPO}/git/trees/HEAD?recursive=1" > "$TREE_FILE" 2>/dev/null; then
+    HAS_TREE=true
+else
+    echo "  Warning: Could not fetch repo tree. Will use pattern matching for skillPath."
+fi
+
+# --- Process each skill target ---
+REGISTERED_NAMES=()
+
+for skill_name in "${REGISTER_TARGETS[@]}"; do
+    echo ""
+    echo "  Processing: $skill_name"
+
+    # Check ignore list
+    in_ignore=$(python3 -c "
+import json, sys
+skill = sys.argv[1]
+try:
+    data = json.load(open(sys.argv[2]))
+    print('yes' if skill in data.get('ignore', []) else 'no')
+except Exception:
+    print('no')
+" "$skill_name" "$IGNORE_FILE")
+    if [ "$in_ignore" = "yes" ]; then
+        echo "  → Skipping (in .skills-ignore.json)"
+        continue
+    fi
+
+    # Check already in lock
+    already=$(python3 -c "
+import json, sys
+skill = sys.argv[1]
+lock = json.load(open(sys.argv[2]))
+all_skills = set(lock.get('external', {}).keys()) | set(lock.get('custom', {}).get('skills', {}).keys()) | set(lock.get('vendor', {}))
+print('yes' if skill in all_skills else 'no')
+" "$skill_name" "$LOCK_FILE")
+    if [ "$already" = "yes" ]; then
+        echo "  → Already in skills.lock.json, skipping"
+        continue
+    fi
+
+    # Resolve skillPath via GitHub API
+    SKILL_PATH=""
+    if [ "$HAS_TREE" = "true" ]; then
+        SKILL_PATH=$(SKILL_NAME="$skill_name" OWNER_REPO="$OWNER_REPO" TREE_FILE="$TREE_FILE" \
+            python3 "$DIR/resolve-skill-path.py" 2>/dev/null) || true
+    fi
+
+    # Fallback: pattern matching
+    if [ -z "$SKILL_PATH" ]; then
+        if [ "$HAS_TREE" = "true" ]; then
+            echo "  Warning: skillPath not resolved via API, using pattern matching"
+        fi
+        SKILL_PATH="skills/${skill_name}/SKILL.md"
+    fi
+
+    echo "  → skillPath: $SKILL_PATH"
+
+    # Register in skills.lock.json
+    python3 "$DIR/register-skill-lock.py" "$LOCK_FILE" "$skill_name" "$OWNER_REPO" "$SOURCE_URL" "$SKILL_PATH"
+
+    REGISTERED_NAMES+=("$skill_name")
+
+done
+
+# --- Summary & commit ---
+if [ "${#REGISTERED_NAMES[@]}" -eq 0 ]; then
+    echo ""
+    echo "No new skills registered."
+    exit 0
+fi
+
+NAMES_STR=$(printf "%s, " "${REGISTERED_NAMES[@]}")
+NAMES_STR="${NAMES_STR%, }"
+
+if [ "$NO_COMMIT" = false ]; then
+    git -C "$CATALOG_ROOT" add skills.lock.json
+    git -C "$CATALOG_ROOT" commit -m "chore: add ${NAMES_STR} to skills.lock.json"
+    echo ""
+    echo "=== Done: committed ${NAMES_STR} ==="
+else
+    echo ""
+    echo "=== Done: registered ${NAMES_STR} (--no-commit, commit skipped) ==="
+fi

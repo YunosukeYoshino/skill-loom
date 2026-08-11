@@ -1,0 +1,109 @@
+#!/bin/bash
+# skills-sync-upstream — bunx skills update 後に upstream/ を最新の外部スキルで更新する
+#
+# 概要:
+#   npx/bunx skills update で外部スキルを更新した後に実行する。
+#   vendor/ にフォーク済みのスキルについて、lock の external source から
+#   クリーンな upstream を一時 HOME にインストールして upstream/ にコピーする。
+#   ~/.agents/skills の vendor 版をそのままコピーしない。
+#
+# 使い方:
+#   bash scripts/skills-sync-upstream [--catalog-dir PATH]
+
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=catalog-root.sh
+source "$DIR/catalog-root.sh"
+# shellcheck source=../../skills-add/scripts/run-skills-cli.sh
+source "$DIR/../../skills-add/scripts/run-skills-cli.sh"
+
+CATALOG_ROOT="${MY_SKILLS_CATALOG_DIR:-}"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --catalog-dir)
+      [ "$#" -ge 2 ] || { echo "Error: --catalog-dir requires a path" >&2; exit 2; }
+      CATALOG_ROOT="$2"
+      shift 2
+      ;;
+    --catalog-dir=*)
+      CATALOG_ROOT="${1#*=}"
+      shift
+      ;;
+    *)
+      echo "Error: unexpected argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+CATALOG_ROOT="$(resolve_catalog_root "$CATALOG_ROOT")"
+LOCK_FILE="$CATALOG_ROOT/skills.lock.json"
+VENDOR_DIR="$CATALOG_ROOT/vendor"
+UPSTREAM_DIR="$CATALOG_ROOT/upstream"
+TRASH_BIN="${MY_SKILLS_TRASH_BIN:-/usr/bin/trash}"
+
+updated=0
+skipped=0
+
+lookup_external_source() {
+    local skill_name="$1"
+    python3 - "$LOCK_FILE" "$skill_name" <<'PY'
+import json
+import sys
+
+lock = json.load(open(sys.argv[1]))
+name = sys.argv[2]
+meta = lock.get("external", {}).get(name, {})
+print(meta.get("source", ""))
+PY
+}
+
+sync_upstream_skill() {
+    local skill_name="$1"
+    local source="$2"
+    local upstream="$UPSTREAM_DIR/$skill_name"
+    local tmp_home
+    tmp_home=$(mktemp -d)
+
+    if ! HOME="$tmp_home" skills_cli add "$source" --skill "$skill_name" -g -y >/dev/null; then
+        "$TRASH_BIN" "$tmp_home"
+        return 1
+    fi
+
+    if [ ! -d "$tmp_home/.agents/skills/$skill_name" ]; then
+        "$TRASH_BIN" "$tmp_home"
+        return 1
+    fi
+
+    [ ! -e "$upstream" ] || "$TRASH_BIN" "$upstream"
+    cp -R "$tmp_home/.agents/skills/$skill_name" "$upstream"
+    "$TRASH_BIN" "$tmp_home"
+    return 0
+}
+
+for vendor_skill in "$VENDOR_DIR"/*/; do
+  [ ! -d "$vendor_skill" ] && continue
+  skill_name=$(basename "$vendor_skill")
+  upstream="$UPSTREAM_DIR/$skill_name"
+  source=$(lookup_external_source "$skill_name")
+
+  if [ -z "$source" ]; then
+    echo "WARN: $skill_name has no external source in skills.lock.json, skipping"
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  if ! sync_upstream_skill "$skill_name" "$source"; then
+    echo "WARN: failed to sync upstream/$skill_name from $source"
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  echo "synced: upstream/$skill_name/ (from $source)"
+  updated=$((updated + 1))
+done
+
+echo ""
+echo "Synced $updated upstream skills ($skipped skipped)"
+echo "Run: bash $DIR/skills-audit-vendor --catalog-dir $CATALOG_ROOT"

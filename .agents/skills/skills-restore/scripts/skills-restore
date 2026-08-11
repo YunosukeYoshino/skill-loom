@@ -1,0 +1,155 @@
+#!/bin/bash
+# skills-restore — skills.lock.json から全スキルを一括リストアする
+#
+# 概要:
+#   このリポジトリの single source of truth (skills.lock.json) に基づいて、
+#   外部スキル → カスタム+ベンダースキル → エージェント定義の順でインストールする。
+#   カスタムスキルが最後にインストールされるため、外部スキルを上書きできる。
+#
+# オプション:
+#   --dry-run    変更を加えず、実行内容をプレビューする
+#   --clean      既存のスキルを ~/.agents/skills-archive/ に退避してから
+#                まっさらな状態でリストアする（.system と外部シンボリックリンクは保護）
+#                ロールバック: bash scripts/skills-rollback <timestamp>
+#
+# 使い方:
+#   bash scripts/skills-restore [--catalog-dir PATH]              # 通常リストア（冪等）
+#   bash scripts/skills-restore --catalog-dir PATH --dry-run      # プレビューのみ
+#   bash scripts/skills-restore --catalog-dir PATH --clean        # 退避 → まっさらにリストア
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CATALOG_ROOT="${MY_SKILLS_CATALOG_DIR:-}"
+
+AGENTS_SKILLS_DIR="$HOME/.agents/skills"
+CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
+AGENTS_ARCHIVE_DIR="$HOME/.agents/skills-archive"
+
+DRY_RUN=false
+CLEAN=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --catalog-dir)
+      [ "$#" -ge 2 ] || { echo "Error: --catalog-dir requires a path" >&2; exit 2; }
+      CATALOG_ROOT="$2"
+      shift 2
+      ;;
+    --catalog-dir=*) CATALOG_ROOT="${1#*=}"; shift ;;
+    --dry-run) DRY_RUN=true; shift ;;
+    --clean) CLEAN=true; shift ;;
+    *) echo "Error: unexpected argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+if [ -z "$CATALOG_ROOT" ]; then
+  CATALOG_ROOT="$(git rev-parse --show-toplevel)"
+fi
+[ -d "$CATALOG_ROOT" ] || { echo "Error: Catalog directory not found: $CATALOG_ROOT" >&2; exit 1; }
+CATALOG_ROOT="$(cd "$CATALOG_ROOT" && pwd -P)"
+LOCK_FILE="$CATALOG_ROOT/skills.lock.json"
+
+if [ ! -f "$LOCK_FILE" ]; then
+  echo "Error: $LOCK_FILE not found"
+  exit 1
+fi
+
+run() {
+  if [ "$DRY_RUN" = true ]; then
+    echo "[dry-run] $*"
+  else
+    "$@"
+  fi
+}
+
+# --- Clean mode: archive existing skills before restore ---
+if [ "$CLEAN" = true ]; then
+  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+  ARCHIVE_DIR="$AGENTS_ARCHIVE_DIR/$TIMESTAMP"
+
+  echo "=== 0/4 Archiving existing skills ==="
+
+  # Archive ~/.agents/skills/ (preserve .system and external symlinks)
+  if [ -d "$AGENTS_SKILLS_DIR" ]; then
+    run mkdir -p "$ARCHIVE_DIR"
+    run mkdir -p "$ARCHIVE_DIR/agents-skills"
+
+    echo "  Archiving ~/.agents/skills/ → $ARCHIVE_DIR/agents-skills/"
+    if [ "$DRY_RUN" = false ]; then
+      # Move all items except .system
+      for item in "$AGENTS_SKILLS_DIR"/*; do
+        [ -e "$item" ] || continue
+        basename_item=$(basename "$item")
+        if [ "$basename_item" = ".system" ]; then
+          continue
+        fi
+        mv "$item" "$ARCHIVE_DIR/agents-skills/"
+      done
+    fi
+  fi
+
+  # Archive ~/.claude/skills/ (preserve .system and non-symlink items)
+  if [ -d "$CLAUDE_SKILLS_DIR" ]; then
+    run mkdir -p "$ARCHIVE_DIR/claude-skills"
+
+    echo "  Archiving ~/.claude/skills/ → $ARCHIVE_DIR/claude-skills/"
+    if [ "$DRY_RUN" = false ]; then
+      # Remove all symlinks (they'll be recreated by bunx skills add)
+      for item in "$CLAUDE_SKILLS_DIR"/*; do
+        [ -e "$item" ] || continue
+        basename_item=$(basename "$item")
+        if [ "$basename_item" = ".system" ]; then
+          continue
+        fi
+        if [ -L "$item" ]; then
+          # Symlink — archive the symlink itself
+          mv "$item" "$ARCHIVE_DIR/claude-skills/"
+        else
+          # Non-symlink directory — archive it
+          mv "$item" "$ARCHIVE_DIR/claude-skills/"
+        fi
+      done
+    fi
+  fi
+
+  echo ""
+  echo "  Archived to: $ARCHIVE_DIR/"
+  echo "  To rollback: bash scripts/skills-rollback $TIMESTAMP"
+  echo ""
+fi
+
+echo "=== 1/3 Installing external skills ==="
+# Group by source and install (using Python helper)
+while IFS= read -r cmd; do
+  [ -z "$cmd" ] && continue
+  echo "  $cmd"
+  if [ "$DRY_RUN" = false ]; then
+    bash -c "$cmd"
+  fi
+done < <(python3 "$SCRIPT_DIR/restore-lock.py" "$LOCK_FILE")
+
+echo ""
+echo "=== 2/3 Installing custom + vendor skills ==="
+REPO=$(python3 "$SCRIPT_DIR/lock-repo.py" "$LOCK_FILE")
+run npx skills add "$REPO" --skill '*' -g -a claude-code -a codex -a antigravity -y
+
+echo ""
+echo "=== 3/3 Installing agents ==="
+CATALOG_AGENTS_DIR="$CATALOG_ROOT/agents"
+if [ -d "$CATALOG_AGENTS_DIR" ]; then
+  if [ "$DRY_RUN" = true ]; then
+    echo "[dry-run] copy $CATALOG_AGENTS_DIR/ to $HOME/.claude/agents/"
+  else
+    mkdir -p "$HOME/.claude/agents"
+    cp -R "$CATALOG_AGENTS_DIR/." "$HOME/.claude/agents/"
+  fi
+else
+  echo "  No Catalog agents directory; skipping"
+fi
+
+echo ""
+echo "=== Done ==="
+if [ "$DRY_RUN" = false ]; then
+  npx skills ls -g
+fi

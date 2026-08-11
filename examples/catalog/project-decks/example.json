@@ -1,0 +1,6 @@
+{
+  "name": "example",
+  "description": "Minimal Project Deck for a new Catalog",
+  "extends": ["core"],
+  "skills": []
+}

@@ -1,0 +1,66 @@
+#!/bin/bash
+# skills-vendor-fork — 外部スキルを vendor/ にフォークしてカスタマイズ可能にする
+#
+# 概要:
+#   インストール済みの外部スキルを upstream/（オリジナルのベースライン）と
+#   vendor/（編集用コピー）に複製する。vendor/ の SKILL.md を編集することで、
+#   外部スキルをローカルにカスタマイズできる。bunx skills add は vendor/ を
+#   外部オリジナルより優先してインストールする。
+#
+# 使い方:
+#   bash scripts/skills-vendor-fork [--catalog-dir PATH] <skill-name>
+#   例: bash scripts/skills-vendor-fork --catalog-dir ~/my-catalog copywriting
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=catalog-root.sh
+source "$SCRIPT_DIR/catalog-root.sh"
+
+CATALOG_ROOT="${MY_SKILLS_CATALOG_DIR:-}"
+SKILL_NAME=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --catalog-dir)
+      [ "$#" -ge 2 ] || { echo "Error: --catalog-dir requires a path" >&2; exit 2; }
+      CATALOG_ROOT="$2"
+      shift 2
+      ;;
+    --catalog-dir=*)
+      CATALOG_ROOT="${1#*=}"
+      shift
+      ;;
+    *)
+      [ -z "$SKILL_NAME" ] || { echo "Error: unexpected argument: $1" >&2; exit 2; }
+      SKILL_NAME="$1"
+      shift
+      ;;
+  esac
+done
+
+: "${SKILL_NAME:?Usage: skills-vendor-fork [--catalog-dir PATH] <skill-name>}"
+CATALOG_ROOT="$(resolve_catalog_root "$CATALOG_ROOT")"
+
+VENDOR_DIR="$CATALOG_ROOT/vendor/$SKILL_NAME"
+UPSTREAM_DIR="$CATALOG_ROOT/upstream/$SKILL_NAME"
+INSTALLED_DIR="$HOME/.agents/skills/$SKILL_NAME"
+
+if [ ! -d "$INSTALLED_DIR" ]; then
+  echo "Error: $SKILL_NAME is not installed in ~/.agents/skills/"
+  exit 1
+fi
+
+if [ -d "$VENDOR_DIR" ]; then
+  echo "Error: vendor/$SKILL_NAME already exists. Use skills-audit-vendor to check for updates."
+  exit 1
+fi
+
+mkdir -p "$CATALOG_ROOT/vendor" "$CATALOG_ROOT/upstream"
+cp -R "$INSTALLED_DIR" "$UPSTREAM_DIR"
+cp -R "$INSTALLED_DIR" "$VENDOR_DIR"
+
+echo "Forked $SKILL_NAME:"
+echo "  upstream/$SKILL_NAME/  (baseline, do not edit)"
+echo "  vendor/$SKILL_NAME/    (edit this)"
+echo ""
+echo "Next: edit vendor/$SKILL_NAME/SKILL.md, then commit and reinstall."
