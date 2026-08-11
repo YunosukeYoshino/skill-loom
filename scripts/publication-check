@@ -9,7 +9,12 @@ if [ ! -f LICENSE ]; then
   exit 1
 fi
 
-violations=$(git ls-files | rg -n -f scripts/publication-denylist.txt || true)
+# Prefer rg when available (faster locally); fall back to grep for CI images without ripgrep.
+if command -v rg >/dev/null 2>&1; then
+  violations=$(git ls-files | rg -n -f scripts/publication-denylist.txt || true)
+else
+  violations=$(git ls-files | grep -nE -f scripts/publication-denylist.txt || true)
+fi
 if [ -n "$violations" ]; then
   echo "Publication denylist violations:" >&2
   echo "$violations" >&2
@@ -17,5 +22,44 @@ if [ -n "$violations" ]; then
 fi
 
 git ls-files -z | xargs -0 bash scripts/secret-scan
+
+# Reject reintroduced Engine Python deps (issue #1: Bun/TypeScript sole runtime).
+# New .py files or executable references to the old runtime break Bun-only install/test.
+py_files=$(git ls-files -- '*.py')
+if [ -n "$py_files" ]; then
+  echo "Engine-owned Python files reintroduced:" >&2
+  echo "$py_files" >&2
+  exit 1
+fi
+
+# Scan for executable Python/uv references. Exit 0=match, 1=none, >=2=error.
+# Drop this script from the input set so the pattern literal does not self-match.
+PY_REF_PATTERN='(^|[^a-zA-Z])(python3|python |uv run|uv sync|uv lock|uvx|pip install|exec python)'
+set +e
+if command -v rg >/dev/null 2>&1; then
+  py_refs=$(
+    git ls-files -z \
+      | grep -vzE '^(scripts/publication-check)$' \
+      | xargs -0 rg -l -e "$PY_REF_PATTERN"
+  )
+  scan_status=$?
+else
+  py_refs=$(
+    git ls-files -z \
+      | grep -vzE '^(scripts/publication-check)$' \
+      | xargs -0 grep -lE "$PY_REF_PATTERN"
+  )
+  scan_status=$?
+fi
+set -e
+if [ "$scan_status" -ge 2 ]; then
+  echo "publication-check: failed to scan for Python/uv references (scan exit $scan_status)" >&2
+  exit 1
+fi
+if [ "$scan_status" -eq 0 ] && [ -n "$py_refs" ]; then
+  echo "Python/uv executable references reintroduced:" >&2
+  echo "$py_refs" >&2
+  exit 1
+fi
 
 echo "Publication checks passed"

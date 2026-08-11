@@ -237,8 +237,8 @@ test_ui_starts_specific_port() {
 
 test_no_script_shells_out_to_deleted_python_cli() {
   echo "Running test_no_script_shells_out_to_deleted_python_cli..."
-  # bin/my-skills.py は #75 で削除された。残存スクリプトがここへ python3 を当てて
-  # いると、skills-add の install が終わったあとで exit 2 で落ちる（実例: gh-stack 取り込み）。
+  # bin/my-skills.py は #75 で削除された。残存スクリプトが削除済み CLI を呼び続けると、
+  # skills-add の install が終わったあとで exit 2 で落ちる（実例: gh-stack 取り込み）。
   # CLI の入口は ./skill-loom (TypeScript) なので、実行参照が残っていないか固定する。
   local hits
   hits=$(rg -n 'bin/my-skills\.py' \

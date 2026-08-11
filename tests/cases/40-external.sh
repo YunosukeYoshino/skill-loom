@@ -310,26 +310,15 @@ exit 0
 SH
   chmod +x "$stub"
   : > "$args_file"
-  python3 - <<'PY' > "$fixture"
-import hashlib
-import json
-
-candidates = [
-    {
-        "name": "alpha",
-        "description": "Fixture installed skill",
-        "path": "skills/alpha/SKILL.md",
-        "contentHash": hashlib.sha256(b"remote alpha\n").hexdigest(),
-    },
-    {
-        "name": "beta",
-        "description": "Fixture installed skill",
-        "path": "skills/beta/SKILL.md",
-        "contentHash": hashlib.sha256(b"remote beta\n").hexdigest(),
-    },
-]
-print(json.dumps(candidates))
-PY
+  bun -e '
+const crypto=require("node:crypto");
+const h=s=>crypto.createHash("sha256").update(s).digest("hex");
+const candidates=[
+  {"name":"alpha","description":"Fixture installed skill","path":"skills/alpha/SKILL.md","contentHash":h("remote alpha\n")},
+  {"name":"beta","description":"Fixture installed skill","path":"skills/beta/SKILL.md","contentHash":h("remote beta\n")},
+];
+process.stdout.write(JSON.stringify(candidates));
+' > "$fixture"
 
   MY_SKILLS_LOCK_FILE="$lock_file" \
     MY_SKILLS_ACTIVE_DIR="$active_dir" MY_SKILLS_ARCHIVE_DIR="$archive_dir" \

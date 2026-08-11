@@ -24,7 +24,7 @@ done
 
 echo ""
 echo "=== skill management script tests ==="
-python3 tests/test_skill_management_scripts.py
+bun test tests/management-skills.test.ts
 
 echo ""
 echo "${TOTAL} tests: ${PASS} passed, ${FAIL} failed"

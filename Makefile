@@ -10,11 +10,10 @@ build:
 typecheck:
 	bunx tsc --noEmit -p tsconfig.json
 	cd app/frontend && bun run typecheck
-	uv run --extra dev ty check .agents/skills/*/scripts/
 
 test:
 	bun test app/backend/
-	uv run --python 3.11 bash tests/test-skill-loom.sh
+	bash tests/test-skill-loom.sh
 
 publication-check:
 	bash scripts/publication-check

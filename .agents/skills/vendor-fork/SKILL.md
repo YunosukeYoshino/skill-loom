@@ -23,12 +23,8 @@ description: "外部skillをフォークしてカスタマイズ (description日
 
 ```bash
 # .skill-lock.json で source が my-skills でないことを確認
-python3 -c "
-import json, os
-lock = json.load(open(os.path.expanduser('~/.agents/.skill-lock.json')))
-skill = lock['skills'].get('{skill-name}', {})
-print(f'Source: {skill.get(\"source\", \"NOT FOUND\")}')
-"
+bun "$ENGINE_ROOT/.agents/skills/vendor-fork/scripts/lock-lookup.ts" \
+  global-source '{skill-name}'
 ```
 
 既に `$CATALOG_ROOT/vendor/{skill-name}` が存在する場合はエラー。
@@ -77,7 +73,7 @@ git -C "$CATALOG_ROOT" commit -m "feat: vendor {skill-name}"
 ### Step 6: インストール (上書き)
 
 ```bash
-CUSTOM_REPO=$(python3 "$ENGINE_ROOT/.agents/skills/skills-restore/scripts/lock-repo.py" \
+CUSTOM_REPO=$(bun "$ENGINE_ROOT/.agents/skills/skills-restore/scripts/lock-repo.ts" \
   "$CATALOG_ROOT/skills.lock.json")
 bunx skills add "$CUSTOM_REPO" --skill {skill-name} -g -a claude-code -a codex -a antigravity -y
 ```

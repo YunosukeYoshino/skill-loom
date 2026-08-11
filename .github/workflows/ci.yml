@@ -15,10 +15,6 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - uses: astral-sh/setup-uv@v6
       - run: bun install --frozen-lockfile
       - run: bun install --cwd app/frontend --frozen-lockfile
       - run: make typecheck
