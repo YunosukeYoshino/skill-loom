@@ -5,11 +5,31 @@
     "skills": {}
   },
   "external": {
+    "animate": {
+      "source": "emilkowalski/skills",
+      "sourceUrl": "https://github.com/emilkowalski/skills.git",
+      "skillPath": "skills/animate/SKILL.md"
+    },
+    "animation-vocabulary": {
+      "source": "emilkowalski/skills",
+      "sourceUrl": "https://github.com/emilkowalski/skills.git",
+      "skillPath": "skills/animation-vocabulary/SKILL.md"
+    },
+    "apple-design": {
+      "source": "emilkowalski/skills",
+      "sourceUrl": "https://github.com/emilkowalski/skills.git",
+      "skillPath": "skills/apple-design/SKILL.md"
+    },
     "ask-matt": {
       "source": "mattpocock/skills",
       "sourceUrl": "https://github.com/mattpocock/skills.git",
       "skillPath": "skills/engineering/ask-matt/SKILL.md",
       "category": "engineering"
+    },
+    "ask-sonner": {
+      "source": "emilkowalski/skills",
+      "sourceUrl": "https://github.com/emilkowalski/skills.git",
+      "skillPath": "skills/ask-sonner/SKILL.md"
     },
     "code-review": {
       "source": "mattpocock/skills",
@@ -34,6 +54,16 @@
       "sourceUrl": "https://github.com/mattpocock/skills.git",
       "skillPath": "skills/engineering/domain-modeling/SKILL.md",
       "category": "engineering"
+    },
+    "emil-design-eng": {
+      "source": "emilkowalski/skills",
+      "sourceUrl": "https://github.com/emilkowalski/skills.git",
+      "skillPath": "skills/emil-design-eng/SKILL.md"
+    },
+    "find-animation-opportunities": {
+      "source": "emilkowalski/skills",
+      "sourceUrl": "https://github.com/emilkowalski/skills.git",
+      "skillPath": "skills/find-animation-opportunities/SKILL.md"
     },
     "git-guardrails-claude-code": {
       "source": "mattpocock/skills",
@@ -71,6 +101,11 @@
       "skillPath": "skills/engineering/implement/SKILL.md",
       "category": "engineering"
     },
+    "improve-animations": {
+      "source": "emilkowalski/skills",
+      "sourceUrl": "https://github.com/emilkowalski/skills.git",
+      "skillPath": "skills/improve-animations/SKILL.md"
+    },
     "improve-codebase-architecture": {
       "source": "mattpocock/skills",
       "sourceUrl": "https://github.com/mattpocock/skills.git",
@@ -88,6 +123,31 @@
       "sourceUrl": "https://github.com/mattpocock/skills.git",
       "skillPath": "skills/misc/migrate-to-shoehorn/SKILL.md",
       "category": "misc"
+    },
+    "next-cache-components-adoption": {
+      "source": "vercel/next.js",
+      "sourceUrl": "https://github.com/vercel/next.js.git",
+      "skillPath": "skills/next-cache-components-adoption/SKILL.md"
+    },
+    "next-cache-components-optimizer": {
+      "source": "vercel/next.js",
+      "sourceUrl": "https://github.com/vercel/next.js.git",
+      "skillPath": "skills/next-cache-components-optimizer/SKILL.md"
+    },
+    "next-dev-loop": {
+      "source": "vercel/next.js",
+      "sourceUrl": "https://github.com/vercel/next.js.git",
+      "skillPath": "skills/next-dev-loop/SKILL.md"
+    },
+    "next-partial-prefetching-adoption": {
+      "source": "vercel/next.js",
+      "sourceUrl": "https://github.com/vercel/next.js.git",
+      "skillPath": "skills/next-partial-prefetching-adoption/SKILL.md"
+    },
+    "pick-ui-library": {
+      "source": "emilkowalski/skills",
+      "sourceUrl": "https://github.com/emilkowalski/skills.git",
+      "skillPath": "skills/pick-ui-library/SKILL.md"
     },
     "prototype": {
       "source": "mattpocock/skills",
@@ -112,6 +172,11 @@
       "sourceUrl": "https://github.com/mattpocock/skills.git",
       "skillPath": "skills/engineering/resolving-merge-conflicts/SKILL.md",
       "category": "engineering"
+    },
+    "review-animations": {
+      "source": "emilkowalski/skills",
+      "sourceUrl": "https://github.com/emilkowalski/skills.git",
+      "skillPath": "skills/review-animations/SKILL.md"
     },
     "scaffold-exercises": {
       "source": "mattpocock/skills",
