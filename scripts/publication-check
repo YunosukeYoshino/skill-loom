@@ -9,7 +9,12 @@ if [ ! -f LICENSE ]; then
   exit 1
 fi
 
-violations=$(git ls-files | rg -n -f scripts/publication-denylist.txt || true)
+# Prefer rg when available (faster locally); fall back to grep for CI images without ripgrep.
+if command -v rg >/dev/null 2>&1; then
+  violations=$(git ls-files | rg -n -f scripts/publication-denylist.txt || true)
+else
+  violations=$(git ls-files | grep -nE -f scripts/publication-denylist.txt || true)
+fi
 if [ -n "$violations" ]; then
   echo "Publication denylist violations:" >&2
   echo "$violations" >&2
@@ -27,20 +32,31 @@ if [ -n "$py_files" ]; then
   exit 1
 fi
 
-# ripgrep: -e is the pattern flag (-E is encoding). Exit 0=match, 1=none, >=2=error.
-# Drop this script from the input set so the pattern literal does not self-match
-# (path args ignore --glob excludes).
+# Scan for executable Python/uv references. Exit 0=match, 1=none, >=2=error.
+# Drop this script from the input set so the pattern literal does not self-match.
+PY_REF_PATTERN='(^|[^a-zA-Z])(python3|python |uv run|uv sync|uv lock|uvx|pip install|exec python)'
 set +e
-py_refs=$(
-  git ls-files -z     | grep -vzE '^(scripts/publication-check)$'     | xargs -0 rg -l -e '(^|[^a-zA-Z])(python3|python |uv run|uv sync|uv lock|uvx|pip install|exec python)'
-)
-rg_status=$?
+if command -v rg >/dev/null 2>&1; then
+  py_refs=$(
+    git ls-files -z \
+      | grep -vzE '^(scripts/publication-check)$' \
+      | xargs -0 rg -l -e "$PY_REF_PATTERN"
+  )
+  scan_status=$?
+else
+  py_refs=$(
+    git ls-files -z \
+      | grep -vzE '^(scripts/publication-check)$' \
+      | xargs -0 grep -lE "$PY_REF_PATTERN"
+  )
+  scan_status=$?
+fi
 set -e
-if [ "$rg_status" -ge 2 ]; then
-  echo "publication-check: failed to scan for Python/uv references (rg exit $rg_status)" >&2
+if [ "$scan_status" -ge 2 ]; then
+  echo "publication-check: failed to scan for Python/uv references (scan exit $scan_status)" >&2
   exit 1
 fi
-if [ "$rg_status" -eq 0 ] && [ -n "$py_refs" ]; then
+if [ "$scan_status" -eq 0 ] && [ -n "$py_refs" ]; then
   echo "Python/uv executable references reintroduced:" >&2
   echo "$py_refs" >&2
   exit 1
