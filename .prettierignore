@@ -1,0 +1,4 @@
+node_modules
+app/frontend/dist
+bun.lock
+dogfood-output
