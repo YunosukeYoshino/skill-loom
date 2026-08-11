@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * CLI の入口。`./my-skills` の全サブコマンドを処理する（#75 で Python 版から一本化）。
+ * CLI の入口。`./skill-loom` の全サブコマンドを処理する（#75 で Python 版から一本化）。
  *
  * 出力は移行前の `bin/my-skills.py` の `cmd_*` と 1 文字も変えない。
  *
@@ -351,7 +351,7 @@ function cmdPreset(argv: string[]): number {
     case "apply":
     case "delete":
       if (!args.name) {
-        console.error(`my-skills preset ${subcommand}: the following arguments are required: name`)
+        console.error(`skill-loom preset ${subcommand}: the following arguments are required: name`)
         return 2
       }
       if (subcommand === "save") return cmdPresetSave(args)
@@ -360,7 +360,7 @@ function cmdPreset(argv: string[]): number {
     case "restore":
       return cmdPresetRestore(args)
     default:
-      console.error(`my-skills preset: invalid choice: ${subcommand ?? ""}`)
+      console.error(`skill-loom preset: invalid choice: ${subcommand ?? ""}`)
       return 2
   }
 }
@@ -368,13 +368,13 @@ function cmdPreset(argv: string[]): number {
 const [command, ...rest] = Bun.argv.slice(2)
 
 /** `argparse` が出す usage 行。no-args / unknown command で共通して使う。 */
-const USAGE = "usage: my-skills [-h] {list,status,all,install-deck,link-agents,ui,preset} ..."
+const USAGE = "usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset} ..."
 
 /**
  * `argparse` の `--help`。1 文字まで移行前と合わせるので、画面の端で折れる幅も含めて
  * 固定文字列にしている（`link-agents` の説明が 80 桁で折れるのも再現）。
  */
-const HELP = `usage: my-skills [-h] {list,status,all,install-deck,link-agents,ui,preset} ...
+const HELP = `usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset} ...
 
 positional arguments:
   {list,status,all,install-deck,link-agents,ui,preset}
@@ -398,7 +398,7 @@ if (command === "-h" || command === "--help") {
 }
 if (command === undefined) {
   console.error(USAGE)
-  console.error("my-skills: error: the following arguments are required: command")
+  console.error("skill-loom: error: the following arguments are required: command")
   process.exit(2)
 }
 
@@ -415,8 +415,8 @@ switch (command) {
   case "install-deck":
     if (rest.length !== 1 || !rest[0]) {
       // argparse が出していた 2 行をそのまま再現する。
-      console.error("usage: my-skills install-deck [-h] name")
-      console.error("my-skills install-deck: error: the following arguments are required: name")
+      console.error("usage: skill-loom install-deck [-h] name")
+      console.error("skill-loom install-deck: error: the following arguments are required: name")
       process.exit(2)
     }
     process.exit(cmdInstallDeck(rest[0]))
@@ -424,8 +424,8 @@ switch (command) {
   case "link-agents":
     if (rest.length === 0) {
       // argparse (nargs="+") が出していた 2 行をそのまま再現する。
-      console.error("usage: my-skills link-agents [-h] names [names ...]")
-      console.error("my-skills link-agents: error: the following arguments are required: names")
+      console.error("usage: skill-loom link-agents [-h] names [names ...]")
+      console.error("skill-loom link-agents: error: the following arguments are required: names")
       process.exit(2)
     }
     process.exit(cmdLinkAgents(rest))
@@ -437,7 +437,7 @@ switch (command) {
     // argparse の invalid choice。stdout ではなく stderr へ。
     console.error(USAGE)
     console.error(
-      `my-skills: error: argument command: invalid choice: '${command}' (choose from list,status,all,install-deck,link-agents,ui,preset)`,
+      `skill-loom: error: argument command: invalid choice: '${command}' (choose from list,status,all,install-deck,link-agents,ui,preset)`,
     )
     process.exit(2)
 }

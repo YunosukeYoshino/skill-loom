@@ -22,7 +22,7 @@ JSON
     MY_SKILLS_ACTIVE_DIR="$tmp_dir/active" \
     MY_SKILLS_ARCHIVE_DIR="$tmp_dir/archive" \
     MY_SKILLS_EXTERNAL_CANDIDATES_FILE="$fixture" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 }
@@ -66,7 +66,7 @@ SH
   MY_SKILLS_LOCK_FILE="$lock_file" \
     MY_SKILLS_ACTIVE_DIR="$active_dir" MY_SKILLS_ARCHIVE_DIR="$archive_dir" \
     MY_SKILLS_UPDATE_BIN="$stub" MY_SKILLS_UPDATE_ARGS_FILE="$args_file" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
@@ -137,7 +137,7 @@ JSON
 
   MY_SKILLS_LOCK_FILE="$lock_file" MY_SKILLS_PROJECT_DECKS_DIR="$decks_dir" \
     MY_SKILLS_REMOVE_BIN="$stub" MY_SKILLS_REMOVE_ARGS_FILE="$args_file" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
@@ -334,7 +334,7 @@ PY
   MY_SKILLS_LOCK_FILE="$lock_file" \
     MY_SKILLS_ACTIVE_DIR="$active_dir" MY_SKILLS_ARCHIVE_DIR="$archive_dir" \
     MY_SKILLS_UPDATE_BIN="$stub" MY_SKILLS_UPDATE_ARGS_FILE="$args_file" \
-    MY_SKILLS_EXTERNAL_CANDIDATES_FILE="$fixture" ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    MY_SKILLS_EXTERNAL_CANDIDATES_FILE="$fixture" ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
@@ -393,7 +393,7 @@ SH
   MY_SKILLS_ADD_SCRIPT="$stub" MY_SKILLS_ADD_ARGS_FILE="$args_file" \
     MY_SKILLS_LOCK_FILE="$lock_file" MY_SKILLS_IGNORE_FILE="$ignore_file" \
     MY_SKILLS_GLOBAL_LOCK_FILE="$global_lock_file" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
@@ -460,7 +460,7 @@ SH
   MY_SKILLS_ADD_SCRIPT="$stub" MY_SKILLS_ADD_ARGS_FILE="$args_file" \
     MY_SKILLS_LOCK_FILE="$lock_file" MY_SKILLS_IGNORE_FILE="$ignore_file" \
     MY_SKILLS_GLOBAL_LOCK_FILE="$global_lock_file" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 

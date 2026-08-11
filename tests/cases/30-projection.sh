@@ -29,7 +29,7 @@ JSON
 
   MY_SKILLS_LOCK_FILE="$lock_file" \
     MY_SKILLS_ACTIVE_DIR="$active_dir" MY_SKILLS_ARCHIVE_DIR="$archive_dir" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
@@ -84,7 +84,7 @@ JSON
 
   MY_SKILLS_LOCK_FILE="$lock_file" \
     MY_SKILLS_ACTIVE_DIR="$active_dir" MY_SKILLS_ARCHIVE_DIR="$archive_dir" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
@@ -139,7 +139,7 @@ JSON
 
   MY_SKILLS_LOCK_FILE="$lock_file" \
     MY_SKILLS_ACTIVE_DIR="$active_dir" MY_SKILLS_ARCHIVE_DIR="$archive_dir" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
@@ -197,7 +197,7 @@ JSON
 
   MY_SKILLS_LOCK_FILE="$lock_file" \
     MY_SKILLS_ACTIVE_DIR="$active_dir" MY_SKILLS_ARCHIVE_DIR="$archive_dir" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
@@ -263,7 +263,7 @@ JSON
 
   MY_SKILLS_LOCK_FILE="$lock_file" \
     MY_SKILLS_ACTIVE_DIR="$active_dir" MY_SKILLS_ARCHIVE_DIR="$archive_dir" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
@@ -537,7 +537,7 @@ JSON
 
   MY_SKILLS_LOCK_FILE="$lock_file" \
     MY_SKILLS_ACTIVE_DIR="$active_dir" MY_SKILLS_ARCHIVE_DIR="$archive_dir" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
@@ -595,7 +595,7 @@ SH
     MY_SKILLS_LOCK_FILE="$lock_file" MY_SKILLS_IGNORE_FILE="$tmp_dir/.skills-ignore.json" \
     MY_SKILLS_GLOBAL_LOCK_FILE="$tmp_dir/.skill-lock.json" \
     MY_SKILLS_ACTIVE_DIR="$active_dir" MY_SKILLS_ARCHIVE_DIR="$tmp_dir/archive" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 

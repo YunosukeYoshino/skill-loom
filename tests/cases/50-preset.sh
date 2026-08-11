@@ -15,7 +15,7 @@ start_preset_ui() {
     MY_SKILLS_CLAUDE_SKILLS_DIR="$tmp_dir/claude-skills" \
     MY_SKILLS_GEMINI_SKILLS_DIR="$tmp_dir/gemini-skills" \
     MY_SKILLS_PRESETS_DIR="$tmp_dir/presets" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 }
@@ -64,7 +64,7 @@ run_preset_cli() {
     MY_SKILLS_CLAUDE_SKILLS_DIR="$tmp_dir/claude-skills" \
     MY_SKILLS_GEMINI_SKILLS_DIR="$tmp_dir/gemini-skills" \
     MY_SKILLS_PRESETS_DIR="$tmp_dir/presets" \
-    ./my-skills preset "$@" > "$tmp_dir/cli-stdout.txt" 2> "$tmp_dir/cli-stderr.txt" \
+    ./skill-loom preset "$@" > "$tmp_dir/cli-stdout.txt" 2> "$tmp_dir/cli-stderr.txt" \
     && echo 0 || echo $?
 }
 

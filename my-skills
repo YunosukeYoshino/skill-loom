@@ -1,49 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-# Catalog selection is a launcher-level option so the CLI and Web UI receive the
-# same root before Bun loads either entry point. Keep the remaining arguments in
-# their original order for the existing command parsers.
-ARGS=()
-CATALOG_DIR=""
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --catalog-dir)
-      if [[ $# -lt 2 || -z "${2:-}" ]]; then
-        echo "my-skills: error: --catalog-dir requires a path" >&2
-        exit 2
-      fi
-      CATALOG_DIR="$2"
-      shift 2
-      ;;
-    --catalog-dir=*)
-      CATALOG_DIR="${1#--catalog-dir=}"
-      if [[ -z "$CATALOG_DIR" ]]; then
-        echo "my-skills: error: --catalog-dir requires a path" >&2
-        exit 2
-      fi
-      shift
-      ;;
-    *)
-      ARGS+=("$1")
-      shift
-      ;;
-  esac
-done
-
-if [[ -n "$CATALOG_DIR" ]]; then
-  export MY_SKILLS_CATALOG_DIR="$CATALOG_DIR"
-  export MY_SKILLS_CATALOG_EXPLICIT=1
-fi
-set -- "${ARGS[@]}"
-
-# ui は Hono が公開ポートを所有する（Vite を開発時だけ内部ポートで起動する）。
-# 他の全サブコマンドは TypeScript (app/backend/cli.ts) で処理する（#75 で Python 版を撤去）。
-if [[ "${1:-}" == "ui" ]]; then
-  shift
-  exec bun "$SCRIPT_DIR/app/backend/index.ts" "$@"
-fi
-
-exec bun "$SCRIPT_DIR/app/backend/cli.ts" "$@"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+exec "$SCRIPT_DIR/skill-loom" "$@"

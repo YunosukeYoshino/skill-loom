@@ -50,7 +50,7 @@ start_projection_ui() {
     MY_SKILLS_GLOBAL_LOCK_FILE="$tmp_dir/.skill-lock.json" \
     MY_SKILLS_CLAUDE_SKILLS_DIR="$tmp_dir/claude-skills" \
     MY_SKILLS_GEMINI_SKILLS_DIR="$tmp_dir/gemini-skills" \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 }

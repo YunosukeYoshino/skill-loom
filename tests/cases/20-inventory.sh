@@ -3,7 +3,7 @@
 test_ui_hides_repo_local_management_skills() {
   echo "Running test_ui_hides_repo_local_management_skills..."
   local port=18800
-  ./my-skills ui --port "$port" > /dev/null 2>&1 &
+  ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
@@ -28,7 +28,7 @@ test_ui_hides_repo_local_management_skills() {
 test_ui_hides_ignored_skills() {
   echo "Running test_ui_hides_ignored_skills..."
   local port=18801
-  ./my-skills ui --port "$port" > /dev/null 2>&1 &
+  ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 

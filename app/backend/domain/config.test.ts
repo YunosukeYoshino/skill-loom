@@ -75,6 +75,7 @@ describe("サンドボックス差し替え", () => {
   })
 
   test("REPO_ROOT が Engine checkout を指している", () => {
+    expect(Bun.file(join(config.REPO_ROOT, "skill-loom")).size).toBeGreaterThan(0)
     expect(Bun.file(join(config.REPO_ROOT, "my-skills")).size).toBeGreaterThan(0)
   })
 })

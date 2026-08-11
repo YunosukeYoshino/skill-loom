@@ -17,7 +17,7 @@ start_remaining_ui() {
     MY_SKILLS_IGNORE_FILE="$tmp_dir/.skills-ignore.json" \
     MY_SKILLS_EXTERNAL_CANDIDATES_FILE="$candidates" \
     MY_SKILLS_AUTO_COMMIT=0 \
-    ./my-skills ui --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 }
@@ -268,7 +268,7 @@ JSON
     MY_SKILLS_CLAUDE_SKILLS_DIR="$tmp_dir/claude-skills" \
     MY_SKILLS_GEMINI_SKILLS_DIR="$tmp_dir/gemini-skills" \
     MY_SKILLS_PRESETS_DIR="$tmp_dir/presets" MY_SKILLS_AUTO_COMMIT=0 \
-    ./my-skills ui --catalog-dir "$catalog_dir" --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --catalog-dir "$catalog_dir" --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 

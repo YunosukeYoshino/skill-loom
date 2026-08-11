@@ -15,7 +15,7 @@ done
 
 # ---- run ----
 
-echo "=== my-skills CLI E2E tests ==="
+echo "=== Skill Loom CLI E2E tests ==="
 echo ""
 
 for case_name in "${CASES[@]}"; do

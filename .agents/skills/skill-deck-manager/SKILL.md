@@ -10,18 +10,18 @@ Use this skill when the user wants to inspect, reduce, or switch the active glob
 ## Workflow
 
 1. Set `MY_SKILLS_CATALOG_DIR` to the Catalog that owns `skills.lock.json`.
-2. Resolve the Engine launcher as `ENGINE_ROOT/my-skills`.
+2. Resolve the Engine launcher as `ENGINE_ROOT/skill-loom`.
 3. Preview the selected Catalog first:
 
 ```bash
-"$ENGINE_ROOT/my-skills" --catalog-dir "$MY_SKILLS_CATALOG_DIR" status
-"$ENGINE_ROOT/my-skills" --catalog-dir "$MY_SKILLS_CATALOG_DIR" deck core
+"$ENGINE_ROOT/skill-loom" --catalog-dir "$MY_SKILLS_CATALOG_DIR" status
+"$ENGINE_ROOT/skill-loom" --catalog-dir "$MY_SKILLS_CATALOG_DIR" list
 ```
 
 4. Start the dynamic HTML checklist:
 
 ```bash
-"$ENGINE_ROOT/my-skills" --catalog-dir "$MY_SKILLS_CATALOG_DIR" ui
+"$ENGINE_ROOT/skill-loom" --catalog-dir "$MY_SKILLS_CATALOG_DIR" ui
 ```
 
 5. Open the printed localhost URL.

@@ -14,7 +14,7 @@ typecheck:
 
 test:
 	bun test app/backend/
-	uv run --python 3.11 bash tests/test-my-skills.sh
+	uv run --python 3.11 bash tests/test-skill-loom.sh
 
 publication-check:
 	bash scripts/publication-check

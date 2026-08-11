@@ -105,8 +105,8 @@ function errorText(error: unknown): string {
 
 type Args = { host: string; port: number | null; dev: boolean }
 
-/** 移行前の argparse が出していた `my-skills ui --help` と同じ内容を保つ。 */
-const HELP_TEXT = `usage: my-skills ui [-h] [--host HOST] [--port PORT] [--dev]
+/** 移行前の argparse に対応する `skill-loom ui --help`。 */
+const HELP_TEXT = `usage: skill-loom ui [-h] [--host HOST] [--port PORT] [--dev]
 
 options:
   -h, --help   show this help message and exit
@@ -1090,4 +1090,4 @@ const server = Bun.serve({
 })
 
 if (vitePort !== null) console.log(`Vite dev server on 127.0.0.1:${vitePort} (proxied)`)
-console.log(`my-skills UI on http://${args.host}:${server.port}`)
+console.log(`Skill Loom UI on http://${args.host}:${server.port}`)

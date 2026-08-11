@@ -1,9 +1,29 @@
 # CLI サブコマンドと起動オプション
 
+test_skill_loom_is_the_primary_launcher() {
+  echo "Running test_skill_loom_is_the_primary_launcher..."
+  local out compatibility_out
+
+  if [ ! -x ./skill-loom ]; then
+    fail "test_skill_loom_is_the_primary_launcher: ./skill-loom is not executable"
+    return
+  fi
+
+  out=$(./skill-loom --help 2>&1)
+  assert_contains "$out" "usage: skill-loom" \
+    && pass "test_skill_loom_is_the_primary_launcher: canonical help uses skill-loom" \
+    || fail "test_skill_loom_is_the_primary_launcher: output was $out"
+
+  compatibility_out=$(./my-skills --help 2>&1)
+  [ "$compatibility_out" = "$out" ] \
+    && pass "test_skill_loom_is_the_primary_launcher: my-skills compatibility wrapper works" \
+    || fail "test_skill_loom_is_the_primary_launcher: compatibility output differed"
+}
+
 test_list() {
   echo "Running test_list..."
   local out
-  out=$(MY_SKILLS_CATALOG_DIR="$REPO_ROOT/examples/catalog" ./my-skills list 2>&1)
+  out=$(MY_SKILLS_CATALOG_DIR="$REPO_ROOT/examples/catalog" ./skill-loom list 2>&1)
 
   assert_contains "$out" "Project decks:" \
     && pass "test_list: has header" \
@@ -17,7 +37,7 @@ test_list() {
 test_status() {
   echo "Running test_status..."
   local out
-  out=$(MY_SKILLS_CATALOG_DIR="$REPO_ROOT/examples/catalog" ./my-skills status 2>&1)
+  out=$(MY_SKILLS_CATALOG_DIR="$REPO_ROOT/examples/catalog" ./skill-loom status 2>&1)
 
   for field in active tracked ignored archive; do
     assert_matches "$out" "^${field}:" \
@@ -49,7 +69,7 @@ JSON
   out=$(MY_SKILLS_LOCK_FILE="$decoy_lock" \
     MY_SKILLS_ACTIVE_DIR="$tmp_dir/active" \
     MY_SKILLS_ARCHIVE_DIR="$tmp_dir/archive" \
-    ./my-skills --catalog-dir "$catalog_dir" status 2>&1)
+    ./skill-loom --catalog-dir "$catalog_dir" status 2>&1)
 
   assert_matches "$out" "^tracked:[[:space:]]+1$" \
     && pass "test_cli_catalog_dir_overrides_lock_file_override: selected Catalog Lock wins" \
@@ -74,7 +94,7 @@ JSON
   out=$(MY_SKILLS_CATALOG_DIR="$catalog_dir" \
     MY_SKILLS_ACTIVE_DIR="$tmp_dir/active" \
     MY_SKILLS_ARCHIVE_DIR="$tmp_dir/archive" \
-    ./my-skills status 2>&1)
+    ./skill-loom status 2>&1)
 
   assert_matches "$out" "^tracked:[[:space:]]+0$" \
     && assert_matches "$out" "^ignored:[[:space:]]+1$" \
@@ -94,7 +114,7 @@ test_status_rejects_unsupported_catalog_lock() {
 
   if out=$(MY_SKILLS_ACTIVE_DIR="$tmp_dir/active" \
     MY_SKILLS_ARCHIVE_DIR="$tmp_dir/archive" \
-    ./my-skills --catalog-dir "$catalog_dir" status 2>&1); then
+    ./skill-loom --catalog-dir "$catalog_dir" status 2>&1); then
     rc=0
   else
     rc=$?
@@ -116,8 +136,8 @@ test_synthetic_catalog_smoke() {
 
   status_out=$(MY_SKILLS_ACTIVE_DIR="$tmp_dir/active" \
     MY_SKILLS_ARCHIVE_DIR="$tmp_dir/archive" \
-    ./my-skills --catalog-dir "$catalog_dir" status 2>&1)
-  list_out=$(./my-skills --catalog-dir "$catalog_dir" list 2>&1)
+    ./skill-loom --catalog-dir "$catalog_dir" status 2>&1)
+  list_out=$(./skill-loom --catalog-dir "$catalog_dir" list 2>&1)
 
   assert_matches "$status_out" '^tracked:[[:space:]]+0$' \
     && assert_contains "$list_out" "example" \
@@ -140,7 +160,7 @@ JSON
 {"name":"catalog-only","extends":["core"],"skills":["project-skill"]}
 JSON
 
-  out=$(./my-skills --catalog-dir "$catalog_dir" list 2>&1)
+  out=$(./skill-loom --catalog-dir "$catalog_dir" list 2>&1)
 
   assert_contains "$out" "catalog-only" \
     && assert_matches "$out" "catalog-only[[:space:]]+2" \
@@ -152,7 +172,7 @@ JSON
 test_all_preview() {
   echo "Running test_all_preview..."
   local out
-  out=$(MY_SKILLS_CATALOG_DIR="$REPO_ROOT/examples/catalog" ./my-skills all 2>&1)
+  out=$(MY_SKILLS_CATALOG_DIR="$REPO_ROOT/examples/catalog" ./skill-loom all 2>&1)
 
   assert_matches "$out" "active:" \
     && pass "test_all_preview: has active count" \
@@ -170,7 +190,7 @@ test_all_preview() {
 test_ui_help() {
   echo "Running test_ui_help..."
   local out
-  out=$(./my-skills ui --help 2>&1)
+  out=$(./skill-loom ui --help 2>&1)
   local rc=$?
 
   [ "$rc" -eq 0 ] \
@@ -189,7 +209,7 @@ test_ui_help() {
 test_install_deck_help() {
   echo "Running test_install_deck_help..."
   local out
-  out=$(./my-skills --help 2>&1)
+  out=$(./skill-loom --help 2>&1)
 
   assert_contains "$out" "install-deck" \
     && pass "test_install_deck_help: has install-deck command" \
@@ -199,7 +219,7 @@ test_install_deck_help() {
 test_ui_starts_specific_port() {
   echo "Running test_ui_starts_specific_port..."
   local port=18799
-  MY_SKILLS_CATALOG_DIR="$REPO_ROOT/examples/catalog" ./my-skills ui --port "$port" > /dev/null 2>&1 &
+  MY_SKILLS_CATALOG_DIR="$REPO_ROOT/examples/catalog" ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
@@ -219,7 +239,7 @@ test_no_script_shells_out_to_deleted_python_cli() {
   echo "Running test_no_script_shells_out_to_deleted_python_cli..."
   # bin/my-skills.py は #75 で削除された。残存スクリプトがここへ python3 を当てて
   # いると、skills-add の install が終わったあとで exit 2 で落ちる（実例: gh-stack 取り込み）。
-  # CLI の入口は ./my-skills (TypeScript) なので、実行参照が残っていないか固定する。
+  # CLI の入口は ./skill-loom (TypeScript) なので、実行参照が残っていないか固定する。
   local hits
   hits=$(rg -n 'bin/my-skills\.py' \
     .agents/skills/*/scripts/ skills/*/*/scripts/ drafts/skills/*/scripts/ 2>/dev/null || true)
@@ -232,6 +252,7 @@ test_no_script_shells_out_to_deleted_python_cli() {
 }
 
 register_cases \
+  test_skill_loom_is_the_primary_launcher \
   test_list \
   test_status \
   test_cli_catalog_dir_overrides_lock_file_override \

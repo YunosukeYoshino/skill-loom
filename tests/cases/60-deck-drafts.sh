@@ -106,7 +106,7 @@ start_deck_ui() {
   MY_SKILLS_IGNORE_FILE="$tmp_dir/skills-ignore.json" \
     MY_SKILLS_CATALOG_DIR="$tmp_dir" \
     MY_SKILLS_AUTO_COMMIT=0 \
-    ./my-skills ui ${catalog_args[@]+"${catalog_args[@]}"} --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui ${catalog_args[@]+"${catalog_args[@]}"} --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 }
@@ -141,7 +141,7 @@ run_deck_cli() {
     MY_SKILLS_GEMINI_SKILLS_DIR="$tmp_dir/gemini-skills" \
     MY_SKILLS_PROJECT_DECKS_DIR="$tmp_dir/project-decks" \
     MY_SKILLS_IGNORE_FILE="$tmp_dir/skills-ignore.json" \
-    ./my-skills "$@" > "$tmp_dir/cli-stdout.txt" 2> "$tmp_dir/cli-stderr.txt" \
+    ./skill-loom "$@" > "$tmp_dir/cli-stdout.txt" 2> "$tmp_dir/cli-stderr.txt" \
     && echo 0 || echo $?
 }
 
@@ -426,7 +426,7 @@ test_drafts_list_reads_selected_catalog() {
     MY_SKILLS_GLOBAL_LOCK_FILE="$tmp_dir/.skill-lock.json" \
     MY_SKILLS_CLAUDE_SKILLS_DIR="$tmp_dir/claude-skills" \
     MY_SKILLS_GEMINI_SKILLS_DIR="$tmp_dir/gemini-skills" MY_SKILLS_AUTO_COMMIT=0 \
-    ./my-skills ui --catalog-dir "$catalog_dir" --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --catalog-dir "$catalog_dir" --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
@@ -465,7 +465,7 @@ SH
   chmod +x "$tmp_dir/trash-stub"
   git -C "$catalog_dir" init -q
   git -C "$catalog_dir" config user.name "Skill Loom Test"
-  git -C "$catalog_dir" config user.email "skillloom@example.invalid"
+  git -C "$catalog_dir" config user.email "skill-loom@example.invalid"
   git -C "$catalog_dir" config core.hooksPath /dev/null
   git -C "$catalog_dir" add .
   git -C "$catalog_dir" commit -qm "test: Catalog baseline"
@@ -475,7 +475,7 @@ SH
     MY_SKILLS_CLAUDE_SKILLS_DIR="$tmp_dir/claude-skills" \
     MY_SKILLS_GEMINI_SKILLS_DIR="$tmp_dir/gemini-skills" \
     MY_SKILLS_TRASH_BIN="$tmp_dir/trash-stub" MY_SKILLS_TRASH_DEST="$tmp_dir/trashed-draft" \
-    ./my-skills ui --catalog-dir "$catalog_dir" --port "$port" > /dev/null 2>&1 &
+    ./skill-loom ui --catalog-dir "$catalog_dir" --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
 
