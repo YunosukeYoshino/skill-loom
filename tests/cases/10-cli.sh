@@ -139,9 +139,10 @@ test_synthetic_catalog_smoke() {
     ./skill-loom --catalog-dir "$catalog_dir" status 2>&1)
   list_out=$(./skill-loom --catalog-dir "$catalog_dir" list 2>&1)
 
-  assert_matches "$status_out" '^tracked:[[:space:]]+0$' \
+  # examples/catalog は External の既定 source を seed しているので tracked > 0。
+  assert_matches "$status_out" '^tracked:[[:space:]]+44$' \
     && assert_contains "$list_out" "example" \
-    && pass "test_synthetic_catalog_smoke: empty Inventory and example Deck work" \
+    && pass "test_synthetic_catalog_smoke: seeded Inventory and example Deck work" \
     || fail "test_synthetic_catalog_smoke: status=$status_out list=$list_out"
 }
 
