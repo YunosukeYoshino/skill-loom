@@ -95,7 +95,9 @@ function loadJson(filePath: string): JsonData {
 }
 
 function saveJson(filePath: string, data: Record<string, unknown>): void {
-  fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`)
+  const tmp = `${filePath}.tmp`
+  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`)
+  fs.renameSync(tmp, filePath)
 }
 
 export function getRepoRoot(): string {

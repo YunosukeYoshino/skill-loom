@@ -2,7 +2,7 @@
 /**
  * check-vendor-updates — upstream 更新と未管理スキルの棚卸し（TypeScript 版）
  *
- * check-vendor-updates SKILL.md の inline python3 を置き換える。3 つの棚卸しをまとめて出力する。
+ * check-vendor-updates SKILL.md の inline スクリプトを置き換える。3 つの棚卸しをまとめて出力する。
  * 期待される /tmp/skills-check.txt は `bunx skills check -g 2>&1 | tee /tmp/skills-check.txt` の結果。
  *
  * 使い方:

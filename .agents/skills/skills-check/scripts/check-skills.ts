@@ -77,7 +77,18 @@ export function loadLock(lockFile: string): Record<string, unknown> {
     process.stderr.write(`Error: ${lockFile} not found\n`)
     process.exit(1)
   }
-  return JSON.parse(fs.readFileSync(lockFile, "utf-8")) as Record<string, unknown>
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(fs.readFileSync(lockFile, "utf-8"))
+  } catch {
+    process.stderr.write(`Error: Cannot parse lock file: ${lockFile}\n`)
+    process.exit(1)
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    process.stderr.write(`Error: Lock file is not a JSON object: ${lockFile}\n`)
+    process.exit(1)
+  }
+  return parsed as Record<string, unknown>
 }
 
 export function loadIgnore(ignoreFile: string): Set<string> {

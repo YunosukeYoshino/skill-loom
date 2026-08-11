@@ -18,9 +18,8 @@ fi
 
 git ls-files -z | xargs -0 bash scripts/secret-scan
 
-# Python 依存の再導入を拒否する（issue #1: Bun/TypeScript 単一ランタイム化）。
-# Engine は Python を必要としない。新しい .py ファイルや python/python3/uv の
-# 実行参照が入ると、Bun のみの環境でインストール・ビルド・テストが壊れる。
+# Reject reintroduced Engine Python deps (issue #1: Bun/TypeScript sole runtime).
+# New .py files or executable references to the old runtime break Bun-only install/test.
 py_files=$(git ls-files -- '*.py')
 if [ -n "$py_files" ]; then
   echo "Engine-owned Python files reintroduced:" >&2
@@ -28,8 +27,20 @@ if [ -n "$py_files" ]; then
   exit 1
 fi
 
-py_refs=$(git ls-files -z | xargs -0 rg -lE '(^|[^a-zA-Z])(python3|python |uv run|uv sync|uv lock|uvx|pip install|exec python)' 2>/dev/null || true)
-if [ -n "$py_refs" ]; then
+# ripgrep: -e is the pattern flag (-E is encoding). Exit 0=match, 1=none, >=2=error.
+# Drop this script from the input set so the pattern literal does not self-match
+# (path args ignore --glob excludes).
+set +e
+py_refs=$(
+  git ls-files -z     | grep -vzE '^(scripts/publication-check)$'     | xargs -0 rg -l -e '(^|[^a-zA-Z])(python3|python |uv run|uv sync|uv lock|uvx|pip install|exec python)'
+)
+rg_status=$?
+set -e
+if [ "$rg_status" -ge 2 ]; then
+  echo "publication-check: failed to scan for Python/uv references (rg exit $rg_status)" >&2
+  exit 1
+fi
+if [ "$rg_status" -eq 0 ] && [ -n "$py_refs" ]; then
   echo "Python/uv executable references reintroduced:" >&2
   echo "$py_refs" >&2
   exit 1

@@ -2,7 +2,7 @@
 /**
  * lock-check — skills.lock.json / .skills-ignore.json の照会（TypeScript 版）
  *
- * skills-add の shell 内 inline python3 を置き換える。2 つの照会を提供する。
+ * skills-add の shell 内にあった inline スクリプトを置き換える。2 つの照会を提供する。
  *
  * 使い方:
  *   bun lock-check.ts ignore <skill> <ignore-file>   # 'yes' か 'no' を出力

@@ -4,7 +4,7 @@ Thank you for helping improve Skill Loom.
 
 ## Development setup
 
-Skill Loom currently targets macOS and requires Bun, Python 3.11+, and uv.
+Skill Loom currently targets macOS and requires Bun as its only language runtime.
 
 ```bash
 git clone https://github.com/YunosukeYoshino/skill-loom.git
