@@ -1,5 +1,5 @@
 [project]
-name = "skillloom"
+name = "skill-loom"
 version = "0.1.0"
 description = "A local Catalog and Projection manager for Agent Skills"
 requires-python = ">=3.11"

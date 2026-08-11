@@ -4,7 +4,7 @@ This document records the publication boundary for the initial Skill Loom extrac
 
 ## Engine-owned allowlist
 
-- `my-skills` CLI launcher
+- `skill-loom` CLI launcher (`my-skills` compatibility wrapper included)
 - `app/backend/`, `app/shared/`, and `app/frontend/`
 - generic repository-management Skills after Catalog assumptions are removed
 - process-level, domain-boundary, and management-script tests

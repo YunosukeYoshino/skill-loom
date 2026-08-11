@@ -28,7 +28,7 @@ wheels = [
 ]
 
 [[package]]
-name = "skillloom"
+name = "skill-loom"
 version = "0.1.0"
 source = { virtual = "." }
 

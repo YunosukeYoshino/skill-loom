@@ -6,9 +6,9 @@
 4. Validate the boundary before changing daily commands:
 
    ```bash
-   ./my-skills --catalog-dir /path/to/catalog status
-   ./my-skills --catalog-dir /path/to/catalog list
-   ./my-skills --catalog-dir /path/to/catalog ui
+   ./skill-loom --catalog-dir /path/to/catalog status
+   ./skill-loom --catalog-dir /path/to/catalog list
+   ./skill-loom --catalog-dir /path/to/catalog ui
    ```
 
 5. Set `MY_SKILLS_CATALOG_DIR` in the thin private launcher.

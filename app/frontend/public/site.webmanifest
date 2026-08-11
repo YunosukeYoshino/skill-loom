@@ -1,6 +1,6 @@
 {
-  "name": "my-skills manager",
-  "short_name": "my-skills",
+  "name": "Skill Loom",
+  "short_name": "Skill Loom",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }

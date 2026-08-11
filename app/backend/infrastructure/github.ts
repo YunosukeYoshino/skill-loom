@@ -74,7 +74,7 @@ let cachedToken: string | null = null
 
 export function githubAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
-    "User-Agent": "my-skills",
+    "User-Agent": "skill-loom",
     Accept: "application/vnd.github+json",
   }
   if (cachedToken === null) {
@@ -206,7 +206,7 @@ export function findCliSkillMdPaths(tree: TreeEntry[], subpath = ""): string[] {
 export async function fetchRemoteSkillContentHash(ownerRepo: string, skillPath: string): Promise<string> {
   const url = githubRawSkillUrl(ownerRepo, skillPath)
   const response = await fetch(url, {
-    headers: { "User-Agent": "my-skills" },
+    headers: { "User-Agent": "skill-loom" },
     signal: AbortSignal.timeout(remoteSkillFetchTimeout() * 1000),
   })
   if (!response.ok) throw new HttpError(response.status, url)

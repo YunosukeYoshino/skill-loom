@@ -30,7 +30,7 @@ beforeEach(() => {
 
   expect(git(["init"]).code).toBe(0)
   expect(git(["config", "user.name", "Skill Loom Test"]).code).toBe(0)
-  expect(git(["config", "user.email", "skillloom@example.invalid"]).code).toBe(0)
+  expect(git(["config", "user.email", "skill-loom@example.invalid"]).code).toBe(0)
 })
 
 afterEach(() => {

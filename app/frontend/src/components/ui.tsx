@@ -11,7 +11,7 @@ export function Masthead({ title, counts }: MastheadProps) {
     <header className="mb-4 grid gap-2 rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-4 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
       <div className="flex items-center gap-2">
         <span className="font-[family-name:var(--font-display)] text-[0.95rem] font-semibold tracking-[-0.02em] text-[var(--color-ink)]">
-          my-skills
+          Skill Loom
         </span>
         <span className="h-3.5 w-px bg-[var(--color-rule)]" aria-hidden />
         <p className="m-0 font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.04em] text-[var(--color-accent)] uppercase">

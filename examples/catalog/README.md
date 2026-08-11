@@ -4,8 +4,8 @@ Copy this directory into a separate Git repository, set `custom.repo` in
 `skills.lock.json`, then select it explicitly:
 
 ```bash
-./my-skills --catalog-dir /path/to/catalog status
-./my-skills --catalog-dir /path/to/catalog list
+./skill-loom --catalog-dir /path/to/catalog status
+./skill-loom --catalog-dir /path/to/catalog list
 ```
 
 The Catalog owns Inventory data (`skills.lock.json`, `.skills-ignore.json`),

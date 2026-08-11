@@ -1,6 +1,6 @@
 # Skill Loom
 
-![A large Agent Skills Catalog becoming a small, deliberate runtime Projection](docs/assets/skillloom-hero.png)
+![A large Agent Skills Catalog becoming a small, deliberate runtime Projection](docs/assets/skill-loom-hero.png)
 
 <p align="center"><strong>Keep the Catalog private. Keep the runtime small.</strong></p>
 
@@ -15,7 +15,7 @@
   <a href="https://www.typescriptlang.org/"><img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-0B1F3A?style=for-the-badge"></a>
   <a href="SUPPORT.md"><img alt="macOS" src="https://img.shields.io/badge/platform-macOS-0B1F3A?style=for-the-badge&logo=apple&logoColor=white"></a>
-  <a href="https://github.com/YunosukeYoshino/skillloom/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/YunosukeYoshino/skillloom/ci.yml?branch=main&style=for-the-badge&label=CI"></a>
+  <a href="https://github.com/YunosukeYoshino/skill-loom/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/YunosukeYoshino/skill-loom/ci.yml?branch=main&style=for-the-badge&label=CI"></a>
 </p>
 
 ---
@@ -35,26 +35,26 @@ The result is a reproducible Skill collection without loading the whole collecti
 ## Quick start
 
 ```bash
-git clone https://github.com/YunosukeYoshino/skillloom.git
-cd skillloom
+git clone https://github.com/YunosukeYoshino/skill-loom.git
+cd skill-loom
 bun install --frozen-lockfile
 bun install --cwd app/frontend --frozen-lockfile
 
-./my-skills --catalog-dir examples/catalog status
-./my-skills --catalog-dir examples/catalog list
+./skill-loom --catalog-dir examples/catalog status
+./skill-loom --catalog-dir examples/catalog list
 ```
 
 The bundled Catalog is intentionally empty. Copy it into a separate repository when you are ready to add your own Inventory:
 
 ```bash
 cp -R examples/catalog ../my-skill-catalog
-./my-skills --catalog-dir ../my-skill-catalog status
+./skill-loom --catalog-dir ../my-skill-catalog status
 ```
 
 Start the local checklist UI against the same Catalog:
 
 ```bash
-MY_SKILLS_VITE=1 ./my-skills --catalog-dir ../my-skill-catalog ui
+MY_SKILLS_VITE=1 ./skill-loom --catalog-dir ../my-skill-catalog ui
 ```
 
 > [!IMPORTANT]
@@ -85,14 +85,14 @@ agents/           ─┘
 Select the Catalog per command:
 
 ```bash
-./my-skills --catalog-dir /path/to/catalog status
+./skill-loom --catalog-dir /path/to/catalog status
 ```
 
 Or select it once for a shell session:
 
 ```bash
 export MY_SKILLS_CATALOG_DIR=/path/to/catalog
-./my-skills status
+./skill-loom status
 ```
 
 If neither selector is present, the Engine Root is used as a legacy colocated Catalog for migration compatibility.
@@ -113,12 +113,12 @@ Catalog-relative paths are resolved against the real Catalog Root. Absolute path
 
 | Command | Purpose |
 | --- | --- |
-| `./my-skills status` | Summarize Inventory and Projection state |
-| `./my-skills list` | List Project Decks |
-| `./my-skills install-deck NAME` | Apply a Project Deck |
-| `./my-skills all` | Preview full restoration |
-| `./my-skills all --apply` | Restore the complete Inventory |
-| `./my-skills ui` | Open the local checklist UI |
+| `./skill-loom status` | Summarize Inventory and Projection state |
+| `./skill-loom list` | List Project Decks |
+| `./skill-loom install-deck NAME` | Apply a Project Deck |
+| `./skill-loom all` | Preview full restoration |
+| `./skill-loom all --apply` | Restore the complete Inventory |
+| `./skill-loom ui` | Open the local checklist UI |
 
 The repository also ships Catalog-aware management Skills for adding, auditing, restoring, and updating External and Vendor Skills.
 

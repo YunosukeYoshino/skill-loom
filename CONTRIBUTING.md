@@ -7,8 +7,8 @@ Thank you for helping improve Skill Loom.
 Skill Loom currently targets macOS and requires Bun, Python 3.11+, and uv.
 
 ```bash
-git clone https://github.com/YunosukeYoshino/skillloom.git
-cd skillloom
+git clone https://github.com/YunosukeYoshino/skill-loom.git
+cd skill-loom
 bun install
 bun install --cwd app/frontend
 make typecheck
