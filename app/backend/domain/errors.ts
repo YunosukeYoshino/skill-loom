@@ -14,5 +14,5 @@ export class ValueError extends Error {}
 /** Python の `FileNotFoundError`。呼び出し側は 400。 */
 export class NotFoundError extends Error {}
 
-/** Python の `FileExistsError`。preset save だけが 409 に落とす。 */
+/** Python の `FileExistsError`。preset save / deck create が 409 に落とす。 */
 export class AlreadyExistsError extends Error {}

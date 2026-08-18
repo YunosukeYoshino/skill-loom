@@ -7,6 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -17,12 +18,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   addSkillsToProjectDeck,
+  createEmptyProjectDeck,
   loadDeck,
   loadOptionalProjectDeck,
   projectDeckInstallCommands,
   saveProjectDeckSelection,
   writeProjectDeckSkills,
 } from "./decks";
+import { AlreadyExistsError, ValueError } from "./errors";
 import type { Lock } from "./inventory";
 
 let sandbox: string;
@@ -55,6 +58,42 @@ beforeEach(() => {
 afterEach(() => {
   for (const name of touched.splice(0)) delete process.env[name];
   rmSync(sandbox, { recursive: true, force: true });
+});
+
+describe("createEmptyProjectDeck", () => {
+  test("空の project deck を作り、パスを返す", () => {
+    const path = createEmptyProjectDeck("work");
+
+    expect(path).toBe(join(sandbox, "work.json"));
+    expect(readDeck("work")).toEqual({ name: "work", skills: [] });
+    expect(readFileSync(path, "utf8").endsWith("\n")).toBe(true);
+  });
+
+  test("description があれば残す", () => {
+    createEmptyProjectDeck("docs", "Docs deck");
+
+    expect(readDeck("docs")).toEqual({
+      name: "docs",
+      description: "Docs deck",
+      skills: [],
+    });
+  });
+
+  test("既存 deck は作らない", () => {
+    writeDeck("work", { name: "work", skills: [] });
+
+    expect(() => createEmptyProjectDeck("work")).toThrow(AlreadyExistsError);
+    expect(() => createEmptyProjectDeck("work")).toThrow(
+      "Project deck already exists: work"
+    );
+  });
+
+  test("不正な名前は弾く", () => {
+    for (const name of ["", "Bad", "has space", "../escape", "a".repeat(65)]) {
+      expect(() => createEmptyProjectDeck(name)).toThrow(ValueError);
+    }
+    expect(existsSync(join(sandbox, "../escape.json"))).toBe(false);
+  });
 });
 
 describe("saveProjectDeckSelection", () => {

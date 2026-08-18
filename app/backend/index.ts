@@ -24,6 +24,7 @@ import {
 } from "./domain/custom";
 import {
   addSkillsToProjectDeck,
+  createEmptyProjectDeck,
   deckPath,
   loadDeck,
   loadOptionalProjectDeck,
@@ -1075,6 +1076,35 @@ const DECK_ACTIONS: ReadonlySet<string> = new Set(["apply", "merge", "save"]);
 function unknownDeckResponse(error: unknown): Response {
   return errorResponse(errorText(error), 404, globalPayload(loadLock(), ""));
 }
+
+/**
+ * 空の Project Deck を生やす。既存の上書きはしない（409）。
+ *
+ * 作ったあとは deck ページへ遷移できるよう、その deck の payload を返す。
+ */
+app.post("/api/project-decks", async (c) => {
+  const body = await readJson(c.req.raw);
+  const name = bodyString(body, "name");
+  const description = bodyString(body, "description");
+  const base = globalPayload(loadLock(), "");
+  if (!name) return errorResponse("Project deck name is required", 400, base);
+
+  let path: string;
+  try {
+    path = createEmptyProjectDeck(name, description);
+  } catch (error) {
+    if (error instanceof AlreadyExistsError)
+      return errorResponse(error.message, 409, base);
+    return errorResponse(errorText(error), 400, base);
+  }
+  const commitNote = commitRepoChanges(`chore: create project deck ${name}`, [
+    path,
+  ]);
+  return jsonResponse(
+    projectDeckPayload(loadLock(), name, `Created deck: ${name}${commitNote}`),
+    200
+  );
+});
 
 app.get("/api/project-decks/:deckName", (c) => {
   const deckName = c.req.param("deckName");

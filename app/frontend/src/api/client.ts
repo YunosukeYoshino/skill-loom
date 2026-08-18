@@ -201,6 +201,12 @@ export const api = {
       `/api/project-decks/${deckName}${catalog ? "?catalog=1" : ""}`
     ),
 
+  createProjectDeck: (name: string, description = "") =>
+    request<ProjectDeckPayload>("/api/project-decks", {
+      method: "POST",
+      body: JSON.stringify({ name, description }),
+    }),
+
   projectDeckAction: (deckName: string, action: string, skills: string[]) =>
     request<ProjectDeckPayload>(`/api/project-decks/${deckName}/${action}`, {
       method: "POST",

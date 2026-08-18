@@ -1,5 +1,13 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { api, ApiError } from "@/api/client";
 
 type MastheadProps = {
   title: string;
@@ -49,6 +57,12 @@ type NavProps = {
 };
 
 export function Nav({ current, decks }: NavProps) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const deckList = decks ?? [];
   const items: { to: string; label: string; id: string }[] = [
     { to: "/global", label: "Global", id: "global" },
@@ -61,29 +75,122 @@ export function Nav({ current, decks }: NavProps) {
     })),
   ];
 
+  const create = useMutation({
+    mutationFn: (deckName: string) => api.createProjectDeck(deckName),
+    onSuccess: (data) => {
+      const deckName = data.deckName;
+      setCreating(false);
+      setName("");
+      setError("");
+      qc.setQueryData(["project-deck", deckName, false], data);
+      void qc.invalidateQueries();
+      navigate({
+        to: "/project-decks/$deckName",
+        params: { deckName },
+      });
+    },
+    onError: (err) => {
+      setError(err instanceof ApiError ? err.message : (err as Error).message);
+    },
+  });
+
+  useEffect(() => {
+    if (creating) inputRef.current?.focus();
+  }, [creating]);
+
+  const submit = () => {
+    const trimmed = name.trim();
+    if (!trimmed || create.isPending) return;
+    setError("");
+    create.mutate(trimmed);
+  };
+
+  const close = () => {
+    if (create.isPending) return;
+    setCreating(false);
+    setName("");
+    setError("");
+  };
+
   return (
-    <nav className="mb-4 flex flex-wrap gap-1 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-1 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
-      <span className="ml-1.5 self-center font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.04em] text-[var(--color-ink-2)] uppercase">
-        nav
-      </span>
-      {items.map((item) => {
-        const active =
-          current === item.id || (item.id === "global" && current === "");
-        return (
-          <Link
-            key={item.id}
-            to={item.to}
-            className={
-              active
-                ? "rounded-[var(--radius-sm)] bg-[var(--color-accent)] px-2.5 py-1.5 text-xs font-semibold text-[var(--color-accent-ink)] transition-[transform,opacity] duration-100 ease-out active:scale-[0.97]"
-                : "rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink-2)] transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.97]"
-            }
+    <div className="mb-4">
+      <nav className="flex flex-wrap gap-1 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-1 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
+        <span className="ml-1.5 self-center font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.04em] text-[var(--color-ink-2)] uppercase">
+          nav
+        </span>
+        {items.map((item) => {
+          const active =
+            current === item.id || (item.id === "global" && current === "");
+          return (
+            <Link
+              key={item.id}
+              to={item.to}
+              className={
+                active
+                  ? "rounded-[var(--radius-sm)] bg-[var(--color-accent)] px-2.5 py-1.5 text-xs font-semibold text-[var(--color-accent-ink)] transition-[transform,opacity] duration-100 ease-out active:scale-[0.97]"
+                  : "rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink-2)] transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.97]"
+              }
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+        <button
+          type="button"
+          aria-expanded={creating}
+          aria-controls="create-deck-form"
+          disabled={create.isPending}
+          onClick={() => (creating ? close() : setCreating(true))}
+          className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink-2)] transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          + Deck
+        </button>
+      </nav>
+      {creating ? (
+        <div
+          id="create-deck-form"
+          className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150"
+        >
+          <label
+            htmlFor="new-deck-name"
+            className="text-sm text-[var(--color-ink-2)]"
           >
-            {item.label}
-          </Link>
-        );
-      })}
-    </nav>
+            新しい Deck 名
+          </label>
+          <input
+            id="new-deck-name"
+            ref={inputRef}
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+              if (e.key === "Escape") close();
+            }}
+            disabled={create.isPending}
+            placeholder="例: frontend"
+            autoComplete="off"
+            spellCheck={false}
+            className="min-w-[160px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-1.5 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+          />
+          <Button
+            variant="primary"
+            disabled={create.isPending || !name.trim()}
+            onClick={submit}
+          >
+            {pendingLabel(create.isPending, "作成", "作成中…")}
+          </Button>
+          <Button disabled={create.isPending} onClick={close}>
+            キャンセル
+          </Button>
+          {error ? (
+            <p className="m-0 basis-full text-sm text-[var(--color-ink)]">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
