@@ -31,7 +31,7 @@ run_management_cli() {
     MY_SKILLS_CLAUDE_SKILLS_DIR="$tmp_dir/claude-skills" \
     MY_SKILLS_GEMINI_SKILLS_DIR="$tmp_dir/gemini-skills" \
     MY_SKILLS_PRESETS_DIR="$tmp_dir/presets" \
-    MY_SKILLS_AUTO_COMMIT=0 \
+    MY_SKILLS_AUTO_COMMIT="${MY_SKILLS_AUTO_COMMIT:-0}" \
     ./skill-loom --catalog-dir "$tmp_dir" "$@" \
     > "$tmp_dir/cli-stdout.txt" 2> "$tmp_dir/cli-stderr.txt" \
     && echo 0 || echo $?
@@ -251,6 +251,62 @@ test_management_cli_deck_show_and_save_are_confirmed() {
     || fail "test_management_cli_deck_show_and_save_are_confirmed: apply rc=$rc output=$out"
 }
 
+test_management_cli_deck_save_rejects_catalog_escape() {
+  echo "Running test_management_cli_deck_save_rejects_catalog_escape..."
+  local tmp_dir rc before
+  tmp_dir=$(mktemp -d)
+  TMP_DIRS+=("$tmp_dir")
+  setup_management_cli_fixture "$tmp_dir"
+  before=$(< "$tmp_dir/shared-decks/core.json")
+
+  rc=$(run_management_cli "$tmp_dir" deck save ../shared-decks/core injected --yes)
+
+  [ "$rc" = "2" ] \
+    && [ "$(< "$tmp_dir/shared-decks/core.json")" = "$before" ] \
+    && pass "test_management_cli_deck_save_rejects_catalog_escape: boundary preserved" \
+    || fail "test_management_cli_deck_save_rejects_catalog_escape: rc=$rc shared deck changed"
+}
+
+test_management_cli_deck_apply_unions_core_and_archives_extras() {
+  echo "Running test_management_cli_deck_apply_unions_core_and_archives_extras..."
+  local tmp_dir rc out
+  tmp_dir=$(mktemp -d)
+  TMP_DIRS+=("$tmp_dir")
+  setup_management_cli_fixture "$tmp_dir"
+  printf '{"name":"core","skills":["core-skill"]}\n' > "$tmp_dir/shared-decks/core.json"
+  printf '{"name":"work","skills":["alpha"]}\n' > "$tmp_dir/project-decks/work.json"
+  bun -e 'const fs=require("fs"); const p=process.argv[1]; const j=JSON.parse(fs.readFileSync(p)); j.external["core-skill"]={source:"owner/tools",sourceUrl:"https://github.com/owner/tools.git",skillPath:"skills/core-skill/SKILL.md"}; fs.writeFileSync(p,JSON.stringify(j,null,2)+"\n")' "$tmp_dir/skills.lock.json"
+  mkdir -p "$tmp_dir/archive/alpha" "$tmp_dir/archive/core-skill" "$tmp_dir/active/beta"
+  printf -- '---\nname: alpha\n---\n' > "$tmp_dir/archive/alpha/SKILL.md"
+  printf -- '---\nname: core-skill\n---\n' > "$tmp_dir/archive/core-skill/SKILL.md"
+  printf -- '---\nname: beta\n---\n' > "$tmp_dir/active/beta/SKILL.md"
+
+  rc=$(run_management_cli "$tmp_dir" deck apply work --yes)
+  out=$(< "$tmp_dir/cli-stdout.txt")
+
+  [ "$rc" = "0" ] && assert_contains "$out" "Applied deck: work" \
+    && [ -d "$tmp_dir/active/alpha" ] && [ -d "$tmp_dir/active/core-skill" ] \
+    && [ -d "$tmp_dir/archive/beta" ] && [ ! -e "$tmp_dir/active/beta" ] \
+    && pass "test_management_cli_deck_apply_unions_core_and_archives_extras: exact target" \
+    || fail "test_management_cli_deck_apply_unions_core_and_archives_extras: rc=$rc output=$out"
+}
+
+test_management_cli_catalog_commit_result_is_visible() {
+  echo "Running test_management_cli_catalog_commit_result_is_visible..."
+  local tmp_dir rc out
+  tmp_dir=$(mktemp -d)
+  TMP_DIRS+=("$tmp_dir")
+  setup_management_cli_fixture "$tmp_dir"
+  printf '{"name":"work","skills":[]}\n' > "$tmp_dir/project-decks/work.json"
+
+  rc=$(MY_SKILLS_AUTO_COMMIT=1 run_management_cli "$tmp_dir" deck save work alpha --yes)
+  out=$(< "$tmp_dir/cli-stdout.txt")
+
+  [ "$rc" = "0" ] && assert_contains "$out" "git commit" \
+    && pass "test_management_cli_catalog_commit_result_is_visible: result shown" \
+    || fail "test_management_cli_catalog_commit_result_is_visible: rc=$rc output=$out"
+}
+
 register_cases \
   test_management_cli_external_list_groups_catalog_sources \
   test_management_cli_external_check_reports_updates_without_mutating \
@@ -259,4 +315,7 @@ register_cases \
   test_management_cli_external_update_yes_runs_selected_skill \
   test_management_cli_custom_check_and_update_use_catalog_source \
   test_management_cli_draft_list_and_promote_are_confirmed \
-  test_management_cli_deck_show_and_save_are_confirmed
+  test_management_cli_deck_show_and_save_are_confirmed \
+  test_management_cli_deck_save_rejects_catalog_escape \
+  test_management_cli_deck_apply_unions_core_and_archives_extras \
+  test_management_cli_catalog_commit_result_is_visible

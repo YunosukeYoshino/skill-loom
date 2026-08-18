@@ -11,7 +11,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join, relative } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { decksDir, GLOBAL_INSTALL_AGENTS, projectDecksDir } from "./config";
 import type { Lock } from "./inventory";
 
@@ -70,10 +70,26 @@ export function listProjectDecks(): string[] {
 
 export function deckPath(name: string, project = false): string {
   const base = project ? projectDecksDir() : decksDir();
-  const path = join(base, `${name}.json`);
+  if (isAbsolute(name))
+    throw new UnknownDeckError(`Deck path must be relative: ${name}`);
+  const path = resolve(base, `${name}.json`);
+  const fromBase = relative(resolve(base), path);
+  if (
+    fromBase === ".." ||
+    fromBase.startsWith(`..${sep}`) ||
+    isAbsolute(fromBase)
+  )
+    throw new UnknownDeckError(`Deck path escapes its root: ${name}`);
   if (exists(path)) return path;
   // 拡張子込みで指定された場合も受ける（移行前の nested 分岐）。
-  const nested = join(base, name);
+  const nested = resolve(base, name);
+  const nestedFromBase = relative(resolve(base), nested);
+  if (
+    nestedFromBase === ".." ||
+    nestedFromBase.startsWith(`..${sep}`) ||
+    isAbsolute(nestedFromBase)
+  )
+    throw new UnknownDeckError(`Deck path escapes its root: ${name}`);
   if (name.endsWith(".json") && exists(nested)) return nested;
   throw new UnknownDeckError(
     `Unknown ${project ? "project deck" : "deck"}: ${name}`

@@ -15,13 +15,7 @@ import { join } from "node:path";
 import type { ServerWebSocket, Subprocess } from "bun";
 import { Hono } from "hono";
 import { APPLY_BUSY_MESSAGE, releaseApply, tryAcquireApply } from "./applyLock";
-import {
-  activeDir,
-  archiveDir,
-  ignoreFile,
-  lockFile,
-  projectDecksDir,
-} from "./domain/config";
+import { ignoreFile, lockFile, projectDecksDir } from "./domain/config";
 import { resolveCatalogPath } from "./domain/catalogPaths";
 import {
   collectCustomUpdatable,
@@ -59,12 +53,10 @@ import {
   normalizeGithubSource,
 } from "./infrastructure/github";
 import {
-  ignoredSkills,
   loadLock,
   saveLock,
   sortNames,
   trackedSkills,
-  visibleInstalledNames,
 } from "./domain/inventory";
 import {
   deletePreset,
@@ -75,6 +67,7 @@ import {
 } from "./domain/presets";
 import {
   applyDeck,
+  applyProjectDeckSelection,
   applyNamedPreset,
   bulkOffActive,
   installCustomFromRepo,
@@ -1146,45 +1139,17 @@ app.post("/api/project-decks/:deckName/:action", async (c) => {
   }
 
   const lock = loadLock();
-  const active = visibleInstalledNames(lock, activeDir());
-  const archived = visibleInstalledNames(lock, archiveDir());
-  const target =
-    action === "merge"
-      ? new Set([...active, ...selected])
-      : new Set([...loadDeck("core")[1], ...selected]);
-
-  const managed = trackedSkills(lock);
-  const unmanaged = ignoredSkills();
-  const unresolved = sortNames(
-    [...target].filter(
-      (name) =>
-        !managed.has(name) &&
-        !unmanaged.has(name) &&
-        !active.has(name) &&
-        !archived.has(name)
-    )
-  );
   const base = projectDeckPayload(lock, deckName);
-  if (unresolved.length > 0)
-    return errorResponse(`Unresolved: ${unresolved.join(", ")}`, 400, base);
-
-  const extra = new Set([...active].filter((name) => !target.has(name)));
-  const restore = new Set(
-    [...target].filter((name) => archived.has(name) && !active.has(name))
-  );
-  const install = new Set(
-    [...target].filter(
-      (name) =>
-        !active.has(name) &&
-        !archived.has(name) &&
-        !unmanaged.has(name) &&
-        managed.has(name)
-    )
-  );
   if (!tryAcquireApply()) return errorResponse(APPLY_BUSY_MESSAGE, 409, base);
 
+  let result: ReturnType<typeof applyProjectDeckSelection>;
   try {
-    applyDeck(extra, restore, install, lock);
+    result = applyProjectDeckSelection(
+      deckName,
+      selected,
+      action === "merge" ? "merge" : "apply",
+      lock
+    );
   } catch (error) {
     return errorResponse(
       `Apply failed: ${errorText(error)}`,
@@ -1194,11 +1159,14 @@ app.post("/api/project-decks/:deckName/:action", async (c) => {
   } finally {
     releaseApply();
   }
+  const unresolved = sortNames(result.unresolved);
+  if (unresolved.length > 0)
+    return errorResponse(`Unresolved: ${unresolved.join(", ")}`, 400, base);
   return jsonResponse(
     projectDeckPayload(
       loadLock(),
       deckName,
-      `Applied: active target ${target.size}`
+      `Applied: active target ${result.target.size}`
     ),
     200
   );

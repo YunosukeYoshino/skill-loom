@@ -45,6 +45,7 @@ import {
 } from "./domain/presets";
 import {
   applyDeck,
+  applyProjectDeckSelection,
   applyNamedPreset,
   installCustomFromRepo,
   installProjectDeck,
@@ -323,10 +324,13 @@ function cmdDraft(argv: string[]): number {
         const draftPath = draftPaths.get(name);
         if (draftPath) paths.push(resolveCatalogPath(draftPath));
       }
-      commitRepoChanges(`feat: add ${promoted.join(", ")}`, paths);
+      const commitNote = commitRepoChanges(
+        `feat: add ${promoted.join(", ")}`,
+        paths
+      );
       if (subcommand === "install")
         installCustomFromRepo(new Set(promoted), loadLock());
-      console.log(`Promoted: ${promoted.join(", ")}`);
+      console.log(`Promoted: ${promoted.join(", ")}${commitNote}`);
       return 0;
     } catch (error) {
       console.error(errorText(error));
@@ -363,10 +367,13 @@ function cmdDeck(argv: string[]): number {
     if (!confirmedAction(`Save Project Deck ${deckName}`, names, yes)) return 1;
     try {
       const count = saveProjectDeckSelection(deckName, new Set(names));
-      commitRepoChanges(`chore: save project deck ${deckName}`, [
-        deckPath(deckName, true),
-      ]);
-      console.log(`Saved deck: ${deckName} (${count} direct skills)`);
+      const commitNote = commitRepoChanges(
+        `chore: save project deck ${deckName}`,
+        [deckPath(deckName, true)]
+      );
+      console.log(
+        `Saved deck: ${deckName} (${count} direct skills)${commitNote}`
+      );
       return 0;
     } catch (error) {
       console.error(errorText(error));
@@ -385,7 +392,12 @@ function cmdDeck(argv: string[]): number {
         )
       )
         return 1;
-      const result = installProjectDeck(deckName, loadLock());
+      const result = applyProjectDeckSelection(
+        deckName,
+        new Set(skills),
+        subcommand,
+        loadLock()
+      );
       if (result.unresolved.size > 0) {
         console.error(`Unresolved: ${sortNames(result.unresolved).join(", ")}`);
         return 2;
