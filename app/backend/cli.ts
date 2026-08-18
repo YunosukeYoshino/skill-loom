@@ -45,11 +45,12 @@ import {
 } from "./domain/presets";
 import {
   applyDeck,
-  applyProjectDeckSelection,
+  applyProjectDeckPlan,
   applyNamedPreset,
   installCustomFromRepo,
   installProjectDeck,
   linkAgentSkillDirsMany,
+  planProjectDeckSelection,
   restorePreviousPreset,
 } from "./domain/projection";
 import {
@@ -384,20 +385,30 @@ function cmdDeck(argv: string[]): number {
     const yes = rest.includes("-y") || rest.includes("--yes");
     try {
       const [, skills] = loadDeck(deckName, new Set(), true);
-      if (
-        !confirmedAction(
-          `${subcommand === "merge" ? "Merge" : "Apply"} Project Deck ${deckName}`,
-          skills,
-          yes
-        )
-      )
-        return 1;
-      const result = applyProjectDeckSelection(
+      const lock = loadLock();
+      const selected = new Set(skills);
+      const plan = planProjectDeckSelection(
         deckName,
-        new Set(skills),
+        selected,
         subcommand,
-        loadLock()
+        lock
       );
+      console.log(
+        `${subcommand === "merge" ? "Merge" : "Apply"} Project Deck ${deckName}`
+      );
+      const printNames = (label: string, names: Set<string>): void => {
+        console.log(`${label}: ${sortNames(names).join(", ") || "(none)"}`);
+      };
+      printNames("target", plan.target);
+      printNames("archive", plan.extra);
+      printNames("restore", plan.restore);
+      printNames("install", plan.install);
+      printNames("unresolved", plan.unresolved);
+      if (!yes && !confirmed("Continue? [y/N] ")) {
+        console.log("Aborted.");
+        return 1;
+      }
+      const result = applyProjectDeckPlan(plan, lock);
       if (result.unresolved.size > 0) {
         console.error(`Unresolved: ${sortNames(result.unresolved).join(", ")}`);
         return 2;

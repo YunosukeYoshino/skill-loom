@@ -503,7 +503,7 @@ export type ProjectDeckInstallResult = {
 
 export type ProjectDeckApplyMode = "apply" | "merge";
 
-export type ProjectDeckApplyResult = {
+export type ProjectDeckApplyPlan = {
   target: Set<string>;
   unresolved: Set<string>;
   extra: Set<string>;
@@ -511,13 +511,13 @@ export type ProjectDeckApplyResult = {
   install: Set<string>;
 };
 
-/** Web UI と管理 CLI で共有する Project Deck の apply / merge semantics。 */
-export function applyProjectDeckSelection(
+/** Project Deck の apply / merge を、書き込み前に確認できる計画へ変換する。 */
+export function planProjectDeckSelection(
   deckName: string,
   selected: Set<string>,
   mode: ProjectDeckApplyMode,
   lock: Lock
-): ProjectDeckApplyResult {
+): ProjectDeckApplyPlan {
   loadDeck(deckName, new Set(), true);
   const active = visibleInstalledNames(lock, activeDir());
   const archived = visibleInstalledNames(lock, archiveDir());
@@ -536,15 +536,6 @@ export function applyProjectDeckSelection(
         !archived.has(name)
     )
   );
-  if (unresolved.size > 0)
-    return {
-      target,
-      unresolved,
-      extra: new Set(),
-      restore: new Set(),
-      install: new Set(),
-    };
-
   const extra = new Set([...active].filter((name) => !target.has(name)));
   const restore = new Set(
     [...target].filter((name) => archived.has(name) && !active.has(name))
@@ -558,8 +549,29 @@ export function applyProjectDeckSelection(
         managed.has(name)
     )
   );
-  applyDeck(extra, restore, install, lock);
-  return { target, unresolved: new Set(), extra, restore, install };
+  return { target, unresolved, extra, restore, install };
+}
+
+/** Web UI と管理 CLI で共有する Project Deck の apply / merge semantics。 */
+export function applyProjectDeckPlan(
+  plan: ProjectDeckApplyPlan,
+  lock: Lock
+): ProjectDeckApplyPlan {
+  if (plan.unresolved.size === 0)
+    applyDeck(plan.extra, plan.restore, plan.install, lock);
+  return plan;
+}
+
+export function applyProjectDeckSelection(
+  deckName: string,
+  selected: Set<string>,
+  mode: ProjectDeckApplyMode,
+  lock: Lock
+): ProjectDeckApplyPlan {
+  return applyProjectDeckPlan(
+    planProjectDeckSelection(deckName, selected, mode, lock),
+    lock
+  );
 }
 
 /**
