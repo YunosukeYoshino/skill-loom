@@ -12,8 +12,7 @@ typecheck:
 	cd app/frontend && bun run typecheck
 
 test:
-	bun test app/backend/
-	bash tests/test-skill-loom.sh
+	bun run test
 
 publication-check:
 	bash scripts/publication-check

@@ -17,7 +17,7 @@
   "scripts": {
     "prepare": "husky",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json && bun run --cwd app/frontend typecheck",
-    "test": "bun test app/backend/ && bash tests/test-skill-loom.sh",
+    "test": "bun test app/backend/ app/frontend/src/api/ && bash tests/test-skill-loom.sh",
     "format": "oxfmt",
     "format:check": "oxfmt --check"
   }
