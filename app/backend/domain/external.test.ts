@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -30,6 +31,7 @@ import {
   isArgvSafeSkillName,
   registerInstalledExternalSelection,
   removeExternalSkillFromManagement,
+  runExternalInstall,
 } from "./external";
 import { externalSourceDetailPayload } from "../payloads";
 import { sha256 } from "../infrastructure/github";
@@ -312,6 +314,28 @@ describe("外部 CLI のコマンド", () => {
     expect(isArgvSafeSkillName("-g")).toBe(false);
     expect(isArgvSafeSkillName("--all")).toBe(false);
   });
+
+  test("空白・command text を含む skill 名は HTTP remove guard を通さない", () => {
+    for (const name of ["two skills", "alpha;echo pwned", "$(whoami)", "a'b"]) {
+      expect(isArgvSafeSkillName(name)).toBe(false);
+    }
+  });
+
+  test("update は空・option 形式の skill 名を argv に載せない", () => {
+    for (const name of ["", "-g", "--all"]) {
+      expect(() => externalUpdateCommand(name)).toThrow(
+        `Invalid external skill name: ${name}`
+      );
+    }
+  });
+
+  test("remove は空白・command text を含む skill 名を argv に載せない", () => {
+    for (const name of ["two skills", "alpha;echo pwned", "$(whoami)", "a'b"]) {
+      expect(() => externalRemoveCommand(name)).toThrow(
+        `Invalid external skill name: ${name}`
+      );
+    }
+  });
 });
 
 describe("formatExternalUpdateMessage", () => {
@@ -438,6 +462,19 @@ describe("addExternalToLock", () => {
     ).toThrow("Skill not found in source: nope");
   });
 
+  test("unsafe な候補名は lock へ永続化しない", () => {
+    const unsafeName = "alpha;echo pwned";
+
+    expect(() =>
+      addExternalToLock("owner/repo", new Set([unsafeName]), [
+        { name: unsafeName, description: "" },
+      ])
+    ).toThrow(`Invalid external skill name: ${unsafeName}`);
+    expect(
+      JSON.parse(readFileSync(dir("skills.lock.json"), "utf-8")).external
+    ).toEqual({});
+  });
+
   test("取り込んだ skill は ignore から外す", () => {
     writeFileSync(
       dir("ignore.json"),
@@ -448,6 +485,20 @@ describe("addExternalToLock", () => {
     expect(
       JSON.parse(readFileSync(dir("ignore.json"), "utf-8")).ignore
     ).toEqual(["other"]);
+  });
+});
+
+describe("runExternalInstall", () => {
+  test("unsafe な skill 名は subprocess を起動する前に弾く", async () => {
+    const marker = dir("install-ran");
+    const script = dir("skills-add-stub");
+    writeFileSync(script, `#!/bin/sh\nprintf touched > '${marker}'\n`);
+    setEnv("MY_SKILLS_ADD_SCRIPT", script);
+
+    await expect(
+      runExternalInstall("owner/repo", new Set(["--all"]))
+    ).rejects.toThrow("Invalid external skill name: --all");
+    expect(existsSync(marker)).toBe(false);
   });
 });
 
@@ -515,6 +566,17 @@ describe("registerInstalledExternalSelection", () => {
       JSON.parse(readFileSync(dir("ignore.json"), "utf-8")).ignore
     ).toEqual(["other"]);
   });
+
+  test("空白を含む skill 名は lock へ永続化しない", () => {
+    const unsafeName = "two skills";
+
+    expect(() =>
+      registerInstalledExternalSelection("owner/repo", new Set([unsafeName]))
+    ).toThrow(`Invalid external skill name: ${unsafeName}`);
+    expect(
+      JSON.parse(readFileSync(dir("skills.lock.json"), "utf-8")).external
+    ).toEqual({});
+  });
 });
 
 describe("externalSourceDetailPayload", () => {
@@ -553,5 +615,33 @@ describe("externalSourceDetailPayload", () => {
       "alpha",
       "beta",
     ]);
+  });
+
+  test("表示する update command は shell に貼り付けても引数境界を保つ", async () => {
+    place("active", "alpha", "local alpha\n");
+    setEnv("MY_SKILLS_UPDATE_BIN", "/tmp/update stub;echo pwned");
+
+    const detail = await externalSourceDetailPayload(
+      {
+        external: {
+          alpha: {
+            source: "owner/repo",
+            skillPath: "skills/alpha/SKILL.md",
+          },
+        },
+      },
+      "owner/repo",
+      [
+        {
+          name: "alpha",
+          path: "skills/alpha/SKILL.md",
+          contentHash: sha256(Buffer.from("remote alpha\n")),
+        },
+      ]
+    );
+
+    expect(detail.installed[0]?.updateCommand).toBe(
+      "'/tmp/update stub;echo pwned' skills update alpha -g -y"
+    );
   });
 });

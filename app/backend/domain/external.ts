@@ -118,24 +118,31 @@ export function externalSourceStatusLabel(
 
 // ---- 外部 CLI のコマンド ----
 
+const EXTERNAL_SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function assertValidExternalSkillName(name: string): void {
+  if (!EXTERNAL_SKILL_NAME_PATTERN.test(name))
+    throw new ValueError(`Invalid external skill name: ${name}`);
+}
+
 export function externalUpdateCommand(skillName: string): string[] {
+  assertValidExternalSkillName(skillName);
   return [skillsUpdateBin(), "skills", "update", skillName, "-g", "-y"];
 }
 
 export function externalRemoveCommand(skillName: string): string[] {
+  assertValidExternalSkillName(skillName);
   return [skillsRemoveBin(), "skills", "remove", skillName, "-g", "-y"];
 }
 
 /**
  * skill 名がそのまま CLI の argv に乗ってよいか。
  *
- * update / update-all は lock 由来の名前しか渡さないが、remove だけはリクエストの
- * 文字列を検証せずに渡していた（移行前も同じ）。`-` 始まりだと `skills remove` の
- * オプションとして解釈され、消す対象がずれる。実在の skill 名は `-` で始まらないので
- * ここで弾いても移行前に通っていた入力は落ちない。
+ * `skills remove` のオプションとして解釈される名前だけでなく、表示やログで command text
+ * に見える名前もここで弾く。skill 名の規約は英小文字・数字・単語間のハイフン。
  */
 export function isArgvSafeSkillName(name: string): boolean {
-  return name !== "" && !name.startsWith("-");
+  return EXTERNAL_SKILL_NAME_PATTERN.test(name);
 }
 
 // ---- 更新確認 ----
@@ -469,6 +476,7 @@ export async function runExternalInstall(
   source: string,
   selected: Set<string>
 ): Promise<void> {
+  for (const name of selected) assertValidExternalSkillName(name);
   const command = ["bash", skillsAddScript(), source, "--no-commit"];
   for (const name of sortNames(selected)) command.push("--skill", name);
   const proc = Bun.spawn(command, {
@@ -496,6 +504,7 @@ export function addExternalToLock(
   selected: Set<string>,
   candidates: ExternalCandidate[]
 ): void {
+  for (const name of selected) assertValidExternalSkillName(name);
   const ownerRepo = normalizeGithubSource(source);
   const candidateByName = new Map(
     candidates.map((candidate) => [candidate.name, candidate])
@@ -528,6 +537,7 @@ export function registerInstalledExternalSelection(
   source: string,
   selected: Set<string>
 ): [Lock, number] {
+  for (const name of selected) assertValidExternalSkillName(name);
   const ownerRepo = normalizeGithubSource(source);
   const lock = loadLock();
   const external = (lock.external ??= {});

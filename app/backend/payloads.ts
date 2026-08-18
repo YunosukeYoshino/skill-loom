@@ -47,6 +47,16 @@ import {
 } from "./domain/inventory";
 import { hasPreviousPreset, listUserPresets } from "./domain/presets";
 
+function shellCommandText(command: string[]): string {
+  return command
+    .map((value) => {
+      if (value === "") return "''";
+      if (!/[^\w@%+=:,./-]/.test(value)) return value;
+      return `'${value.replaceAll("'", `'"'"'`)}'`;
+    })
+    .join(" ");
+}
+
 export function deckNames(): string[] {
   return listProjectDecks();
 }
@@ -204,7 +214,9 @@ export async function externalSourceDetailPayload(
         path: candidate.path ?? "",
         state: skillProjectionState(name, activeExternal, archivedExternal),
         hasUpdate,
-        updateCommand: hasUpdate ? externalUpdateCommand(name).join(" ") : "",
+        updateCommand: hasUpdate
+          ? shellCommandText(externalUpdateCommand(name))
+          : "",
         managed: true,
       });
       continue;
