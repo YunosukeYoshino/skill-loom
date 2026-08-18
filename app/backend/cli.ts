@@ -9,8 +9,17 @@
  */
 
 import { readSync } from "node:fs";
-import { listProjectDecks, loadDeck, UnknownDeckError } from "./domain/decks";
-import { activeDir, archiveDir } from "./domain/config";
+import {
+  deckPath,
+  listProjectDecks,
+  loadDeck,
+  saveProjectDeckSelection,
+  UnknownDeckError,
+} from "./domain/decks";
+import { activeDir, archiveDir, lockFile } from "./domain/config";
+import { collectCustomUpdatable, updateCustomFromRepo } from "./domain/custom";
+import { draftRows, promoteDrafts } from "./domain/drafts";
+import { resolveCatalogPath } from "./domain/catalogPaths";
 import {
   ignoredSkills,
   loadLock,
@@ -18,6 +27,12 @@ import {
   trackedSkills,
   visibleInstalledNames,
 } from "./domain/inventory";
+import {
+  activeExternalSkillNames,
+  collectExternalUpdateStatus,
+  externalUpdateCommand,
+  externalSourceSummary,
+} from "./domain/external";
 import {
   computePresetApplyPlan,
   formatPresetApplyPreview,
@@ -31,10 +46,16 @@ import {
 import {
   applyDeck,
   applyNamedPreset,
+  installCustomFromRepo,
   installProjectDeck,
   linkAgentSkillDirsMany,
   restorePreviousPreset,
 } from "./domain/projection";
+import {
+  externalSkillCandidates,
+  normalizeGithubSource,
+} from "./infrastructure/github";
+import { commitRepoChanges } from "./infrastructure/git";
 
 /** Python の `f"{value:<width}"`。 */
 function padRight(value: string, width: number): string {
@@ -93,6 +114,291 @@ function cmdStatus(): number {
     console.log("All active skills are tracked.");
   }
   return 0;
+}
+
+function cmdExternalList(): number {
+  const sources = externalSourceSummary(loadLock());
+  if (sources.length === 0) {
+    console.log("No external sources.");
+    return 0;
+  }
+  console.log("External sources:");
+  for (const source of sources) {
+    console.log(
+      `${padRight(source.source, 32)} ${padLeft(String(source.skills.length), 3)}  ${source.skills.join(", ")}`
+    );
+  }
+  return 0;
+}
+
+async function cmdExternalCheck(): Promise<number> {
+  const [statuses, errors] = await collectExternalUpdateStatus(loadLock());
+  console.log("External update check:");
+  for (const source of externalSourceSummary(loadLock())) {
+    const status = statuses[source.source];
+    if (!status?.checked) {
+      console.log(
+        `${source.source}  check failed: ${status?.error ?? "unknown error"}`
+      );
+      continue;
+    }
+    const updatable = status.updatable ?? [];
+    console.log(
+      updatable.length > 0
+        ? `${source.source}  updates: ${updatable.join(", ")}`
+        : `${source.source}  up to date`
+    );
+  }
+  return errors.length > 0 ? 1 : 0;
+}
+
+function cmdExternalPreview(source: string): number {
+  try {
+    const ownerRepo = normalizeGithubSource(source);
+    const candidates = externalSkillCandidates(ownerRepo);
+    console.log(`External source: ${ownerRepo}`);
+    if (candidates.length === 0) {
+      console.log("No Skill candidates.");
+      return 0;
+    }
+    for (const candidate of candidates) {
+      const path = candidate.path ? `  ${candidate.path}` : "";
+      console.log(`${candidate.name}${path}`);
+    }
+    return 0;
+  } catch (error) {
+    console.error(errorText(error));
+    return 2;
+  }
+}
+
+function runCommand(command: string[]): void {
+  const result = Bun.spawnSync(command, {
+    stdout: "inherit",
+    stderr: "inherit",
+    timeout: 180_000,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(`Command failed with exit status ${result.exitCode}`);
+  }
+}
+
+function confirmedAction(
+  label: string,
+  names: string[],
+  yes: boolean
+): boolean {
+  console.log(`${label}: ${names.join(", ")}`);
+  if (yes || confirmed("Continue? [y/N] ")) return true;
+  console.log("Aborted.");
+  return false;
+}
+
+function cmdExternalUpdate(argv: string[]): number {
+  const yes = argv.includes("-y") || argv.includes("--yes");
+  const names = argv.filter((arg) => arg !== "-y" && arg !== "--yes");
+  if (names.length === 0) {
+    console.error(
+      "skill-loom external update: the following arguments are required: names"
+    );
+    return 2;
+  }
+  const active = activeExternalSkillNames(loadLock());
+  const inactive = names.filter((name) => !active.has(name));
+  if (inactive.length > 0) {
+    console.error(
+      `active ではないため update できません: ${inactive.join(", ")}`
+    );
+    return 2;
+  }
+  if (!confirmedAction("Update External Skills", names, yes)) return 1;
+  try {
+    for (const name of names) runCommand(externalUpdateCommand(name));
+  } catch (error) {
+    console.error(errorText(error));
+    return 2;
+  }
+  console.log(`Updated: ${names.join(", ")}`);
+  return 0;
+}
+
+async function cmdExternal(argv: string[]): Promise<number> {
+  const [subcommand, ...rest] = argv;
+  if (subcommand === "list") return cmdExternalList();
+  if (subcommand === "check") return await cmdExternalCheck();
+  if (subcommand === "preview") {
+    if (!rest[0]) {
+      console.error(
+        "skill-loom external preview: the following arguments are required: source"
+      );
+      return 2;
+    }
+    return cmdExternalPreview(rest[0]);
+  }
+  if (subcommand === "update") return cmdExternalUpdate(rest);
+  console.error(`skill-loom external: invalid choice: ${subcommand ?? ""}`);
+  return 2;
+}
+
+function cmdCustom(argv: string[]): number {
+  const [subcommand, ...rest] = argv;
+  if (subcommand === "check") {
+    const rows = collectCustomUpdatable(loadLock());
+    console.log("Custom update check:");
+    if (rows.length === 0) console.log("All custom skills are up to date.");
+    for (const row of rows) console.log(`${row.name}  ${row.state}`);
+    return 0;
+  }
+  if (subcommand === "update") {
+    const yes = rest.includes("-y") || rest.includes("--yes");
+    const names = rest.filter((arg) => arg !== "-y" && arg !== "--yes");
+    if (names.length === 0) {
+      console.error(
+        "skill-loom custom update: the following arguments are required: names"
+      );
+      return 2;
+    }
+    const custom = loadLock().custom?.skills ?? {};
+    const unknown = names.filter((name) => !(name in custom));
+    if (unknown.length > 0) {
+      console.error(`custom skill ではありません: ${unknown.join(", ")}`);
+      return 2;
+    }
+    if (!confirmedAction("Update Custom Skills", names, yes)) return 1;
+    try {
+      const updated = updateCustomFromRepo(new Set(names), loadLock());
+      console.log(`Updated: ${updated.join(", ")}`);
+      return 0;
+    } catch (error) {
+      console.error(errorText(error));
+      return 2;
+    }
+  }
+  console.error(`skill-loom custom: invalid choice: ${subcommand ?? ""}`);
+  return 2;
+}
+
+function cmdDraft(argv: string[]): number {
+  const [subcommand, ...rest] = argv;
+  if (subcommand === "list") {
+    const rows = draftRows(loadLock());
+    if (rows.length === 0) {
+      console.log("No draft skills.");
+      return 0;
+    }
+    console.log("Draft skills:");
+    for (const row of rows)
+      console.log(
+        `${padRight(row.name, 24)} ${padRight(row.category, 16)} ${row.description}`
+      );
+    return 0;
+  }
+  if (subcommand === "promote" || subcommand === "install") {
+    const yes = rest.includes("-y") || rest.includes("--yes");
+    const force = rest.includes("--force");
+    const names = rest.filter(
+      (arg) => arg !== "-y" && arg !== "--yes" && arg !== "--force"
+    );
+    if (names.length === 0) {
+      console.error(
+        `skill-loom draft ${subcommand}: the following arguments are required: names`
+      );
+      return 2;
+    }
+    const label =
+      subcommand === "install"
+        ? "Install Draft Skills"
+        : "Promote Draft Skills";
+    if (!confirmedAction(label, names, yes)) return 1;
+    try {
+      const draftPaths = new Map(
+        draftRows(loadLock()).map((row) => [row.name, row.source])
+      );
+      const [promoted, newLock] = promoteDrafts(new Set(names), force);
+      const paths = [lockFile()];
+      for (const name of promoted) {
+        const meta = newLock.custom?.skills?.[name];
+        if (typeof meta !== "string" && meta?.repoPath)
+          paths.push(resolveCatalogPath(meta.repoPath));
+        const draftPath = draftPaths.get(name);
+        if (draftPath) paths.push(resolveCatalogPath(draftPath));
+      }
+      commitRepoChanges(`feat: add ${promoted.join(", ")}`, paths);
+      if (subcommand === "install")
+        installCustomFromRepo(new Set(promoted), loadLock());
+      console.log(`Promoted: ${promoted.join(", ")}`);
+      return 0;
+    } catch (error) {
+      console.error(errorText(error));
+      return 2;
+    }
+  }
+  console.error(`skill-loom draft: invalid choice: ${subcommand ?? ""}`);
+  return 2;
+}
+
+function cmdDeck(argv: string[]): number {
+  const [subcommand, deckName, ...rest] = argv;
+  if (!deckName) {
+    console.error(
+      `skill-loom deck ${subcommand ?? ""}: the following arguments are required: name`
+    );
+    return 2;
+  }
+  if (subcommand === "show") {
+    try {
+      const [deck, skills] = loadDeck(deckName, new Set(), true);
+      console.log(`Project deck: ${deckName}`);
+      if (deck.description) console.log(deck.description);
+      for (const name of skills) console.log(`  ${name}`);
+      return 0;
+    } catch (error) {
+      console.error(errorText(error));
+      return 2;
+    }
+  }
+  if (subcommand === "save") {
+    const yes = rest.includes("-y") || rest.includes("--yes");
+    const names = rest.filter((arg) => arg !== "-y" && arg !== "--yes");
+    if (!confirmedAction(`Save Project Deck ${deckName}`, names, yes)) return 1;
+    try {
+      const count = saveProjectDeckSelection(deckName, new Set(names));
+      commitRepoChanges(`chore: save project deck ${deckName}`, [
+        deckPath(deckName, true),
+      ]);
+      console.log(`Saved deck: ${deckName} (${count} direct skills)`);
+      return 0;
+    } catch (error) {
+      console.error(errorText(error));
+      return 2;
+    }
+  }
+  if (subcommand === "apply" || subcommand === "merge") {
+    const yes = rest.includes("-y") || rest.includes("--yes");
+    try {
+      const [, skills] = loadDeck(deckName, new Set(), true);
+      if (
+        !confirmedAction(
+          `${subcommand === "merge" ? "Merge" : "Apply"} Project Deck ${deckName}`,
+          skills,
+          yes
+        )
+      )
+        return 1;
+      const result = installProjectDeck(deckName, loadLock());
+      if (result.unresolved.size > 0) {
+        console.error(`Unresolved: ${sortNames(result.unresolved).join(", ")}`);
+        return 2;
+      }
+      console.log(`Applied deck: ${deckName}`);
+      return 0;
+    } catch (error) {
+      console.error(errorText(error));
+      return 2;
+    }
+  }
+  console.error(`skill-loom deck: invalid choice: ${subcommand ?? ""}`);
+  return 2;
 }
 
 /** `print_plan` の移植。`--apply` で使うため計算した各集合も返す。 */
@@ -418,16 +724,16 @@ const [command, ...rest] = Bun.argv.slice(2);
 
 /** `argparse` が出す usage 行。no-args / unknown command で共通して使う。 */
 const USAGE =
-  "usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset} ...";
+  "usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck} ...";
 
 /**
  * `argparse` の `--help`。1 文字まで移行前と合わせるので、画面の端で折れる幅も含めて
  * 固定文字列にしている（`link-agents` の説明が 80 桁で折れるのも再現）。
  */
-const HELP = `usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset} ...
+const HELP = `usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck} ...
 
 positional arguments:
-  {list,status,all,install-deck,link-agents,ui,preset}
+  {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck}
     list                List project decks
     status              Show active/archive state
     all                 Preview or restore all tracked skills
@@ -436,6 +742,10 @@ positional arguments:
                         to ~/.agents/skills
     ui                  Start a local HTML checklist for active skills
     preset              Manage local global skill presets
+    external            Manage External Skills
+    custom              Check and update Custom Skills
+    draft               List, promote, or install Draft Skills
+    deck                Show, save, merge, or apply Project Decks
 
 options:
   -h, --help            show this help message and exit
@@ -489,11 +799,23 @@ switch (command) {
   case "preset":
     process.exit(cmdPreset(rest));
     break;
+  case "external":
+    process.exit(await cmdExternal(rest));
+    break;
+  case "custom":
+    process.exit(cmdCustom(rest));
+    break;
+  case "draft":
+    process.exit(cmdDraft(rest));
+    break;
+  case "deck":
+    process.exit(cmdDeck(rest));
+    break;
   default:
     // argparse の invalid choice。stdout ではなく stderr へ。
     console.error(USAGE);
     console.error(
-      `skill-loom: error: argument command: invalid choice: '${command}' (choose from list,status,all,install-deck,link-agents,ui,preset)`
+      `skill-loom: error: argument command: invalid choice: '${command}' (choose from list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck)`
     );
     process.exit(2);
 }

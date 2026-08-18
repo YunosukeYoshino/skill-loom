@@ -120,6 +120,29 @@ Catalog-relative paths are resolved against the real Catalog Root. Absolute path
 | `./skill-loom all --apply`       | Restore the complete Inventory           |
 | `./skill-loom ui`                | Open the local checklist UI              |
 
+Management command families expose the same Catalog domain operations to shell workflows:
+
+```bash
+./skill-loom external list
+./skill-loom external check
+./skill-loom external preview owner/repo
+./skill-loom external update SKILL --yes
+
+./skill-loom custom check
+./skill-loom custom update SKILL --yes
+
+./skill-loom draft list
+./skill-loom draft promote SKILL --yes
+./skill-loom draft install SKILL --yes
+
+./skill-loom deck show NAME
+./skill-loom deck save NAME SKILL... --yes
+./skill-loom deck apply NAME --yes
+```
+
+State-changing management commands print their targets and require confirmation. Use `--yes`
+only in automation that has already reviewed the selected Catalog and target names.
+
 The repository also ships Catalog-aware management Skills for adding, auditing, restoring, and updating External and Vendor Skills.
 
 ## Skill Loom vs. ad hoc Skill folders
