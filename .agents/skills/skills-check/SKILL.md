@@ -7,14 +7,24 @@ description: "skills.lock.json とインストール済みスキルの整合性�
 
 selected Catalog の Inventory Lock／ignore と、agent-facing Projection を照合する。
 
-## 実行
+## Workflow
+
+### Step 1: 整合性チェックの実行
 
 ```bash
 MY_SKILLS_CATALOG_DIR="$CATALOG_ROOT" \
   bash "$ENGINE_ROOT/.agents/skills/skills-check/scripts/skills-check"
 ```
 
-完了条件: 出力に Issues、Unmanaged、欠落場所がすべて列挙されていること。
+完了基準: 出力に Issues、Unmanaged、欠落場所がすべて列挙されていること。
+
+### Step 2: ユーザーへの報告
+
+1. Issues 件数（0なら "ALL CLEAN"）
+2. UNMANAGED スキルがあれば、`/skills-add` で lock 登録するか `.skills-ignore.json` で除外を提案
+3. 欠落があれば `/skills-restore` での修復を提案
+
+完了基準: Issues 件数と、検出ごとの提案を提示し終えていること。
 
 ## スクリプトが出力する分類
 

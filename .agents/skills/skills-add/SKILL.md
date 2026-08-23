@@ -41,6 +41,8 @@ MY_SKILLS_CATALOG_DIR="$CATALOG_ROOT" \
 - Catalog の `skills.lock.json` に追記
 - デフォルトで Catalog repository にコミット（`--no-commit` でスキップ）
 
+完了基準: スクリプトが exit 0 で終了し、`skills.lock.json` に新規スキルが追記されていること。
+
 ### Step 3: 完了報告
 
 登録されたスキル名・`source`・`skillPath` を出力してユーザーに報告する。

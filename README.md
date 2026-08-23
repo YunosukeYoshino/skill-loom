@@ -102,7 +102,20 @@ Management command families expose the same Catalog domain operations to shell w
 ./skill-loom deck show NAME
 ./skill-loom deck save NAME SKILL... --yes
 ./skill-loom deck apply NAME --yes
+./skill-loom deck merge NAME --yes
+
+./skill-loom preset list
+./skill-loom preset save NAME
+./skill-loom preset apply NAME --yes
+./skill-loom preset delete NAME
+./skill-loom preset restore
+
+./skill-loom link-agents NAME...
 ```
+
+`preset` saves and reapplies named subsets of the active global skills. `link-agents`
+symlinks an agent's skills directory (`~/.claude/skills`, `~/.gemini/config/skills`)
+to `~/.agents/skills`.
 
 State-changing management commands print their targets and require confirmation. Use `--yes`
 only in automation that has already reviewed the selected Catalog and target names.
@@ -126,6 +139,13 @@ Skill Loom adds a small amount of structure in exchange for a clear ownership bo
 Skill Loom is an initial macOS release. The Engine/Catalog boundary and legacy colocated fallback are stable enough for migration, but cross-platform Trash behavior is intentionally out of scope for this release.
 
 Read the [migration guide](docs/migration.md) before connecting an existing portfolio. For bugs, include the Engine revision, macOS and Bun versions, command, and sanitized output as described in [Support](SUPPORT.md).
+
+## Development
+
+```bash
+bun run typecheck   # Typecheck the Engine backend and the Web UI
+bun run test        # Run unit tests plus the CLI shell test suite
+```
 
 ## Contributing
 

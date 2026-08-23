@@ -9,12 +9,7 @@ selected Catalog の External Skill について upstream 更新と未管理 Ski
 
 ## Why this skill
 
-以下の2つの問題を `bunx skills update` 実行前に検出する:
-
-1. **更新検出**: lock.json 管理 external スキルの upstream 更新有無を事前確認
-2. **未管理検出**: インストール済みだが `skills.lock.json` に未登録のスキルを検出
-
-既存フローは `bunx skills update` が不可逆なため重い。この skill はその前に判断材料を提供する。
+`bunx skills update` は不可逆で重い。この skill はその実行前に、(1) lock.json 管理 external スキルの upstream 更新有無、(2) インストール済みだが `skills.lock.json` に未登録のスキル、を検出して判断材料を提供する。
 
 ## Workflow
 
@@ -25,11 +20,15 @@ export MY_SKILLS_CATALOG_DIR="$CATALOG_ROOT"
 test -f "$CATALOG_ROOT/skills.lock.json"
 ```
 
+完了基準: `MY_SKILLS_CATALOG_DIR` が設定され、`skills.lock.json` の存在が確認できていること。
+
 ### Step 2: skills.lock.json の external スキル一覧を取得
 
 ```bash
 bun "$ENGINE_ROOT/.agents/skills/check-vendor-updates/scripts/check-vendor-updates.ts" --catalog-dir "$CATALOG_ROOT"
 ```
+
+完了基準: external スキル名の一覧と件数が出力されていること。
 
 ### Step 3: bunx skills check -g で更新を実行し結果を記録
 
@@ -46,21 +45,19 @@ bunx skills check -g 2>&1 | tee /tmp/skills-check.txt
 sed 's/\x1b\[[0-9;]*m//g' /tmp/skills-check.txt | grep '✓ Updated' | awk '{print $3}' | grep -E '^[a-z][a-z0-9-]*$'
 ```
 
+完了基準: `/tmp/skills-check.txt` が生成され、更新ありスキル名の抽出が済んでいること（0 件なら空でよい）。
+
 ### Step 4: lock.json external スキルとのクロスリファレンス
 
-```bash
-bun "$ENGINE_ROOT/.agents/skills/check-vendor-updates/scripts/check-vendor-updates.ts" --catalog-dir "$CATALOG_ROOT"
-```
+Step 2 と同じスクリプトを再実行する。同スクリプトは external 一覧・更新クロスリファレンス・未管理スキルの棚卸しをまとめて出力し、クロスリファレンスには Step 3 の `/tmp/skills-check.txt` が必要。
 
-上記のコマンドは Step 2 / Step 4 / Step 5 の棚卸し（external 一覧・更新クロスリファレンス・未管理スキル）をまとめて出力する。`/tmp/skills-check.txt` は Step 3 の `bunx skills check -g` の出力が必要。
+完了基準: 「更新あり (lock管理)」と「更新あり (未管理)」の件数が出力されていること。
 
 ### Step 5: 未管理スキルの棚卸し（source 付き）
 
-インストール済みだが `skills.lock.json` にも `.skills-ignore.json` にも含まれないスキルを検出。可能であれば `~/.agents/.skill-lock.json` から source も引く:
+Step 4 と同じ出力の「未管理スキル」セクションを使う。インストール済みだが `skills.lock.json` にも `.skills-ignore.json` にも含まれないスキルを、`~/.agents/.skill-lock.json` から引いた source 付きで検出する。
 
-```bash
-bun "$ENGINE_ROOT/.agents/skills/check-vendor-updates/scripts/check-vendor-updates.ts" --catalog-dir "$CATALOG_ROOT"
-```
+完了基準: 未管理スキルごとに source 付きの一覧、または「未管理スキルはありません」が出力されていること。
 
 ### Step 6: vendor 管理スキル一覧の取得
 
@@ -69,6 +66,8 @@ ls -d "$CATALOG_ROOT/vendor/"*/ 2>/dev/null | sed "s|$CATALOG_ROOT/vendor/||;s|/
 ```
 
 `vendor/` が空または `.gitkeep` のみの場合はスキップ。
+
+完了基準: vendor スキル名の一覧、または `vendor/` が空であることの判定を得ていること。
 
 ### Step 7: vendor スキルと更新リストのクロスリファレンス
 
@@ -87,6 +86,8 @@ for name in $vendor_names; do
 done
 ```
 
+完了基準: 全 vendor スキルについて「更新あり／最新」の判定が出ていること。
+
 ### Step 8: 結果のレポート
 
 以下の形式でユーザーに提示:
@@ -96,17 +97,14 @@ done
 
 📦 lock.json 管理スキルで更新あり: 3 件
   ✅ agent-browser      vercel-labs/agent-browser
-  ✅ browser-use        browser-use/browser-use
-  ✅ seo-audit          seo-skills/seo-audit-skill
+  ...
 
 ⚠️  更新ありだが lock.json 未管理: 6 件
   lead-magnets          coreyhaines31/marketingskills
-  marketing-psychology  coreyhaines31/marketingskills
   ...
 
 🔍 lock.json 未管理のインストール済みスキル: 6 件
   ❓ lead-magnets          coreyhaines31/marketingskills
-  ❓ marketing-psychology  coreyhaines31/marketingskills
   ...
 
 📦 vendor 管理スキル:
@@ -118,6 +116,8 @@ done
 → 更新あり (未管理): 6 件
 → 未管理スキル: 6 件
 ```
+
+完了基準: 4 分類（lock管理の更新・未管理の更新・未管理インストール済み・vendor）がすべてレポートに含まれていること。
 
 ### Step 9: ユーザーへのアクション提案
 
@@ -137,6 +137,8 @@ done
 >
 > - `/skills-add <owner/repo>` で lock.json に登録
 > - `.skills-ignore.json` に追加して明示的に無視
+
+完了基準: 更新ありと未管理それぞれについて提案を提示し、ユーザーの次の指示を得ていること。
 
 ## 注意
 
