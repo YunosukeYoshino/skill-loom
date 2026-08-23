@@ -87,7 +87,7 @@ bunx skills add "$CUSTOM_REPO" --skill {skill-name} -g -a claude-code -a codex -
 
 外部版がカスタマイズ版で上書きされる。
 
-完了基準: `bunx skills add` が正常終了し、`~/.agents/skills/{skill-name}` がカスタマイズ版に置き換わっていること。
+完了基準: `bunx skills add` が正常終了し、`~/.agents/skills/{skill-name}` がカスタマイズ版に置き換わり、`~/.claude/skills/{skill-name}` もカスタマイズ版を参照していること（symlink またはコピー）。
 
 ### Step 7: 完了報告
 

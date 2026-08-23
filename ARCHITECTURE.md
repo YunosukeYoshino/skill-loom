@@ -45,7 +45,7 @@ The `./skill-loom` launcher resolves `--catalog-dir` before Bun loads, so the CL
 | Catalog-aware management Skills     | Project, Shared, and Core Decks      |
 | Synthetic fixtures and public tests | Agent definitions                    |
 
-Catalog-relative paths are resolved against the real Catalog Root. Absolute paths, `..` traversal, and symlinks that escape the Catalog are rejected before file operations.
+Catalog-relative paths are resolved against the real Catalog Root. Absolute paths and paths that resolve outside the Catalog through `..` or symlinks are rejected before file operations.
 
 ## Project structure
 

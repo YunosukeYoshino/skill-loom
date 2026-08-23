@@ -144,7 +144,7 @@ Read the [migration guide](docs/migration.md) before connecting an existing port
 
 ```bash
 bun run typecheck   # Typecheck the Engine backend and the Web UI
-bun run test        # Run unit tests plus the CLI shell test suite
+bun run test        # Run backend and frontend API tests plus the CLI shell test suite
 ```
 
 ## Contributing
