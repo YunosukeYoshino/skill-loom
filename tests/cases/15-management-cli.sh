@@ -33,6 +33,7 @@ run_management_cli() {
     MY_SKILLS_PRESETS_DIR="$tmp_dir/presets" \
     MY_SKILLS_AUTO_COMMIT="${MY_SKILLS_AUTO_COMMIT:-0}" \
     ./skill-loom --catalog-dir "$tmp_dir" "$@" \
+    < /dev/null \
     > "$tmp_dir/cli-stdout.txt" 2> "$tmp_dir/cli-stderr.txt" \
     && echo 0 || echo $?
 }
@@ -241,6 +242,14 @@ test_management_cli_deck_show_and_save_are_confirmed() {
     && assert_contains "$(< "$tmp_dir/project-decks/work.json")" '"beta"' \
     && pass "test_management_cli_deck_show_and_save_are_confirmed: saved" \
     || fail "test_management_cli_deck_show_and_save_are_confirmed: save rc=$rc output=$out"
+
+  # 名前が空の save は deck を空で上書きするので、update 系と同じく 2 で弾く。
+  rc=$(run_management_cli "$tmp_dir" deck save work --yes)
+  out=$(< "$tmp_dir/cli-stderr.txt")
+  [ "$rc" = "2" ] && assert_contains "$out" "the following arguments are required: names" \
+    && assert_contains "$(< "$tmp_dir/project-decks/work.json")" '"beta"' \
+    && pass "test_management_cli_deck_show_and_save_are_confirmed: empty names rejected" \
+    || fail "test_management_cli_deck_show_and_save_are_confirmed: empty save rc=$rc stderr=$out"
 
   mkdir -p "$tmp_dir/active/alpha"
   rc=$(run_management_cli "$tmp_dir" deck apply work)

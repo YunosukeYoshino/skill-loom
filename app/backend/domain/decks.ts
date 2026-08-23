@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { decksDir, GLOBAL_INSTALL_AGENTS, projectDecksDir } from "./config";
+import { canonicalPath } from "./catalogPaths";
 import { AlreadyExistsError, ValueError } from "./errors";
 import type { Lock } from "./inventory";
 
@@ -107,15 +108,25 @@ export function createEmptyProjectDeck(name: string, description = ""): string {
   return path;
 }
 
-/** resolve 結果が base の外へ出ていないか。`..` トラバーサルと絶対パスを弾く。 */
+/**
+ * resolve（字面の正規化）と symlink 解決（実体パス）の両面で、path が base の
+ * 外へ出ていないことを保証する。resolve は symlink を追わないので、配下に
+ * 外部を指す symlink があっても実体側の判定で弾ける。
+ */
 function assertInsideBase(base: string, path: string, name: string): void {
-  const fromBase = relative(resolve(base), path);
-  if (
-    fromBase === ".." ||
-    fromBase.startsWith(`..${sep}`) ||
-    isAbsolute(fromBase)
-  )
-    throw new UnknownDeckError(`Deck path escapes its root: ${name}`);
+  const checks: [string, string][] = [
+    [resolve(base), path],
+    [canonicalPath(resolve(base)), canonicalPath(path)],
+  ];
+  for (const [root, candidate] of checks) {
+    const fromBase = relative(root, candidate);
+    if (
+      fromBase === ".." ||
+      fromBase.startsWith(`..${sep}`) ||
+      isAbsolute(fromBase)
+    )
+      throw new UnknownDeckError(`Deck path escapes its root: ${name}`);
+  }
 }
 
 export function deckPath(name: string, project = false): string {

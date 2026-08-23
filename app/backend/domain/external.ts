@@ -125,24 +125,26 @@ function assertValidExternalSkillName(name: string): void {
     throw new ValueError(`Invalid external skill name: ${name}`);
 }
 
+/**
+ * lock 由来の既存 skill 名には、この規約ができる前の緩い入力で作られたものが
+ * ある。新規の取り込みは `assertValidExternalSkillName` で規約に寄せるが、
+ * update / remove は argv に載ることだけ危険を見ればよく、規約に合わなくても
+ * argv として安全な既有名（`my_skill` など）を動かせなくしない。
+ */
+export function isArgvSafeSkillName(name: string): boolean {
+  return !(name === "" || name.startsWith("-") || /[\s'"`$;&|<>\\]/.test(name));
+}
+
 export function externalUpdateCommand(skillName: string): string[] {
-  assertValidExternalSkillName(skillName);
+  if (!isArgvSafeSkillName(skillName))
+    throw new ValueError(`Invalid external skill name: ${skillName}`);
   return [skillsUpdateBin(), "skills", "update", skillName, "-g", "-y"];
 }
 
 export function externalRemoveCommand(skillName: string): string[] {
-  assertValidExternalSkillName(skillName);
+  if (!isArgvSafeSkillName(skillName))
+    throw new ValueError(`Invalid external skill name: ${skillName}`);
   return [skillsRemoveBin(), "skills", "remove", skillName, "-g", "-y"];
-}
-
-/**
- * skill 名がそのまま CLI の argv に乗ってよいか。
- *
- * `skills remove` のオプションとして解釈される名前だけでなく、表示やログで command text
- * に見える名前もここで弾く。skill 名の規約は英小文字・数字・単語間のハイフン。
- */
-export function isArgvSafeSkillName(name: string): boolean {
-  return EXTERNAL_SKILL_NAME_PATTERN.test(name);
 }
 
 // ---- 更新確認 ----

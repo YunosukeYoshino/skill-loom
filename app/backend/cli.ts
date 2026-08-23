@@ -366,6 +366,12 @@ function cmdDeck(argv: string[]): number {
   }
   if (subcommand === "save") {
     const { yes, names } = parseYesArgs(rest);
+    if (names.length === 0) {
+      console.error(
+        "skill-loom deck save: the following arguments are required: names"
+      );
+      return 2;
+    }
     if (!confirmedAction(`Save Project Deck ${deckName}`, names, yes)) return 1;
     try {
       const count = saveProjectDeckSelection(deckName, new Set(names));

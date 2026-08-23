@@ -336,6 +336,15 @@ describe("外部 CLI のコマンド", () => {
       );
     }
   });
+
+  test("規約以前の緩い入力で登録された既有名も update / remove できる", () => {
+    // lock には命名規約ができる前の名前が残り得る。argv として安全なら
+    // 動かせなくして、利用者が更新・削除のどちらもできなくなることは避ける。
+    expect(isArgvSafeSkillName("my_skill")).toBe(true);
+    expect(isArgvSafeSkillName("skill.v2")).toBe(true);
+    expect(externalUpdateCommand("my_skill")[3]).toBe("my_skill");
+    expect(externalRemoveCommand("my_skill")[3]).toBe("my_skill");
+  });
 });
 
 describe("formatExternalUpdateMessage", () => {

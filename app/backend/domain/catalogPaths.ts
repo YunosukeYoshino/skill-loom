@@ -42,7 +42,7 @@ function assertWithinCatalog(
 }
 
 /** Resolve symlinks in the nearest existing ancestor, including for a missing leaf. */
-function canonicalPath(path: string): string {
+export function canonicalPath(path: string): string {
   let ancestor = path;
   const missing: string[] = [];
   while (!existsSync(ancestor)) {

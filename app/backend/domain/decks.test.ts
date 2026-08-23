@@ -12,6 +12,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,10 +20,12 @@ import { join } from "node:path";
 import {
   addSkillsToProjectDeck,
   createEmptyProjectDeck,
+  deckPath,
   loadDeck,
   loadOptionalProjectDeck,
   projectDeckInstallCommands,
   saveProjectDeckSelection,
+  UnknownDeckError,
   writeProjectDeckSkills,
 } from "./decks";
 import { AlreadyExistsError, ValueError } from "./errors";
@@ -30,6 +33,7 @@ import type { Lock } from "./inventory";
 
 let sandbox: string;
 const touched: string[] = [];
+const outsideDirs: string[] = [];
 
 function setEnv(name: string, value: string): void {
   touched.push(name);
@@ -58,6 +62,8 @@ beforeEach(() => {
 afterEach(() => {
   for (const name of touched.splice(0)) delete process.env[name];
   rmSync(sandbox, { recursive: true, force: true });
+  for (const dir of outsideDirs.splice(0))
+    rmSync(dir, { recursive: true, force: true });
 });
 
 describe("createEmptyProjectDeck", () => {
@@ -93,6 +99,21 @@ describe("createEmptyProjectDeck", () => {
       expect(() => createEmptyProjectDeck(name)).toThrow(ValueError);
     }
     expect(existsSync(join(sandbox, "../escape.json"))).toBe(false);
+  });
+});
+
+describe("deckPath", () => {
+  test("配下の symlink が Catalog 外を指すなら実体側でも弾く", () => {
+    // resolve は字面しか正規化しない。symlink の先まで見て初めて外に出る
+    // 書き込み先を、字面の判定だけで通してしまわないこと。
+    const outside = mkdtempSync(join(tmpdir(), "my-skills-outside-"));
+    outsideDirs.push(outside);
+    symlinkSync(outside, join(sandbox, "link"), "dir");
+
+    expect(() => deckPath("link/x", true)).toThrow(UnknownDeckError);
+    expect(() => deckPath("link/x", true)).toThrow(
+      `Deck path escapes its root: link/x`
+    );
   });
 });
 
