@@ -230,6 +230,66 @@ test_project_deck_get_uses_sandboxed_paths() {
   fi
 }
 
+test_project_deck_create_empty() {
+  echo "Running test_project_deck_create_empty..."
+  local port=18835
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  TMP_DIRS+=("$tmp_dir")
+  setup_deck_fixture "$tmp_dir"
+  start_deck_ui "$tmp_dir" "$port"
+
+  if wait_for_port "$port"; then
+    local http_code
+    http_code=$(deck_post "$tmp_dir" "$port" "/api/project-decks" '{"name":"fresh"}')
+
+    [ "$http_code" = "200" ] \
+      && pass "test_project_deck_create_empty: HTTP 200" \
+      || fail "test_project_deck_create_empty: got HTTP $http_code"
+
+    assert_contains "$(deck_body "$tmp_dir")" "Created deck: fresh" \
+      && pass "test_project_deck_create_empty: reports created name" \
+      || fail "test_project_deck_create_empty: created message missing"
+
+    assert_contains "$(deck_body "$tmp_dir")" '"decks":["e2e-deck","fresh"]' \
+      && pass "test_project_deck_create_empty: deck list includes fresh" \
+      || fail "test_project_deck_create_empty: deck list not updated"
+
+    assert_contains "$(deck_body "$tmp_dir")" '"deckName":"fresh"' \
+      && pass "test_project_deck_create_empty: payload targets new deck" \
+      || fail "test_project_deck_create_empty: deckName missing"
+
+    [ -f "$tmp_dir/project-decks/fresh.json" ] \
+      && assert_matches "$(< "$tmp_dir/project-decks/fresh.json")" '"skills": \[\]' \
+      && pass "test_project_deck_create_empty: empty deck file written" \
+      || fail "test_project_deck_create_empty: deck file missing or not empty"
+
+    http_code=$(deck_post "$tmp_dir" "$port" "/api/project-decks" '{"name":"fresh"}')
+
+    [ "$http_code" = "409" ] \
+      && pass "test_project_deck_create_empty: duplicate is 409" \
+      || fail "test_project_deck_create_empty: duplicate got HTTP $http_code"
+
+    assert_contains "$(deck_body "$tmp_dir")" "Project deck already exists: fresh" \
+      && pass "test_project_deck_create_empty: names the duplicate" \
+      || fail "test_project_deck_create_empty: duplicate message missing"
+
+    http_code=$(deck_post "$tmp_dir" "$port" "/api/project-decks" '{"name":"Bad Name"}')
+
+    [ "$http_code" = "400" ] \
+      && pass "test_project_deck_create_empty: invalid name is 400" \
+      || fail "test_project_deck_create_empty: invalid name got HTTP $http_code"
+
+    http_code=$(deck_post "$tmp_dir" "$port" "/api/project-decks" '{}')
+
+    [ "$http_code" = "400" ] \
+      && pass "test_project_deck_create_empty: missing name is 400" \
+      || fail "test_project_deck_create_empty: missing name got HTTP $http_code"
+  else
+    fail "test_project_deck_create_empty: server did not start"
+  fi
+}
+
 test_project_deck_save_persists_selection() {
   echo "Running test_project_deck_save_persists_selection..."
   local port=18831
@@ -682,6 +742,7 @@ fs.writeFileSync(tmp+"/project-decks/e2e-unresolved.json", JSON.stringify({name:
 
 register_cases \
   test_project_deck_get_uses_sandboxed_paths \
+  test_project_deck_create_empty \
   test_project_deck_save_persists_selection \
   test_project_deck_apply_unions_core_deck \
   test_project_deck_merge_does_not_add_core_deck \

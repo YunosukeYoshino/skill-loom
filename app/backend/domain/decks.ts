@@ -1,18 +1,22 @@
 /**
- * Deck の読み取り。#67 で必要なのは一覧と読み込みだけで、書き込みは対象外。
+ * Deck の読み書き。
  *
- * `bin/my-skills.py` の `list_project_decks` / `deck_path` / `load_deck` の移植。
+ * `bin/my-skills.py` の `list_project_decks` / `deck_path` / `load_deck` の移植に加え、
+ * Project Deck の選択保存と空 Deck 作成を担う。
  */
 
 import {
+  mkdirSync,
   readdirSync,
   readFileSync,
   renameSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join, relative } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { decksDir, GLOBAL_INSTALL_AGENTS, projectDecksDir } from "./config";
+import { canonicalPath } from "./catalogPaths";
+import { AlreadyExistsError, ValueError } from "./errors";
 import type { Lock } from "./inventory";
 
 export type Deck = {
@@ -24,6 +28,9 @@ export type Deck = {
 
 /** deck が存在しないときに投げる。移行前の `SystemExit` に対応する。 */
 export class UnknownDeckError extends Error {}
+
+/** preset と同じく、UI / CLI から作る名前は小文字・数字・ハイフンだけ。 */
+const PROJECT_DECK_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 
 function exists(path: string): boolean {
   try {
@@ -68,12 +75,70 @@ export function listProjectDecks(): string[] {
   );
 }
 
+/**
+ * Project Deck 名の検証。パターンがパス区切り・`..`・長さ上限を弾くので、
+ * この検証を通った名前は作成時に Catalog 外へ書けない。既存のネスト deck の
+ * 読み込みは `deckPath` 側が担当する。
+ */
+export function validateProjectDeckName(name: string): void {
+  if (!PROJECT_DECK_NAME_PATTERN.test(name))
+    throw new ValueError(`Invalid project deck name: ${name}`);
+}
+
+/**
+ * 空の Project Deck を `project-decks/<name>.json` に作ってパスを返す。
+ *
+ * 既存を上書きしない（409）。Apply 時の Core union は projection 側の責務なので、
+ * ここは `skills: []` の最小ファイルだけを置く。
+ */
+export function createEmptyProjectDeck(name: string, description = ""): string {
+  // 名前は検証済みなので、`${name}.json` が base の外へ出ることは無い。
+  validateProjectDeckName(name);
+  const base = projectDecksDir();
+  mkdirSync(base, { recursive: true });
+  const path = resolve(base, `${name}.json`);
+  if (exists(path))
+    throw new AlreadyExistsError(`Project deck already exists: ${name}`);
+
+  const deck: Deck = { name, skills: [] };
+  if (description) deck.description = description;
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(deck, null, 2)}\n`);
+  renameSync(tmp, path);
+  return path;
+}
+
+/**
+ * resolve（字面の正規化）と symlink 解決（実体パス）の両面で、path が base の
+ * 外へ出ていないことを保証する。resolve は symlink を追わないので、配下に
+ * 外部を指す symlink があっても実体側の判定で弾ける。
+ */
+function assertInsideBase(base: string, path: string, name: string): void {
+  const checks: [string, string][] = [
+    [resolve(base), path],
+    [canonicalPath(resolve(base)), canonicalPath(path)],
+  ];
+  for (const [root, candidate] of checks) {
+    const fromBase = relative(root, candidate);
+    if (
+      fromBase === ".." ||
+      fromBase.startsWith(`..${sep}`) ||
+      isAbsolute(fromBase)
+    )
+      throw new UnknownDeckError(`Deck path escapes its root: ${name}`);
+  }
+}
+
 export function deckPath(name: string, project = false): string {
   const base = project ? projectDecksDir() : decksDir();
-  const path = join(base, `${name}.json`);
+  if (isAbsolute(name))
+    throw new UnknownDeckError(`Deck path must be relative: ${name}`);
+  const path = resolve(base, `${name}.json`);
+  assertInsideBase(base, path, name);
   if (exists(path)) return path;
   // 拡張子込みで指定された場合も受ける（移行前の nested 分岐）。
-  const nested = join(base, name);
+  const nested = resolve(base, name);
+  assertInsideBase(base, nested, name);
   if (name.endsWith(".json") && exists(nested)) return nested;
   throw new UnknownDeckError(
     `Unknown ${project ? "project deck" : "deck"}: ${name}`

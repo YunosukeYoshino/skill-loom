@@ -15,14 +15,7 @@ import { join } from "node:path";
 import type { ServerWebSocket, Subprocess } from "bun";
 import { Hono } from "hono";
 import { APPLY_BUSY_MESSAGE, releaseApply, tryAcquireApply } from "./applyLock";
-import {
-  activeDir,
-  archiveDir,
-  ignoreFile,
-  lockFile,
-  projectDecksDir,
-} from "./domain/config";
-import { resolveCatalogPath } from "./domain/catalogPaths";
+import { ignoreFile, lockFile, projectDecksDir } from "./domain/config";
 import {
   collectCustomUpdatable,
   installedCustomSkillLocation,
@@ -30,6 +23,7 @@ import {
 } from "./domain/custom";
 import {
   addSkillsToProjectDeck,
+  createEmptyProjectDeck,
   deckPath,
   loadDeck,
   loadOptionalProjectDeck,
@@ -59,12 +53,10 @@ import {
   normalizeGithubSource,
 } from "./infrastructure/github";
 import {
-  ignoredSkills,
   loadLock,
   saveLock,
   sortNames,
   trackedSkills,
-  visibleInstalledNames,
 } from "./domain/inventory";
 import {
   deletePreset,
@@ -75,6 +67,7 @@ import {
 } from "./domain/presets";
 import {
   applyDeck,
+  applyProjectDeckSelection,
   applyNamedPreset,
   bulkOffActive,
   installCustomFromRepo,
@@ -1030,24 +1023,14 @@ app.post("/api/drafts/:action", async (c) => {
   if (!tryAcquireApply())
     return errorResponse(DRAFT_BUSY_MESSAGE, 409, draftsPayload(loadLock()));
   try {
-    const [promoted, newLock] = promoteDrafts(selected, force);
-    // lock は昇格後の内容を書き戻し済み。ここでは commit 対象のパスを組み立てるだけ。
-    const paths = [lockFile()];
-    for (const name of promoted) {
-      const meta = newLock.custom?.skills?.[name] as {
-        repoPath: string;
-        category: string;
-      };
-      paths.push(
-        resolveCatalogPath(meta.repoPath),
-        resolveCatalogPath(`drafts/skills/${meta.category}/${name}`)
-      );
-    }
+    const [promoted, newLock, commitPaths] = promoteDrafts(selected, force);
+    // lock は昇格後の内容を書き戻し済み。commit 対象パスは promoteDrafts が返す。
+    const paths = [lockFile(), ...commitPaths];
     const commitNote = commitRepoChanges(
       `feat: add ${promoted.join(", ")}`,
       paths
     );
-    if (install) installCustomFromRepo(new Set(promoted), loadLock());
+    if (install) installCustomFromRepo(new Set(promoted), newLock);
     const label = install ? "draft解除してglobalに追加" : "draft解除";
     return jsonResponse(
       draftsPayload(
@@ -1082,6 +1065,35 @@ const DECK_ACTIONS: ReadonlySet<string> = new Set(["apply", "merge", "save"]);
 function unknownDeckResponse(error: unknown): Response {
   return errorResponse(errorText(error), 404, globalPayload(loadLock(), ""));
 }
+
+/**
+ * 空の Project Deck を生やす。既存の上書きはしない（409）。
+ *
+ * 作ったあとは deck ページへ遷移できるよう、その deck の payload を返す。
+ */
+app.post("/api/project-decks", async (c) => {
+  const body = await readJson(c.req.raw);
+  const name = bodyString(body, "name");
+  const description = bodyString(body, "description");
+  const base = globalPayload(loadLock(), "");
+  if (!name) return errorResponse("Project deck name is required", 400, base);
+
+  let path: string;
+  try {
+    path = createEmptyProjectDeck(name, description);
+  } catch (error) {
+    if (error instanceof AlreadyExistsError)
+      return errorResponse(error.message, 409, base);
+    return errorResponse(errorText(error), 400, base);
+  }
+  const commitNote = commitRepoChanges(`chore: create project deck ${name}`, [
+    path,
+  ]);
+  return jsonResponse(
+    projectDeckPayload(loadLock(), name, `Created deck: ${name}${commitNote}`),
+    200
+  );
+});
 
 app.get("/api/project-decks/:deckName", (c) => {
   const deckName = c.req.param("deckName");
@@ -1146,45 +1158,17 @@ app.post("/api/project-decks/:deckName/:action", async (c) => {
   }
 
   const lock = loadLock();
-  const active = visibleInstalledNames(lock, activeDir());
-  const archived = visibleInstalledNames(lock, archiveDir());
-  const target =
-    action === "merge"
-      ? new Set([...active, ...selected])
-      : new Set([...loadDeck("core")[1], ...selected]);
-
-  const managed = trackedSkills(lock);
-  const unmanaged = ignoredSkills();
-  const unresolved = sortNames(
-    [...target].filter(
-      (name) =>
-        !managed.has(name) &&
-        !unmanaged.has(name) &&
-        !active.has(name) &&
-        !archived.has(name)
-    )
-  );
   const base = projectDeckPayload(lock, deckName);
-  if (unresolved.length > 0)
-    return errorResponse(`Unresolved: ${unresolved.join(", ")}`, 400, base);
-
-  const extra = new Set([...active].filter((name) => !target.has(name)));
-  const restore = new Set(
-    [...target].filter((name) => archived.has(name) && !active.has(name))
-  );
-  const install = new Set(
-    [...target].filter(
-      (name) =>
-        !active.has(name) &&
-        !archived.has(name) &&
-        !unmanaged.has(name) &&
-        managed.has(name)
-    )
-  );
   if (!tryAcquireApply()) return errorResponse(APPLY_BUSY_MESSAGE, 409, base);
 
+  let result: ReturnType<typeof applyProjectDeckSelection>;
   try {
-    applyDeck(extra, restore, install, lock);
+    result = applyProjectDeckSelection(
+      deckName,
+      selected,
+      action === "merge" ? "merge" : "apply",
+      lock
+    );
   } catch (error) {
     return errorResponse(
       `Apply failed: ${errorText(error)}`,
@@ -1194,11 +1178,14 @@ app.post("/api/project-decks/:deckName/:action", async (c) => {
   } finally {
     releaseApply();
   }
+  const unresolved = sortNames(result.unresolved);
+  if (unresolved.length > 0)
+    return errorResponse(`Unresolved: ${unresolved.join(", ")}`, 400, base);
   return jsonResponse(
     projectDeckPayload(
       loadLock(),
       deckName,
-      `Applied: active target ${target.size}`
+      `Applied: active target ${result.target.size}`
     ),
     200
   );

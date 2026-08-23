@@ -40,6 +40,7 @@ import { loadDeck } from "./decks";
 import { ValueError } from "./errors";
 import {
   type Lock,
+  ignoredSkills,
   managedActiveSkills,
   sortNames,
   trackedSkills,
@@ -499,6 +500,79 @@ export type ProjectDeckInstallResult = {
   install: Set<string>;
   alreadyActive: Set<string>;
 };
+
+export type ProjectDeckApplyMode = "apply" | "merge";
+
+export type ProjectDeckApplyPlan = {
+  target: Set<string>;
+  unresolved: Set<string>;
+  extra: Set<string>;
+  restore: Set<string>;
+  install: Set<string>;
+};
+
+/** Project Deck の apply / merge を、書き込み前に確認できる計画へ変換する。 */
+export function planProjectDeckSelection(
+  deckName: string,
+  selected: Set<string>,
+  mode: ProjectDeckApplyMode,
+  lock: Lock
+): ProjectDeckApplyPlan {
+  loadDeck(deckName, new Set(), true);
+  const active = visibleInstalledNames(lock, activeDir());
+  const archived = visibleInstalledNames(lock, archiveDir());
+  const target =
+    mode === "merge"
+      ? new Set([...active, ...selected])
+      : new Set([...loadDeck("core")[1], ...selected]);
+  const managed = trackedSkills(lock);
+  const unmanaged = ignoredSkills();
+  const unresolved = new Set(
+    [...target].filter(
+      (name) =>
+        !managed.has(name) &&
+        !unmanaged.has(name) &&
+        !active.has(name) &&
+        !archived.has(name)
+    )
+  );
+  const extra = new Set([...active].filter((name) => !target.has(name)));
+  const restore = new Set(
+    [...target].filter((name) => archived.has(name) && !active.has(name))
+  );
+  const install = new Set(
+    [...target].filter(
+      (name) =>
+        !active.has(name) &&
+        !archived.has(name) &&
+        !unmanaged.has(name) &&
+        managed.has(name)
+    )
+  );
+  return { target, unresolved, extra, restore, install };
+}
+
+/** Web UI と管理 CLI で共有する Project Deck の apply / merge semantics。 */
+export function applyProjectDeckPlan(
+  plan: ProjectDeckApplyPlan,
+  lock: Lock
+): ProjectDeckApplyPlan {
+  if (plan.unresolved.size === 0)
+    applyDeck(plan.extra, plan.restore, plan.install, lock);
+  return plan;
+}
+
+export function applyProjectDeckSelection(
+  deckName: string,
+  selected: Set<string>,
+  mode: ProjectDeckApplyMode,
+  lock: Lock
+): ProjectDeckApplyPlan {
+  return applyProjectDeckPlan(
+    planProjectDeckSelection(deckName, selected, mode, lock),
+    lock
+  );
+}
 
 /**
  * project deck の skill を active へ揃える（CLI の `install-deck`）。

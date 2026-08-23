@@ -2,15 +2,24 @@
 /**
  * CLI の入口。`./skill-loom` の全サブコマンドを処理する（#75 で Python 版から一本化）。
  *
- * 出力は移行前の `bin/my-skills.py` の `cmd_*` と 1 文字も変えない。
+ * 出力は移行前の `bin/my-skills.py` の `cmd_*` と 1 文字も変えない。移行後に追加した
+ * サブコマンドも同じ規約に倣い、CLI への出力は英語で統一する。
  *
  * preset は Web UI と同じ `domain/presets.ts` と `domain/projection.ts` を呼ぶ。
  * CLI と UI で業務ルールを二重に持たないこと（ADR 0007）。
  */
 
 import { readSync } from "node:fs";
-import { listProjectDecks, loadDeck, UnknownDeckError } from "./domain/decks";
-import { activeDir, archiveDir } from "./domain/config";
+import {
+  deckPath,
+  listProjectDecks,
+  loadDeck,
+  saveProjectDeckSelection,
+  UnknownDeckError,
+} from "./domain/decks";
+import { activeDir, archiveDir, lockFile } from "./domain/config";
+import { collectCustomUpdatable, updateCustomFromRepo } from "./domain/custom";
+import { draftRows, promoteDrafts } from "./domain/drafts";
 import {
   ignoredSkills,
   loadLock,
@@ -18,6 +27,12 @@ import {
   trackedSkills,
   visibleInstalledNames,
 } from "./domain/inventory";
+import {
+  activeExternalSkillNames,
+  collectExternalUpdateStatus,
+  externalUpdateCommand,
+  externalSourceSummary,
+} from "./domain/external";
 import {
   computePresetApplyPlan,
   formatPresetApplyPreview,
@@ -30,11 +45,19 @@ import {
 } from "./domain/presets";
 import {
   applyDeck,
+  applyProjectDeckPlan,
   applyNamedPreset,
+  installCustomFromRepo,
   installProjectDeck,
   linkAgentSkillDirsMany,
+  planProjectDeckSelection,
   restorePreviousPreset,
 } from "./domain/projection";
+import {
+  externalSkillCandidates,
+  normalizeGithubSource,
+} from "./infrastructure/github";
+import { commitRepoChanges } from "./infrastructure/git";
 
 /** Python の `f"{value:<width}"`。 */
 function padRight(value: string, width: number): string {
@@ -93,6 +116,316 @@ function cmdStatus(): number {
     console.log("All active skills are tracked.");
   }
   return 0;
+}
+
+function cmdExternalList(): number {
+  const sources = externalSourceSummary(loadLock());
+  if (sources.length === 0) {
+    console.log("No external sources.");
+    return 0;
+  }
+  console.log("External sources:");
+  for (const source of sources) {
+    console.log(
+      `${padRight(source.source, 32)} ${padLeft(String(source.skills.length), 3)}  ${source.skills.join(", ")}`
+    );
+  }
+  return 0;
+}
+
+async function cmdExternalCheck(): Promise<number> {
+  const lock = loadLock();
+  const [statuses, errors] = await collectExternalUpdateStatus(lock);
+  console.log("External update check:");
+  for (const source of externalSourceSummary(lock)) {
+    const status = statuses[source.source];
+    if (!status?.checked) {
+      console.log(
+        `${source.source}  check failed: ${status?.error ?? "unknown error"}`
+      );
+      continue;
+    }
+    const updatable = status.updatable ?? [];
+    console.log(
+      updatable.length > 0
+        ? `${source.source}  updates: ${updatable.join(", ")}`
+        : `${source.source}  up to date`
+    );
+  }
+  return errors.length > 0 ? 1 : 0;
+}
+
+function cmdExternalPreview(source: string): number {
+  try {
+    const ownerRepo = normalizeGithubSource(source);
+    const candidates = externalSkillCandidates(ownerRepo);
+    console.log(`External source: ${ownerRepo}`);
+    if (candidates.length === 0) {
+      console.log("No Skill candidates.");
+      return 0;
+    }
+    for (const candidate of candidates) {
+      const path = candidate.path ? `  ${candidate.path}` : "";
+      console.log(`${candidate.name}${path}`);
+    }
+    return 0;
+  } catch (error) {
+    console.error(errorText(error));
+    return 2;
+  }
+}
+
+function runCommand(command: string[]): void {
+  const result = Bun.spawnSync(command, {
+    stdout: "inherit",
+    stderr: "inherit",
+    timeout: 180_000,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(`Command failed with exit status ${result.exitCode}`);
+  }
+}
+
+/** 確認プロンプトの共通部分。`-y` なら聞かず、断られれば Aborted。 */
+function confirmProceed(yes: boolean): boolean {
+  if (yes || confirmed("Continue? [y/N] ")) return true;
+  console.log("Aborted.");
+  return false;
+}
+
+function confirmedAction(
+  label: string,
+  names: string[],
+  yes: boolean
+): boolean {
+  console.log(`${label}: ${names.join(", ")}`);
+  return confirmProceed(yes);
+}
+
+/** `-y/--yes` を外して、残りと yes フラグを返す。各 update 系サブコマンド共通。 */
+function parseYesArgs(argv: string[]): { yes: boolean; names: string[] } {
+  const yes = argv.includes("-y") || argv.includes("--yes");
+  const names = argv.filter((arg) => arg !== "-y" && arg !== "--yes");
+  return { yes, names };
+}
+
+function cmdExternalUpdate(argv: string[]): number {
+  const { yes, names } = parseYesArgs(argv);
+  if (names.length === 0) {
+    console.error(
+      "skill-loom external update: the following arguments are required: names"
+    );
+    return 2;
+  }
+  const lock = loadLock();
+  const active = activeExternalSkillNames(lock);
+  const inactive = names.filter((name) => !active.has(name));
+  if (inactive.length > 0) {
+    console.error(`cannot update because not active: ${inactive.join(", ")}`);
+    return 2;
+  }
+  if (!confirmedAction("Update External Skills", names, yes)) return 1;
+  try {
+    for (const name of names) runCommand(externalUpdateCommand(name));
+  } catch (error) {
+    console.error(errorText(error));
+    return 2;
+  }
+  console.log(`Updated: ${names.join(", ")}`);
+  return 0;
+}
+
+async function cmdExternal(argv: string[]): Promise<number> {
+  const [subcommand, ...rest] = argv;
+  if (subcommand === "list") return cmdExternalList();
+  if (subcommand === "check") return await cmdExternalCheck();
+  if (subcommand === "preview") {
+    if (!rest[0]) {
+      console.error(
+        "skill-loom external preview: the following arguments are required: source"
+      );
+      return 2;
+    }
+    return cmdExternalPreview(rest[0]);
+  }
+  if (subcommand === "update") return cmdExternalUpdate(rest);
+  console.error(`skill-loom external: invalid choice: ${subcommand ?? ""}`);
+  return 2;
+}
+
+function cmdCustom(argv: string[]): number {
+  const [subcommand, ...rest] = argv;
+  if (subcommand === "check") {
+    const rows = collectCustomUpdatable(loadLock());
+    console.log("Custom update check:");
+    if (rows.length === 0) console.log("All custom skills are up to date.");
+    for (const row of rows) console.log(`${row.name}  ${row.state}`);
+    return 0;
+  }
+  if (subcommand === "update") {
+    const { yes, names } = parseYesArgs(rest);
+    if (names.length === 0) {
+      console.error(
+        "skill-loom custom update: the following arguments are required: names"
+      );
+      return 2;
+    }
+    const lock = loadLock();
+    const custom = lock.custom?.skills ?? {};
+    const unknown = names.filter((name) => !(name in custom));
+    if (unknown.length > 0) {
+      console.error(`not custom skills: ${unknown.join(", ")}`);
+      return 2;
+    }
+    if (!confirmedAction("Update Custom Skills", names, yes)) return 1;
+    try {
+      const updated = updateCustomFromRepo(new Set(names), lock);
+      console.log(`Updated: ${updated.join(", ")}`);
+      return 0;
+    } catch (error) {
+      console.error(errorText(error));
+      return 2;
+    }
+  }
+  console.error(`skill-loom custom: invalid choice: ${subcommand ?? ""}`);
+  return 2;
+}
+
+function cmdDraft(argv: string[]): number {
+  const [subcommand, ...rest] = argv;
+  if (subcommand === "list") {
+    const rows = draftRows(loadLock());
+    if (rows.length === 0) {
+      console.log("No draft skills.");
+      return 0;
+    }
+    console.log("Draft skills:");
+    for (const row of rows)
+      console.log(
+        `${padRight(row.name, 24)} ${padRight(row.category, 16)} ${row.description}`
+      );
+    return 0;
+  }
+  if (subcommand === "promote" || subcommand === "install") {
+    const { yes, names } = parseYesArgs(rest);
+    const force = rest.includes("--force");
+    const skillNames = names.filter((arg) => arg !== "--force");
+    if (skillNames.length === 0) {
+      console.error(
+        `skill-loom draft ${subcommand}: the following arguments are required: names`
+      );
+      return 2;
+    }
+    const label =
+      subcommand === "install"
+        ? "Install Draft Skills"
+        : "Promote Draft Skills";
+    if (!confirmedAction(label, skillNames, yes)) return 1;
+    try {
+      const [promoted, newLock, commitPaths] = promoteDrafts(
+        new Set(skillNames),
+        force
+      );
+      const paths = [lockFile(), ...commitPaths];
+      const commitNote = commitRepoChanges(
+        `feat: add ${promoted.join(", ")}`,
+        paths
+      );
+      if (subcommand === "install")
+        installCustomFromRepo(new Set(promoted), newLock);
+      console.log(`Promoted: ${promoted.join(", ")}${commitNote}`);
+      return 0;
+    } catch (error) {
+      console.error(errorText(error));
+      return 2;
+    }
+  }
+  console.error(`skill-loom draft: invalid choice: ${subcommand ?? ""}`);
+  return 2;
+}
+
+function cmdDeck(argv: string[]): number {
+  const [subcommand, deckName, ...rest] = argv;
+  if (!deckName) {
+    console.error(
+      `skill-loom deck ${subcommand ?? ""}: the following arguments are required: name`
+    );
+    return 2;
+  }
+  if (subcommand === "show") {
+    try {
+      const [deck, skills] = loadDeck(deckName, new Set(), true);
+      console.log(`Project deck: ${deckName}`);
+      if (deck.description) console.log(deck.description);
+      for (const name of skills) console.log(`  ${name}`);
+      return 0;
+    } catch (error) {
+      console.error(errorText(error));
+      return 2;
+    }
+  }
+  if (subcommand === "save") {
+    const { yes, names } = parseYesArgs(rest);
+    if (names.length === 0) {
+      console.error(
+        "skill-loom deck save: the following arguments are required: names"
+      );
+      return 2;
+    }
+    if (!confirmedAction(`Save Project Deck ${deckName}`, names, yes)) return 1;
+    try {
+      const count = saveProjectDeckSelection(deckName, new Set(names));
+      const commitNote = commitRepoChanges(
+        `chore: save project deck ${deckName}`,
+        [deckPath(deckName, true)]
+      );
+      console.log(
+        `Saved deck: ${deckName} (${count} direct skills)${commitNote}`
+      );
+      return 0;
+    } catch (error) {
+      console.error(errorText(error));
+      return 2;
+    }
+  }
+  if (subcommand === "apply" || subcommand === "merge") {
+    const { yes } = parseYesArgs(rest);
+    try {
+      const [, skills] = loadDeck(deckName, new Set(), true);
+      const lock = loadLock();
+      const selected = new Set(skills);
+      const plan = planProjectDeckSelection(
+        deckName,
+        selected,
+        subcommand,
+        lock
+      );
+      console.log(
+        `${subcommand === "merge" ? "Merge" : "Apply"} Project Deck ${deckName}`
+      );
+      const printNames = (label: string, names: Set<string>): void => {
+        console.log(`${label}: ${sortNames(names).join(", ") || "(none)"}`);
+      };
+      printNames("target", plan.target);
+      printNames("archive", plan.extra);
+      printNames("restore", plan.restore);
+      printNames("install", plan.install);
+      printNames("unresolved", plan.unresolved);
+      if (!confirmProceed(yes)) return 1;
+      const result = applyProjectDeckPlan(plan, lock);
+      if (result.unresolved.size > 0) {
+        console.error(`Unresolved: ${sortNames(result.unresolved).join(", ")}`);
+        return 2;
+      }
+      console.log(`Applied deck: ${deckName}`);
+      return 0;
+    } catch (error) {
+      console.error(errorText(error));
+      return 2;
+    }
+  }
+  console.error(`skill-loom deck: invalid choice: ${subcommand ?? ""}`);
+  return 2;
 }
 
 /** `print_plan` の移植。`--apply` で使うため計算した各集合も返す。 */
@@ -418,16 +751,16 @@ const [command, ...rest] = Bun.argv.slice(2);
 
 /** `argparse` が出す usage 行。no-args / unknown command で共通して使う。 */
 const USAGE =
-  "usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset} ...";
+  "usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck} ...";
 
 /**
  * `argparse` の `--help`。1 文字まで移行前と合わせるので、画面の端で折れる幅も含めて
  * 固定文字列にしている（`link-agents` の説明が 80 桁で折れるのも再現）。
  */
-const HELP = `usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset} ...
+const HELP = `usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck} ...
 
 positional arguments:
-  {list,status,all,install-deck,link-agents,ui,preset}
+  {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck}
     list                List project decks
     status              Show active/archive state
     all                 Preview or restore all tracked skills
@@ -436,6 +769,10 @@ positional arguments:
                         to ~/.agents/skills
     ui                  Start a local HTML checklist for active skills
     preset              Manage local global skill presets
+    external            Manage External Skills
+    custom              Check and update Custom Skills
+    draft               List, promote, or install Draft Skills
+    deck                Show, save, merge, or apply Project Decks
 
 options:
   -h, --help            show this help message and exit
@@ -489,11 +826,23 @@ switch (command) {
   case "preset":
     process.exit(cmdPreset(rest));
     break;
+  case "external":
+    process.exit(await cmdExternal(rest));
+    break;
+  case "custom":
+    process.exit(cmdCustom(rest));
+    break;
+  case "draft":
+    process.exit(cmdDraft(rest));
+    break;
+  case "deck":
+    process.exit(cmdDeck(rest));
+    break;
   default:
     // argparse の invalid choice。stdout ではなく stderr へ。
     console.error(USAGE);
     console.error(
-      `skill-loom: error: argument command: invalid choice: '${command}' (choose from list,status,all,install-deck,link-agents,ui,preset)`
+      `skill-loom: error: argument command: invalid choice: '${command}' (choose from list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck)`
     );
     process.exit(2);
 }
