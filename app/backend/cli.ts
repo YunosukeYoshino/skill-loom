@@ -2,7 +2,8 @@
 /**
  * CLI の入口。`./skill-loom` の全サブコマンドを処理する（#75 で Python 版から一本化）。
  *
- * 出力は移行前の `bin/my-skills.py` の `cmd_*` と 1 文字も変えない。
+ * 出力は移行前の `bin/my-skills.py` の `cmd_*` と 1 文字も変えない。移行後に追加した
+ * サブコマンドも同じ規約に倣い、CLI への出力は英語で統一する。
  *
  * preset は Web UI と同じ `domain/presets.ts` と `domain/projection.ts` を呼ぶ。
  * CLI と UI で業務ルールを二重に持たないこと（ADR 0007）。
@@ -19,7 +20,6 @@ import {
 import { activeDir, archiveDir, lockFile } from "./domain/config";
 import { collectCustomUpdatable, updateCustomFromRepo } from "./domain/custom";
 import { draftRows, promoteDrafts } from "./domain/drafts";
-import { resolveCatalogPath } from "./domain/catalogPaths";
 import {
   ignoredSkills,
   loadLock,
@@ -134,9 +134,10 @@ function cmdExternalList(): number {
 }
 
 async function cmdExternalCheck(): Promise<number> {
-  const [statuses, errors] = await collectExternalUpdateStatus(loadLock());
+  const lock = loadLock();
+  const [statuses, errors] = await collectExternalUpdateStatus(lock);
   console.log("External update check:");
-  for (const source of externalSourceSummary(loadLock())) {
+  for (const source of externalSourceSummary(lock)) {
     const status = statuses[source.source];
     if (!status?.checked) {
       console.log(
@@ -185,32 +186,42 @@ function runCommand(command: string[]): void {
   }
 }
 
+/** 確認プロンプトの共通部分。`-y` なら聞かず、断られれば Aborted。 */
+function confirmProceed(yes: boolean): boolean {
+  if (yes || confirmed("Continue? [y/N] ")) return true;
+  console.log("Aborted.");
+  return false;
+}
+
 function confirmedAction(
   label: string,
   names: string[],
   yes: boolean
 ): boolean {
   console.log(`${label}: ${names.join(", ")}`);
-  if (yes || confirmed("Continue? [y/N] ")) return true;
-  console.log("Aborted.");
-  return false;
+  return confirmProceed(yes);
+}
+
+/** `-y/--yes` を外して、残りと yes フラグを返す。各 update 系サブコマンド共通。 */
+function parseYesArgs(argv: string[]): { yes: boolean; names: string[] } {
+  const yes = argv.includes("-y") || argv.includes("--yes");
+  const names = argv.filter((arg) => arg !== "-y" && arg !== "--yes");
+  return { yes, names };
 }
 
 function cmdExternalUpdate(argv: string[]): number {
-  const yes = argv.includes("-y") || argv.includes("--yes");
-  const names = argv.filter((arg) => arg !== "-y" && arg !== "--yes");
+  const { yes, names } = parseYesArgs(argv);
   if (names.length === 0) {
     console.error(
       "skill-loom external update: the following arguments are required: names"
     );
     return 2;
   }
-  const active = activeExternalSkillNames(loadLock());
+  const lock = loadLock();
+  const active = activeExternalSkillNames(lock);
   const inactive = names.filter((name) => !active.has(name));
   if (inactive.length > 0) {
-    console.error(
-      `active ではないため update できません: ${inactive.join(", ")}`
-    );
+    console.error(`cannot update because not active: ${inactive.join(", ")}`);
     return 2;
   }
   if (!confirmedAction("Update External Skills", names, yes)) return 1;
@@ -252,23 +263,23 @@ function cmdCustom(argv: string[]): number {
     return 0;
   }
   if (subcommand === "update") {
-    const yes = rest.includes("-y") || rest.includes("--yes");
-    const names = rest.filter((arg) => arg !== "-y" && arg !== "--yes");
+    const { yes, names } = parseYesArgs(rest);
     if (names.length === 0) {
       console.error(
         "skill-loom custom update: the following arguments are required: names"
       );
       return 2;
     }
-    const custom = loadLock().custom?.skills ?? {};
+    const lock = loadLock();
+    const custom = lock.custom?.skills ?? {};
     const unknown = names.filter((name) => !(name in custom));
     if (unknown.length > 0) {
-      console.error(`custom skill ではありません: ${unknown.join(", ")}`);
+      console.error(`not custom skills: ${unknown.join(", ")}`);
       return 2;
     }
     if (!confirmedAction("Update Custom Skills", names, yes)) return 1;
     try {
-      const updated = updateCustomFromRepo(new Set(names), loadLock());
+      const updated = updateCustomFromRepo(new Set(names), lock);
       console.log(`Updated: ${updated.join(", ")}`);
       return 0;
     } catch (error) {
@@ -296,12 +307,10 @@ function cmdDraft(argv: string[]): number {
     return 0;
   }
   if (subcommand === "promote" || subcommand === "install") {
-    const yes = rest.includes("-y") || rest.includes("--yes");
+    const { yes, names } = parseYesArgs(rest);
     const force = rest.includes("--force");
-    const names = rest.filter(
-      (arg) => arg !== "-y" && arg !== "--yes" && arg !== "--force"
-    );
-    if (names.length === 0) {
+    const skillNames = names.filter((arg) => arg !== "--force");
+    if (skillNames.length === 0) {
       console.error(
         `skill-loom draft ${subcommand}: the following arguments are required: names`
       );
@@ -311,26 +320,19 @@ function cmdDraft(argv: string[]): number {
       subcommand === "install"
         ? "Install Draft Skills"
         : "Promote Draft Skills";
-    if (!confirmedAction(label, names, yes)) return 1;
+    if (!confirmedAction(label, skillNames, yes)) return 1;
     try {
-      const draftPaths = new Map(
-        draftRows(loadLock()).map((row) => [row.name, row.source])
+      const [promoted, newLock, commitPaths] = promoteDrafts(
+        new Set(skillNames),
+        force
       );
-      const [promoted, newLock] = promoteDrafts(new Set(names), force);
-      const paths = [lockFile()];
-      for (const name of promoted) {
-        const meta = newLock.custom?.skills?.[name];
-        if (typeof meta !== "string" && meta?.repoPath)
-          paths.push(resolveCatalogPath(meta.repoPath));
-        const draftPath = draftPaths.get(name);
-        if (draftPath) paths.push(resolveCatalogPath(draftPath));
-      }
+      const paths = [lockFile(), ...commitPaths];
       const commitNote = commitRepoChanges(
         `feat: add ${promoted.join(", ")}`,
         paths
       );
       if (subcommand === "install")
-        installCustomFromRepo(new Set(promoted), loadLock());
+        installCustomFromRepo(new Set(promoted), newLock);
       console.log(`Promoted: ${promoted.join(", ")}${commitNote}`);
       return 0;
     } catch (error) {
@@ -363,8 +365,7 @@ function cmdDeck(argv: string[]): number {
     }
   }
   if (subcommand === "save") {
-    const yes = rest.includes("-y") || rest.includes("--yes");
-    const names = rest.filter((arg) => arg !== "-y" && arg !== "--yes");
+    const { yes, names } = parseYesArgs(rest);
     if (!confirmedAction(`Save Project Deck ${deckName}`, names, yes)) return 1;
     try {
       const count = saveProjectDeckSelection(deckName, new Set(names));
@@ -382,7 +383,7 @@ function cmdDeck(argv: string[]): number {
     }
   }
   if (subcommand === "apply" || subcommand === "merge") {
-    const yes = rest.includes("-y") || rest.includes("--yes");
+    const { yes } = parseYesArgs(rest);
     try {
       const [, skills] = loadDeck(deckName, new Set(), true);
       const lock = loadLock();
@@ -404,10 +405,7 @@ function cmdDeck(argv: string[]): number {
       printNames("restore", plan.restore);
       printNames("install", plan.install);
       printNames("unresolved", plan.unresolved);
-      if (!yes && !confirmed("Continue? [y/N] ")) {
-        console.log("Aborted.");
-        return 1;
-      }
+      if (!confirmProceed(yes)) return 1;
       const result = applyProjectDeckPlan(plan, lock);
       if (result.unresolved.size > 0) {
         console.error(`Unresolved: ${sortNames(result.unresolved).join(", ")}`);

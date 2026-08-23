@@ -156,12 +156,14 @@ export function draftConflicts(
 
 /**
  * draft を `skills/{category}/{name}/` へ移し、lock に custom として登録する。
- * 昇格した名前と、書き込み後の lock を返す。
+ *
+ * 昇格した名前・書き込み後の lock・commit 対象の Catalog 内パスを返す。
+ * パス組み立てに lock の内部構造が必要なので、呼び出し側で作らせない。
  */
 export function promoteDrafts(
   selected: Set<string>,
   force = false
-): [string[], Lock] {
+): [string[], Lock, string[]] {
   if (selected.size === 0) throw new ValueError("draftを選択してください");
 
   const drafts = draftSkillMap();
@@ -174,6 +176,7 @@ export function promoteDrafts(
   lock.custom.skills ??= {};
   const custom = lock.custom.skills;
   const promoted: string[] = [];
+  const commitPaths: string[] = [];
 
   const conflicts = draftConflicts(selected, drafts, custom);
   if (conflicts.length > 0 && !force) throw new DraftConflictError(conflicts);
@@ -193,6 +196,7 @@ export function promoteDrafts(
     cpSync(src, dst, { recursive: true, dereference: true });
     custom[name] = { repoPath: `skills/${category}/${name}`, category };
     promoted.push(name);
+    commitPaths.push(dst, src);
   }
 
   saveLock(lock);
@@ -201,5 +205,5 @@ export function promoteDrafts(
     trashPath(
       resolveCatalogPath((drafts.get(name) as DraftCandidate).repoPath)
     );
-  return [promoted, lock];
+  return [promoted, lock, commitPaths];
 }

@@ -75,12 +75,11 @@ export function listProjectDecks(): string[] {
 }
 
 /**
- * Project Deck 名の検証。パス区切りや `..` を許さないので、作成時に Catalog 外へ
- * 書けない。既存のネスト deck の読み込みは `deckPath` 側が担当する。
+ * Project Deck 名の検証。パターンがパス区切り・`..`・長さ上限を弾くので、
+ * この検証を通った名前は作成時に Catalog 外へ書けない。既存のネスト deck の
+ * 読み込みは `deckPath` 側が担当する。
  */
 export function validateProjectDeckName(name: string): void {
-  if (!name || name.length > 64)
-    throw new ValueError(`Invalid project deck name: ${name}`);
   if (!PROJECT_DECK_NAME_PATTERN.test(name))
     throw new ValueError(`Invalid project deck name: ${name}`);
 }
@@ -92,17 +91,11 @@ export function validateProjectDeckName(name: string): void {
  * ここは `skills: []` の最小ファイルだけを置く。
  */
 export function createEmptyProjectDeck(name: string, description = ""): string {
+  // 名前は検証済みなので、`${name}.json` が base の外へ出ることは無い。
   validateProjectDeckName(name);
   const base = projectDecksDir();
   mkdirSync(base, { recursive: true });
   const path = resolve(base, `${name}.json`);
-  const fromBase = relative(resolve(base), path);
-  if (
-    fromBase === ".." ||
-    fromBase.startsWith(`..${sep}`) ||
-    isAbsolute(fromBase)
-  )
-    throw new UnknownDeckError(`Deck path escapes its root: ${name}`);
   if (exists(path))
     throw new AlreadyExistsError(`Project deck already exists: ${name}`);
 
@@ -114,11 +107,8 @@ export function createEmptyProjectDeck(name: string, description = ""): string {
   return path;
 }
 
-export function deckPath(name: string, project = false): string {
-  const base = project ? projectDecksDir() : decksDir();
-  if (isAbsolute(name))
-    throw new UnknownDeckError(`Deck path must be relative: ${name}`);
-  const path = resolve(base, `${name}.json`);
+/** resolve 結果が base の外へ出ていないか。`..` トラバーサルと絶対パスを弾く。 */
+function assertInsideBase(base: string, path: string, name: string): void {
   const fromBase = relative(resolve(base), path);
   if (
     fromBase === ".." ||
@@ -126,16 +116,18 @@ export function deckPath(name: string, project = false): string {
     isAbsolute(fromBase)
   )
     throw new UnknownDeckError(`Deck path escapes its root: ${name}`);
+}
+
+export function deckPath(name: string, project = false): string {
+  const base = project ? projectDecksDir() : decksDir();
+  if (isAbsolute(name))
+    throw new UnknownDeckError(`Deck path must be relative: ${name}`);
+  const path = resolve(base, `${name}.json`);
+  assertInsideBase(base, path, name);
   if (exists(path)) return path;
   // 拡張子込みで指定された場合も受ける（移行前の nested 分岐）。
   const nested = resolve(base, name);
-  const nestedFromBase = relative(resolve(base), nested);
-  if (
-    nestedFromBase === ".." ||
-    nestedFromBase.startsWith(`..${sep}`) ||
-    isAbsolute(nestedFromBase)
-  )
-    throw new UnknownDeckError(`Deck path escapes its root: ${name}`);
+  assertInsideBase(base, nested, name);
   if (name.endsWith(".json") && exists(nested)) return nested;
   throw new UnknownDeckError(
     `Unknown ${project ? "project deck" : "deck"}: ${name}`

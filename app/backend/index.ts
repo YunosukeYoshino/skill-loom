@@ -16,7 +16,6 @@ import type { ServerWebSocket, Subprocess } from "bun";
 import { Hono } from "hono";
 import { APPLY_BUSY_MESSAGE, releaseApply, tryAcquireApply } from "./applyLock";
 import { ignoreFile, lockFile, projectDecksDir } from "./domain/config";
-import { resolveCatalogPath } from "./domain/catalogPaths";
 import {
   collectCustomUpdatable,
   installedCustomSkillLocation,
@@ -1024,24 +1023,14 @@ app.post("/api/drafts/:action", async (c) => {
   if (!tryAcquireApply())
     return errorResponse(DRAFT_BUSY_MESSAGE, 409, draftsPayload(loadLock()));
   try {
-    const [promoted, newLock] = promoteDrafts(selected, force);
-    // lock は昇格後の内容を書き戻し済み。ここでは commit 対象のパスを組み立てるだけ。
-    const paths = [lockFile()];
-    for (const name of promoted) {
-      const meta = newLock.custom?.skills?.[name] as {
-        repoPath: string;
-        category: string;
-      };
-      paths.push(
-        resolveCatalogPath(meta.repoPath),
-        resolveCatalogPath(`drafts/skills/${meta.category}/${name}`)
-      );
-    }
+    const [promoted, newLock, commitPaths] = promoteDrafts(selected, force);
+    // lock は昇格後の内容を書き戻し済み。commit 対象パスは promoteDrafts が返す。
+    const paths = [lockFile(), ...commitPaths];
     const commitNote = commitRepoChanges(
       `feat: add ${promoted.join(", ")}`,
       paths
     );
-    if (install) installCustomFromRepo(new Set(promoted), loadLock());
+    if (install) installCustomFromRepo(new Set(promoted), newLock);
     const label = install ? "draft解除してglobalに追加" : "draft解除";
     return jsonResponse(
       draftsPayload(
