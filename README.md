@@ -5,6 +5,7 @@
 <p align="center"><strong>Keep the Catalog private. Keep the runtime small.</strong></p>
 
 <p align="center">
+  <a href="ARCHITECTURE.md"><strong>Architecture</strong></a> ·
   <a href="docs/catalog-contract.md"><strong>Catalog contract</strong></a> ·
   <a href="docs/security-model.md"><strong>Security model</strong></a> ·
   <a href="docs/migration.md"><strong>Migration guide</strong></a> ·
@@ -68,46 +69,9 @@ MY_SKILLS_VITE=1 ./skill-loom --catalog-dir ../my-skill-catalog ui
 - **Recoverable operations.** Off transitions use Trash, and Git mutations are scoped to the selected Catalog repository.
 - **One model across CLI and UI.** Both interfaces resolve the same Catalog Root and apply the same domain rules.
 
-## How it works
+## Architecture
 
-```text
-Private Catalog                 Skill Loom Engine              Local Projection
-
-skills.lock.json  ─┐
-skills/           ─┤             validate paths
-vendor/           ─┤             resolve Inventory            ~/.agents/skills/
-drafts/           ─┼──────────▶  apply Decks      ──────────▶  ~/.agents/skills-archive/
-project-decks/    ─┤             move via Trash                agent-specific links
-shared-decks/     ─┤             scope Git writes
-agents/           ─┘
-```
-
-Select the Catalog per command:
-
-```bash
-./skill-loom --catalog-dir /path/to/catalog status
-```
-
-Or select it once for a shell session:
-
-```bash
-export MY_SKILLS_CATALOG_DIR=/path/to/catalog
-./skill-loom status
-```
-
-If neither selector is present, the Engine Root is used as a legacy colocated Catalog for migration compatibility.
-
-## Engine and Catalog ownership
-
-| Engine owns                         | Catalog owns                         |
-| ----------------------------------- | ------------------------------------ |
-| CLI and local Web UI                | Inventory Lock and ignore rules      |
-| Inventory Lock v1 schema            | Custom Skills and Drafts             |
-| Validation and Projection rules     | Vendor Skills and upstream baselines |
-| Catalog-aware management Skills     | Project, Shared, and Core Decks      |
-| Synthetic fixtures and public tests | Agent definitions                    |
-
-Catalog-relative paths are resolved against the real Catalog Root. Absolute paths, `..` traversal, and symlinks that escape the Catalog are rejected before file operations.
+The Engine resolves your Catalog Inventory into a local Projection: paths are validated, Decks are applied, Off transitions move through the system Trash, and Git writes stay scoped to the selected Catalog repository. The [architecture guide](ARCHITECTURE.md) covers the data flow, the Engine/Catalog ownership table, the entry points, and the project layout.
 
 ## Everyday commands
 
@@ -138,7 +102,20 @@ Management command families expose the same Catalog domain operations to shell w
 ./skill-loom deck show NAME
 ./skill-loom deck save NAME SKILL... --yes
 ./skill-loom deck apply NAME --yes
+./skill-loom deck merge NAME --yes
+
+./skill-loom preset list
+./skill-loom preset save NAME
+./skill-loom preset apply NAME --yes
+./skill-loom preset delete NAME
+./skill-loom preset restore
+
+./skill-loom link-agents NAME...
 ```
+
+`preset` saves and reapplies named subsets of the active global skills. `link-agents`
+symlinks an agent's skills directory (`~/.claude/skills`, `~/.gemini/config/skills`)
+to `~/.agents/skills`.
 
 State-changing management commands print their targets and require confirmation. Use `--yes`
 only in automation that has already reviewed the selected Catalog and target names.
@@ -157,23 +134,18 @@ The repository also ships Catalog-aware management Skills for adding, auditing, 
 
 Skill Loom adds a small amount of structure in exchange for a clear ownership boundary and a Projection you can reproduce.
 
-## Project structure
-
-```text
-app/                 Engine backend, Web UI, and shared API contracts
-.agents/skills/      Catalog-aware management Skills
-examples/catalog/    Empty synthetic Catalog for onboarding and tests
-schemas/             Versioned Inventory Lock schemas
-scripts/             Publication and secret-scan checks
-tests/               CLI, HTTP, path-boundary, and management tests
-docs/                Catalog, security, and migration documentation
-```
-
 ## Status
 
 Skill Loom is an initial macOS release. The Engine/Catalog boundary and legacy colocated fallback are stable enough for migration, but cross-platform Trash behavior is intentionally out of scope for this release.
 
 Read the [migration guide](docs/migration.md) before connecting an existing portfolio. For bugs, include the Engine revision, macOS and Bun versions, command, and sanitized output as described in [Support](SUPPORT.md).
+
+## Development
+
+```bash
+bun run typecheck   # Typecheck the Engine backend and the Web UI
+bun run test        # Run backend and frontend API tests plus the CLI shell test suite
+```
 
 ## Contributing
 

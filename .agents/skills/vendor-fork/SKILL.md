@@ -36,6 +36,8 @@ bash "$ENGINE_ROOT/.agents/skills/vendor-fork/scripts/skills-vendor-fork" \
   --catalog-dir "$CATALOG_ROOT" {skill-name}
 ```
 
+完了基準: `$CATALOG_ROOT/vendor/{skill-name}` と `$CATALOG_ROOT/upstream/{skill-name}` の両方が作成されていること。
+
 ### Step 3: 対話的なカスタマイズ
 
 ユーザーに何をカスタマイズしたいか質問:
@@ -52,6 +54,8 @@ frontmatter ルール (CLAUDE.md 準拠):
 - `name` と `description` のみ
 - YAML特殊文字はクォート必須
 
+完了基準: 編集後の `vendor/{skill-name}/SKILL.md` が frontmatter ルールを満たしていること。
+
 ### Step 4: skills.lock.json 更新
 
 Catalog の `skills.lock.json` の `vendor` セクションに追加:
@@ -62,6 +66,8 @@ Catalog の `skills.lock.json` の `vendor` セクションに追加:
 }
 ```
 
+完了基準: `skills.lock.json` の `vendor` セクションに `{skill-name}` が source 付きで追加されていること。
+
 ### Step 5: Catalog commit
 
 ```bash
@@ -69,7 +75,7 @@ git -C "$CATALOG_ROOT" add vendor/{skill-name} upstream/{skill-name} skills.lock
 git -C "$CATALOG_ROOT" commit -m "feat: vendor {skill-name}"
 ```
 
-完了条件: commit に Vendor、Upstream、Inventory Lock の3つが含まれること。
+完了基準: commit に Vendor、Upstream、Inventory Lock の3つが含まれること。
 
 ### Step 6: インストール (上書き)
 
@@ -80,6 +86,8 @@ bunx skills add "$CUSTOM_REPO" --skill {skill-name} -g -a claude-code -a codex -
 ```
 
 外部版がカスタマイズ版で上書きされる。
+
+完了基準: `bunx skills add` が正常終了し、`~/.agents/skills/{skill-name}` がカスタマイズ版に置き換わり、`~/.claude/skills/{skill-name}` もカスタマイズ版を参照していること（symlink またはコピー）。
 
 ### Step 7: 完了報告
 
