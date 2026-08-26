@@ -1,5 +1,6 @@
-/* Apple-inspired · system blue · designed-as-app
+/* Apple-inspired · system blue refined · designed-as-app
  * Motion: critically damped defaults; bounce only for momentum gestures.
+ * Motif: "loom" — warp/weave crosshatch texture, thread indicators, film grain.
  */
 :root {
   /* Colour — light paper + system blue */
@@ -17,12 +18,14 @@
   --color-chrome-ink: var(--color-ink);
   --color-chrome-muted: var(--color-ink-2);
 
-  /* System blue ≈ #007AFF */
-  --color-accent: oklch(54% 0.19 250);
-  --color-accent-hover: oklch(48% 0.18 250);
-  --color-accent-soft: oklch(95% 0.03 250);
+  /* System blue refined — 真の青へ寄せ、白地の小テキストでも ~6:1 を維持 */
+  --color-accent: oklch(52% 0.175 255);
+  --color-accent-hover: oklch(46% 0.165 255);
+  --color-accent-soft: oklch(94.5% 0.032 255);
   --color-accent-ink: oklch(99% 0 0);
-  --color-focus: oklch(54% 0.19 250);
+  /* soft 背景の上に置く文字用 (soft 上で 4.5:1+) */
+  --color-accent-text: oklch(42% 0.16 255);
+  --color-focus: oklch(52% 0.175 255);
 
   --color-success: oklch(55% 0.14 145);
   --color-success-soft: oklch(96% 0.03 145);
@@ -33,14 +36,17 @@
   --color-draft: oklch(48% 0.04 250);
   --color-draft-soft: oklch(96% 0.015 250);
 
-  /* Type — platform system font (optical sizing / tracking) */
+  /* Type — display は編集的な Fraunces、UI は Instrument Sans、
+   * スキル名・数値は IBM Plex Mono (tabular)。フォールバックは従来のプラットフォーム字体。
+   */
   --font-display:
-    -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui,
-    sans-serif;
+    "Fraunces", -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui,
+    serif;
   --font-body:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
-    sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    "Instrument Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", system-ui, sans-serif;
+  --font-mono:
+    "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   /* Space (4pt) */
   --space-3xs: 0.25rem;

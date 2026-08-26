@@ -28,22 +28,56 @@ body,
 body {
   margin: 0;
   font: var(--text-md) / 1.47 var(--font-body);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.006em;
   background:
     radial-gradient(
       900px 420px at 12% -8%,
-      oklch(54% 0.19 250 / 0.12),
+      oklch(52% 0.175 255 / 0.14),
       transparent 55%
     ),
     radial-gradient(
       700px 360px at 100% 0%,
-      oklch(70% 0.08 250 / 0.08),
+      oklch(72% 0.09 255 / 0.1),
       transparent 50%
     ),
     var(--color-paper);
+  background-attachment: fixed;
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* 経糸×緯糸の十字テクスチャ — 画面上部だけ、ごく薄く */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      oklch(52% 0.175 255 / 0.025) 0 1px,
+      transparent 1px 7px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      oklch(52% 0.175 255 / 0.025) 0 1px,
+      transparent 1px 7px
+    );
+  -webkit-mask-image: radial-gradient(85% 55% at 50% 0%, #000, transparent 78%);
+  mask-image: radial-gradient(85% 55% at 50% 0%, #000, transparent 78%);
+}
+
+/* フィルムグレイン — 全体に 5%。上のテクスチャと同じく操作は素通し */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2"/></filter><rect width="160" height="160" filter="url(%23n)" opacity="0.6"/></svg>');
 }
 
 * {
@@ -115,4 +149,66 @@ label {
     animation: none;
     border-top-color: var(--color-accent);
   }
+}
+
+/* ===== Loom motif — 織り機モチーフの装飾部品 ===== */
+
+/* Projection の織りバー: セグメント + 糸テクスチャ */
+.weave-bar {
+  display: flex;
+  height: 9px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--color-paper-3);
+  position: relative;
+}
+.weave-bar > i {
+  display: block;
+  height: 100%;
+}
+.weave-bar > .weave-active {
+  background: var(--color-accent);
+}
+.weave-bar > .weave-off {
+  background: var(--color-rule-strong);
+}
+.weave-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    oklch(100% 0 0 / 0.28) 0 1px,
+    transparent 1px 4px
+  );
+}
+
+/* 未反映 (dirty) 行の左端を走る「経糸」 */
+.warp-row {
+  position: relative;
+}
+.warp-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2.5px;
+  border-radius: 3px;
+  background: var(--color-accent);
+}
+
+/* ページ最初の描画: 各領域の stagger 出現 */
+@keyframes loom-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.loom-rise {
+  animation: loom-rise 0.55s var(--ease-soft) both;
 }
