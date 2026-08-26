@@ -16,17 +16,16 @@ import {
   ExternalImportForm,
   SearchField,
   TristateList,
+  useLoomFilter,
 } from "@/components/lists";
 import {
   ActionStatus,
   BusyRegion,
   Button,
-  Masthead,
   Message,
-  Nav,
   PageError,
   PageLoading,
-  Shell,
+  WorkbenchShell,
   pendingLabel,
 } from "@/components/ui";
 
@@ -775,7 +774,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
       applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
   });
 
-  if (q.isPending) return <PageLoading variant="list" withCounts />;
+  if (q.isPending) return <PageLoading variant="list" />;
   if (q.isError) {
     return <PageError current="global" message={(q.error as Error).message} />;
   }
@@ -794,9 +793,59 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
   const listBusy = apply.isPending || bulkOff.isPending || presetBusy;
 
   return (
-    <Shell>
-      <Masthead title={data.title} counts={data.counts} />
-      <Nav current="global" decks={data.decks || []} />
+    <WorkbenchShell
+      title={catalog ? "Catalog" : "Global"}
+      overline={catalog ? "Catalog · 追加候補" : "Projection · tristate"}
+      sub={
+        catalog
+          ? "外部スキルの追加"
+          : `${data.rows?.length ?? 0} skills · ${
+              data.counts ? `active ${data.counts.active}` : ""
+            }`
+      }
+      counts={data.counts}
+      current="global"
+      decks={data.decks || []}
+      searchable
+      drawer={
+        !catalog ? (
+          <>
+            {data.customUpdatesChecked ? (
+              <CustomUpdatesPanel
+                items={data.customUpdatable || []}
+                busy={customBusy}
+                onUpdateOne={(name) => updateCustomOne.mutate(name)}
+                onUpdateAll={() => updateCustomAll.mutate()}
+              />
+            ) : null}
+            <PresetsPanel
+              presets={data.presets || []}
+              hasPrevious={!!data.hasPreviousPreset}
+              busy={listBusy}
+              preview={presetPreview}
+              onApplyRequest={(name) => presetApplyPreview.mutate(name)}
+              onApplyConfirm={() =>
+                pendingPresetName &&
+                presetApplyConfirm.mutate(pendingPresetName)
+              }
+              onRestoreRequest={() => presetRestorePreview.mutate()}
+              onRestoreConfirm={() => presetRestoreConfirm.mutate()}
+              onOverwriteSave={(name) =>
+                presetSave.mutate({ name, overwrite: true })
+              }
+              onSaveAsNew={(name) =>
+                presetSave.mutate({ name, overwrite: false })
+              }
+              onDelete={(name) => presetDelete.mutate(name)}
+              onCancelPreview={() => {
+                setPresetPreview(null);
+                setPendingPresetName("");
+              }}
+            />
+          </>
+        ) : undefined
+      }
+    >
       <Message
         text={
           data.message ||
@@ -857,37 +906,6 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
           </>
         )}
       </div>
-      {!catalog && data.customUpdatesChecked ? (
-        <CustomUpdatesPanel
-          items={data.customUpdatable || []}
-          busy={customBusy}
-          onUpdateOne={(name) => updateCustomOne.mutate(name)}
-          onUpdateAll={() => updateCustomAll.mutate()}
-        />
-      ) : null}
-      {!catalog ? (
-        <PresetsPanel
-          presets={data.presets || []}
-          hasPrevious={!!data.hasPreviousPreset}
-          busy={listBusy}
-          preview={presetPreview}
-          onApplyRequest={(name) => presetApplyPreview.mutate(name)}
-          onApplyConfirm={() =>
-            pendingPresetName && presetApplyConfirm.mutate(pendingPresetName)
-          }
-          onRestoreRequest={() => presetRestorePreview.mutate()}
-          onRestoreConfirm={() => presetRestoreConfirm.mutate()}
-          onOverwriteSave={(name) =>
-            presetSave.mutate({ name, overwrite: true })
-          }
-          onSaveAsNew={(name) => presetSave.mutate({ name, overwrite: false })}
-          onDelete={(name) => presetDelete.mutate(name)}
-          onCancelPreview={() => {
-            setPresetPreview(null);
-            setPendingPresetName("");
-          }}
-        />
-      ) : null}
       {catalog ? (
         <ExternalImportForm
           onPreview={(s) => externalPreview.mutate(s)}
@@ -903,7 +921,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
           onBulkOff={() => bulkOff.mutate()}
         />
       )}
-    </Shell>
+    </WorkbenchShell>
   );
 }
 
@@ -958,9 +976,9 @@ export function ExternalPreviewPage({
 
   if (!source)
     return (
-      <Shell>
-        <p>source がありません</p>
-      </Shell>
+      <WorkbenchShell title="外部スキル" current="global">
+        <p className="m-0">source がありません</p>
+      </WorkbenchShell>
     );
   if (q.isPending) return <PageLoading variant="list" />;
   if (q.isError) {
@@ -975,9 +993,13 @@ export function ExternalPreviewPage({
   const previewBusy = install.isPending || addDeck.isPending;
 
   return (
-    <Shell>
-      <Masthead title={data.title} />
-      <Nav current={deck ? `project:${deck}` : "global"} decks={data.decks} />
+    <WorkbenchShell
+      title={data.title}
+      overline="Catalog · 外部プレビュー"
+      current={deck ? `project:${deck}` : "global"}
+      decks={data.decks}
+      searchable
+    >
       <Message
         text={
           data.message || errMessage(install.error) || errMessage(addDeck.error)
@@ -1031,7 +1053,7 @@ export function ExternalPreviewPage({
               ]
         }
       />
-    </Shell>
+    </WorkbenchShell>
   );
 }
 
@@ -1051,7 +1073,7 @@ function SelectableSkills({
   presetChecked?: boolean;
 }) {
   const [selected, setSelected] = useState<string[]>([]);
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useLoomFilter();
 
   useEffect(() => {
     setSelected(
@@ -1078,7 +1100,7 @@ function SelectableSkills({
 
   return (
     <div>
-      <div className="sticky top-0 z-20 mb-2 flex flex-wrap gap-2 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] px-2 py-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
+      <div className="sticky top-[70px] z-20 mb-2 flex flex-wrap gap-2 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] px-2 py-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
         <SearchField value={filter} onChange={setFilter} />
         <Button
           disabled={busy || filteredNames.length === 0 || allFilteredSelected}
@@ -1182,9 +1204,12 @@ export function ExternalSourcesPage() {
   const sourcesBusy = checkAll.isPending || updateAll.isPending;
 
   return (
-    <Shell>
-      <Masthead title={data.title} />
-      <Nav current="external-sources" decks={data.decks} />
+    <WorkbenchShell
+      title={data.title}
+      overline="Catalog · external sources"
+      current="external-sources"
+      decks={data.decks}
+    >
       <Message
         text={
           data.message ||
@@ -1255,7 +1280,7 @@ export function ExternalSourcesPage() {
           </div>
         )}
       </BusyRegion>
-    </Shell>
+    </WorkbenchShell>
   );
 }
 
@@ -1389,9 +1414,12 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
   };
 
   return (
-    <Shell>
-      <Masthead title={data.title} />
-      <Nav current="external-sources" decks={data.decks} />
+    <WorkbenchShell
+      title={data.title}
+      overline={`External · ${source}`}
+      current="external-sources"
+      decks={data.decks}
+    >
       <Message text={data.message || errMessage(applyGlobal.error)} />
       <ActionStatus
         text={
@@ -1514,7 +1542,7 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
           />
         </>
       ) : null}
-    </Shell>
+    </WorkbenchShell>
   );
 }
 
@@ -1536,9 +1564,13 @@ export function DraftsPage() {
   const data = q.data;
 
   return (
-    <Shell>
-      <Masthead title={data.title} />
-      <Nav current="drafts" decks={data.decks} />
+    <WorkbenchShell
+      title={data.title}
+      overline="Catalog · drafts"
+      current="drafts"
+      decks={data.decks}
+      searchable
+    >
       <Message text={data.message || errMessage(run.error)} />
       <ActionStatus
         text={run.isPending ? "draft操作を実行しています…" : undefined}
@@ -1594,7 +1626,7 @@ export function DraftsPage() {
           },
         ]}
       />
-    </Shell>
+    </WorkbenchShell>
   );
 }
 
@@ -1630,7 +1662,7 @@ export function ProjectDeckPage({
     },
   });
 
-  if (q.isPending) return <PageLoading variant="list" withCounts />;
+  if (q.isPending) return <PageLoading variant="list" />;
   if (q.isError) {
     return (
       <PageError
@@ -1642,9 +1674,13 @@ export function ProjectDeckPage({
   const data = q.data;
 
   return (
-    <Shell>
-      <Masthead title={data.title} />
-      <Nav current={`project:${deckName}`} decks={data.decks} />
+    <WorkbenchShell
+      title={data.title}
+      overline={`Deck · ${deckName}`}
+      current={`project:${deckName}`}
+      decks={data.decks}
+      searchable
+    >
       <Message text={data.message || errMessage(action.error)} />
       <ActionStatus
         text={
@@ -1726,6 +1762,6 @@ export function ProjectDeckPage({
               ]
         }
       />
-    </Shell>
+    </WorkbenchShell>
   );
 }
