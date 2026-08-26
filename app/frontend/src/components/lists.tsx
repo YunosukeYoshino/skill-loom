@@ -1,6 +1,22 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { SkillRow, Tristate } from "@shared/api-types";
 import { Button, pendingLabel } from "./ui";
+
+/**
+ * トップバーのグローバル検索と各リストの絞り込みを繋ぐフィルタ状態。
+ * "loom:filter" CustomEvent (detail: string) を受信する。
+ */
+export function useLoomFilter() {
+  const [filter, setFilter] = useState("");
+  useEffect(() => {
+    const onFilter = (event: Event) => {
+      setFilter((event as CustomEvent<string>).detail ?? "");
+    };
+    window.addEventListener("loom:filter", onFilter);
+    return () => window.removeEventListener("loom:filter", onFilter);
+  }, []);
+  return [filter, setFilter] as const;
+}
 
 const pillClass: Record<string, string> = {
   active: "bg-[var(--color-accent-soft)] text-[var(--color-accent)]",
@@ -126,7 +142,7 @@ export function TristateList({
   }, [mainRows, archiveRows]);
 
   const [states, setStates] = useState(initial);
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useLoomFilter();
   const [sortKey, setSortKey] = useState<SortKey>("status");
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -183,15 +199,16 @@ export function TristateList({
     }
   };
 
-  const dirty = Object.entries(states).some(
+  const dirtyNames = Object.entries(states).filter(
     ([name, value]) => initial[name] !== value
   );
+  const dirty = dirtyNames.length > 0;
   // 表示行が無いのにソート見出しだけ残ると、枠の下半分が空洞に見える。
   const showSortHeader = sortedRows.length > 0;
 
   return (
     <div>
-      <div className="sticky top-0 z-20 mb-2 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
+      <div className="sticky top-[70px] z-20 mb-2 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
         <div
           className={`flex flex-wrap gap-2 px-2 py-2${
             showSortHeader ? " border-b border-[var(--color-rule)]" : ""
@@ -204,6 +221,11 @@ export function TristateList({
             onClick={() => onApply(states)}
           >
             {pendingLabel(!!busy, "反映", "反映中…")}
+            {dirty ? (
+              <span className="rounded-full bg-[oklch(100%_0_0/0.28)] px-1.5 py-px font-[family-name:var(--font-mono)] text-[9.5px] font-semibold [font-variant-numeric:tabular-nums]">
+                {dirtyNames.length}
+              </span>
+            ) : null}
           </Button>
           {onBulkOff ? (
             <Button
@@ -239,6 +261,7 @@ export function TristateList({
                 row={row}
                 value={states[row.name] || "off"}
                 onChange={setOne}
+                dirty={states[row.name] !== initial[row.name]}
               />
             ))}
           </div>
@@ -256,6 +279,7 @@ export function TristateList({
                 row={row}
                 value={states[row.name] || "archive"}
                 onChange={setOne}
+                dirty={states[row.name] !== initial[row.name]}
                 compact
               />
             ))}
@@ -315,19 +339,29 @@ function TristateRow({
   value,
   onChange,
   compact = false,
+  dirty = false,
 }: {
   row: SkillRow;
   value: Tristate;
   onChange: (name: string, value: Tristate) => void;
   compact?: boolean;
+  /** 反映前の変更がある行 — 左端に「経糸」が走る */
+  dirty?: boolean;
 }) {
   if (compact) {
     return (
-      <div className="grid grid-cols-[minmax(0,1fr)_12rem] items-center gap-x-3 px-3 py-2.5">
+      <div
+        className={`grid grid-cols-[minmax(0,1fr)_12rem] items-center gap-x-3 px-3 py-2.5${dirty ? " warp-row" : ""}`}
+      >
         <div className="min-w-0">
           <code className="font-[family-name:var(--font-mono)] text-sm font-medium">
             {row.name}
           </code>
+          {dirty ? (
+            <span className="ml-2 rounded bg-[var(--color-accent-soft)] px-1.5 py-px align-middle font-[family-name:var(--font-mono)] text-[9px] font-semibold tracking-[0.05em] text-[var(--color-accent-text)] uppercase">
+              draft
+            </span>
+          ) : null}
           <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">
             {row.description}
           </p>
@@ -343,11 +377,16 @@ function TristateRow({
   }
 
   return (
-    <div className={`${ROW_GRID} py-2.5`}>
+    <div className={`${ROW_GRID} py-2.5${dirty ? " warp-row" : ""}`}>
       <div className="min-w-0">
         <code className="font-[family-name:var(--font-mono)] text-sm font-medium">
           {row.name}
         </code>
+        {dirty ? (
+          <span className="ml-2 rounded bg-[var(--color-accent-soft)] px-1.5 py-px align-middle font-[family-name:var(--font-mono)] text-[9px] font-semibold tracking-[0.05em] text-[var(--color-accent-text)] uppercase">
+            draft
+          </span>
+        ) : null}
         <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">
           {row.description}
         </p>
@@ -390,7 +429,7 @@ export function CheckboxList({
   const [selected, setSelected] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(rows.map((r) => [r.name, !!r.checked]))
   );
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useLoomFilter();
 
   const dataKey = rows.map((r) => `${r.name}:${r.checked}`).join("|");
   const [prevKey, setPrevKey] = useState(dataKey);
@@ -419,7 +458,7 @@ export function CheckboxList({
 
   return (
     <div>
-      <div className="sticky top-0 z-20 mb-2 flex flex-wrap gap-2 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] px-2 py-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
+      <div className="sticky top-[70px] z-20 mb-2 flex flex-wrap gap-2 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] px-2 py-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
         <SearchField value={filter} onChange={setFilter} />
         <Button
           disabled={busy || filteredNames.length === 0 || allFilteredSelected}
