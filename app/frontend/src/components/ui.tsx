@@ -534,8 +534,8 @@ export function Button({
     "inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-sm font-medium transition-[transform,background,border-color,opacity,box-shadow] duration-100 ease-out active:scale-[0.96] disabled:pointer-events-none disabled:opacity-45";
   const styles =
     variant === "primary"
-      ? "border-[var(--color-accent-hover)] bg-[var(--btn-primary-face)] text-[var(--color-accent-ink)] shadow-[var(--btn-primary-edge)] hover:brightness-105"
-      : "border-[var(--color-rule)] bg-[var(--btn-secondary-face)] text-[var(--color-ink)] shadow-[var(--btn-secondary-edge)] hover:border-[var(--color-rule-strong)]";
+      ? "border-[var(--color-accent-hover)] [background:var(--btn-primary-face)] text-[var(--color-accent-ink)] shadow-[var(--btn-primary-edge)] hover:brightness-105"
+      : "border-[var(--color-rule)] [background:var(--btn-secondary-face)] text-[var(--color-ink)] shadow-[var(--btn-secondary-edge)] hover:border-[var(--color-rule-strong)]";
   return (
     <button
       type="button"
