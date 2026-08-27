@@ -43,6 +43,7 @@ body {
     var(--color-paper);
   background-attachment: fixed;
   color: var(--color-ink);
+  overscroll-behavior-y: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -90,6 +91,14 @@ a,
 [role="button"],
 label {
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* sticky ヘッダ/ツールバーの下に hash スクロール先が隠れないように */
+h1,
+h2,
+h3 {
+  scroll-margin-top: 5rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -196,19 +205,4 @@ label {
   width: 2.5px;
   border-radius: 3px;
   background: var(--color-accent);
-}
-
-/* ページ最初の描画: 各領域の stagger 出現 */
-@keyframes loom-rise {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-.loom-rise {
-  animation: loom-rise 0.55s var(--ease-soft) both;
 }

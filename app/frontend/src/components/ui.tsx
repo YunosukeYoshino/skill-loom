@@ -92,6 +92,7 @@ function TopSearch() {
       <input
         ref={inputRef}
         type="search"
+        aria-label="スキルを検索"
         value={value}
         onChange={(e) => dispatch(e.target.value)}
         onKeyDown={(e) => {
@@ -134,7 +135,10 @@ function Topbar({
         {counts ? (
           <div className="ml-auto flex items-baseline gap-3.5 font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink-2)] [font-variant-numeric:tabular-nums]">
             <span className="inline-flex items-center gap-1.5">
-              <i className="inline-block size-1.5 rounded-full bg-[var(--color-accent)]" />
+              <i
+                aria-hidden="true"
+                className="inline-block size-1.5 rounded-full bg-[var(--color-accent)]"
+              />
               active{" "}
               <b className="font-semibold text-[var(--color-ink)]">
                 {counts.active}
@@ -204,7 +208,7 @@ function SideNav({
     { to: "/drafts", label: "Drafts", id: "drafts" },
   ];
   const linkClass = (active: boolean) =>
-    `relative flex items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-sm font-medium transition-[background,color,padding-left] duration-100 ease-out ${
+    `relative flex min-h-10 items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-sm font-medium transition-[background,color,padding-left] duration-100 ease-out ${
       active
         ? "bg-[var(--color-accent-soft)] pr-2.5 pl-[13px] font-semibold text-[var(--color-accent-text)]"
         : "text-[var(--color-ink-2)] hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)]"
@@ -213,7 +217,7 @@ function SideNav({
     current === item.id || (item.id === "global" && current === "");
 
   return (
-    <div className="rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-2.5 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-180 lg:sticky lg:top-[70px]">
+    <div className="rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-180 lg:sticky lg:top-[70px]">
       <nav
         className="flex flex-col gap-0.5 max-lg:flex-row max-lg:flex-wrap"
         aria-label="セクション"
@@ -251,7 +255,12 @@ function SideNav({
                   className="absolute top-[20%] bottom-[20%] left-[3px] w-0.5 rounded-full bg-[var(--color-accent)]"
                 />
               ) : null}
-              <span className="max-lg:mx-auto">▸ {d}</span>
+              <span aria-hidden className="max-lg:mx-auto">
+                <span className="mr-1.5 text-[10px] leading-none text-[var(--color-ink-2)]">
+                  ▸
+                </span>
+                {d}
+              </span>
             </Link>
           );
         })}
@@ -260,7 +269,7 @@ function SideNav({
           aria-expanded={creating}
           aria-controls="create-deck-form"
           onClick={() => setCreating((open) => !open)}
-          className="cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-sm font-medium text-[var(--color-ink-2)] transition-[background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] max-lg:flex-1 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex min-h-10 cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-sm font-medium text-[var(--color-ink-2)] transition-[background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] max-lg:flex-1 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <span className="max-lg:mx-auto">+ Deck</span>
         </button>
@@ -300,10 +309,16 @@ export function WorkbenchShell({
 }: WorkbenchShellProps) {
   return (
     <div className="min-h-screen">
+      <a
+        href="#stage"
+        className="sr-only rounded-[var(--radius-sm)] bg-[var(--color-accent)] px-3 py-2 text-[var(--color-accent-ink)] focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50"
+      >
+        本文へスキップ
+      </a>
       <Topbar counts={counts} searchable={searchable} />
       <div className="relative z-[1] mx-auto grid w-full max-w-[1480px] items-start gap-4 px-4 pt-4 pb-11 [grid-template-columns:minmax(0,1fr)] md:px-6 lg:[grid-template-columns:236px_minmax(0,1fr)] xl:[grid-template-columns:236px_minmax(0,1fr)_318px]">
         <SideNav current={current} decks={decks ?? []} counts={counts} />
-        <main className="min-w-0">
+        <main id="stage" className="min-w-0 [scroll-margin-top:5rem]">
           <div className="pb-3.5">
             {overline ? (
               <p className="m-0 flex items-center gap-2 font-[family-name:var(--font-mono)] text-[9.5px] font-medium tracking-[0.12em] text-[var(--color-ink-2)] uppercase">
@@ -314,7 +329,7 @@ export function WorkbenchShell({
                 {overline}
               </p>
             ) : null}
-            <h1 className="m-0 mt-1.5 mb-1 font-[family-name:var(--font-display)] text-[clamp(1.55rem,2.4vw,1.95rem)] leading-[1.08] font-[540] tracking-[-0.02em] [font-variation-settings:'opsz'_60]">
+            <h1 className="m-0 mt-1.5 mb-1 font-[family-name:var(--font-display)] text-[clamp(1.55rem,2.4vw,1.95rem)] leading-[1.08] font-[540] tracking-[-0.02em] [font-variation-settings:'opsz'_60] [text-wrap:balance]">
               {title}
             </h1>
             {sub ? (
@@ -413,7 +428,7 @@ export function CreateDeckForm({ onClose }: CreateDeckFormProps) {
           if (e.key === "Escape") close();
         }}
         disabled={create.isPending}
-        placeholder="例: frontend"
+        placeholder="例: frontend などの deck 名…"
         autoComplete="off"
         spellCheck={false}
         className="min-w-[160px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-1.5 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -429,7 +444,7 @@ export function CreateDeckForm({ onClose }: CreateDeckFormProps) {
         キャンセル
       </Button>
       {error ? (
-        <p className="m-0 basis-full text-sm text-[var(--color-ink)]">
+        <p className="m-0 basis-full text-sm text-[var(--color-ink)] [text-wrap:pretty]">
           {error}
         </p>
       ) : null}
@@ -440,7 +455,11 @@ export function CreateDeckForm({ onClose }: CreateDeckFormProps) {
 export function Message({ text }: { text?: string }) {
   if (!text) return null;
   return (
-    <div className="mb-3 rounded-[var(--radius-md)] border border-[var(--color-accent-soft)] bg-[var(--color-accent-soft)] px-3.5 py-2.5 text-sm text-[var(--color-ink)]">
+    <div
+      className="mb-3 rounded-[var(--radius-md)] border border-[var(--color-accent-soft)] bg-[var(--color-accent-soft)] px-3.5 py-2.5 text-sm text-[var(--color-ink)] [text-wrap:pretty]"
+      role="status"
+      aria-live="polite"
+    >
       {text}
     </div>
   );
@@ -495,7 +514,7 @@ export function Button({
   variant?: "primary" | "secondary";
 }) {
   const base =
-    "inline-flex cursor-pointer items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-sm font-medium transition-[transform,background,border-color,opacity,box-shadow] duration-100 ease-out active:scale-[0.97] disabled:opacity-45";
+    "inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-sm font-medium transition-[transform,background,border-color,opacity,box-shadow] duration-100 ease-out active:scale-[0.96] disabled:pointer-events-none disabled:opacity-45";
   const styles =
     variant === "primary"
       ? "border-[var(--color-accent-hover)] bg-[linear-gradient(180deg,oklch(55%_0.17_255),var(--color-accent))] text-[var(--color-accent-ink)] shadow-[0_2px_6px_oklch(46%_0.165_255/0.35),inset_0_1px_0_oklch(100%_0_0/0.25)] hover:brightness-105"
@@ -618,7 +637,7 @@ export type PageLoadingVariant = "list" | "cards" | "detail";
 
 export function PageLoading({
   variant = "list",
-  label = "読み込み中",
+  label = "読み込み中…",
 }: {
   variant?: PageLoadingVariant;
   label?: string;

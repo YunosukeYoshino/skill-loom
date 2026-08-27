@@ -54,10 +54,11 @@ export function SearchField({
   return (
     <input
       type="search"
+      aria-label={placeholder}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="min-w-[240px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2 text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)]"
+      className="min-h-10 min-w-[240px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2 text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)]"
     />
   );
 }
@@ -95,15 +96,15 @@ function SortHeader({
             type="button"
             data-sort={col.key}
             onClick={() => onToggle(col.key)}
-            className={`cursor-pointer transition-colors duration-100 hover:text-[var(--color-ink)] active:scale-[0.98] ${col.className || ""} ${
+            className={`min-h-10 cursor-pointer transition-[color,transform] duration-100 hover:text-[var(--color-ink)] active:scale-[0.96] ${col.className || ""} ${
               col.align === "end" ? "justify-self-end text-right" : "text-left"
             } ${active ? "text-[var(--color-accent)]" : ""}`}
           >
             {col.label}
             {active ? (
               <span
-                className="sort-indicator ml-1 text-[11px] text-[var(--color-accent)]"
                 aria-hidden
+                className="ml-1 inline-block text-[9px] leading-none align-middle text-[var(--color-accent)]"
               >
                 {sortAsc ? "▲" : "▼"}
               </span>
@@ -266,7 +267,11 @@ export function TristateList({
             ))}
           </div>
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
+          一致するスキルがありません
+        </div>
+      )}
       {archiveRows.length ? (
         <details className="mt-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)]">
           <summary className="cursor-pointer px-3 py-2.5 text-sm text-[var(--color-ink-2)] transition-colors hover:text-[var(--color-ink)]">
@@ -303,7 +308,7 @@ function StatusToggle({
 }) {
   return (
     <div
-      className="inline-flex h-8 w-48 justify-self-end rounded-full border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-0.5"
+      className="inline-flex h-10 w-48 justify-self-end rounded-full border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-0.5"
       role="group"
       aria-label={`${name} status`}
     >
@@ -312,7 +317,7 @@ function StatusToggle({
         return (
           <label
             key={opt}
-            className={`flex flex-1 cursor-pointer items-center justify-center rounded-full px-1 text-[11px] font-semibold tracking-tight transition-[transform,background,color,box-shadow] duration-100 ease-out active:scale-[0.97] ${
+            className={`flex flex-1 cursor-pointer items-center justify-center rounded-full px-1 text-[11px] font-semibold tracking-tight transition-[transform,background,color,box-shadow] duration-100 ease-out active:scale-[0.96] ${
               selected
                 ? "bg-[var(--color-accent)] text-[var(--color-accent-ink)] shadow-[0_1px_2px_oklch(20%_0.02_260_/_0.18)]"
                 : "text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
@@ -354,7 +359,7 @@ function TristateRow({
         className={`grid grid-cols-[minmax(0,1fr)_12rem] items-center gap-x-3 px-3 py-2.5${dirty ? " warp-row" : ""}`}
       >
         <div className="min-w-0">
-          <code className="font-[family-name:var(--font-mono)] text-sm font-medium">
+          <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
             {row.name}
           </code>
           {dirty ? (
@@ -362,7 +367,7 @@ function TristateRow({
               draft
             </span>
           ) : null}
-          <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">
+          <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
             {row.description}
           </p>
         </div>
@@ -379,7 +384,7 @@ function TristateRow({
   return (
     <div className={`${ROW_GRID} py-2.5${dirty ? " warp-row" : ""}`}>
       <div className="min-w-0">
-        <code className="font-[family-name:var(--font-mono)] text-sm font-medium">
+        <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
           {row.name}
         </code>
         {dirty ? (
@@ -387,7 +392,7 @@ function TristateRow({
             draft
           </span>
         ) : null}
-        <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">
+        <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
           {row.description}
         </p>
       </div>
@@ -458,7 +463,7 @@ export function CheckboxList({
 
   return (
     <div>
-      <div className="sticky top-[70px] z-20 mb-2 flex flex-wrap gap-2 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] px-2 py-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
+      <div className="sticky top-[70px] z-20 mb-2 flex flex-wrap gap-2 rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] px-2 py-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
         <SearchField value={filter} onChange={setFilter} />
         <Button
           disabled={busy || filteredNames.length === 0 || allFilteredSelected}
@@ -513,7 +518,7 @@ export function CheckboxList({
               />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <code className="font-[family-name:var(--font-mono)] text-sm font-medium">
+                  <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
                     {row.name}
                   </code>
                   <span
@@ -522,7 +527,7 @@ export function CheckboxList({
                     {row.state}
                   </span>
                 </div>
-                <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">
+                <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
                   {row.description}
                 </p>
                 <div className="mt-1 font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-ink-2)]">
@@ -532,7 +537,11 @@ export function CheckboxList({
             </label>
           ))}
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
+          一致するスキルがありません
+        </div>
+      )}
     </div>
   );
 }
@@ -559,11 +568,14 @@ export function ExternalImportForm({
         <input type="hidden" name="deck" value={deck} />
         <input
           type="text"
+          aria-label="外部skillsの追加元"
           value={source}
           onChange={(e) => setSource(e.target.value)}
-          placeholder="外部skills: owner/repo または GitHub URL"
+          placeholder="owner/repo または GitHub URL…"
           required
-          className="min-w-[280px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)]"
+          autoComplete="off"
+          spellCheck={false}
+          className="min-h-10 min-w-[280px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2 text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)]"
         />
         <Button type="submit" disabled={busy}>
           {pendingLabel(!!busy, "候補を取得", "取得中…")}
