@@ -85,6 +85,14 @@ body::after {
   box-sizing: border-box;
 }
 
+/* キーボードフォーカスの統一リング — クリックでは出さない (:focus-visible)。
+ * radius-sm 系コントロールに合わせ 2px オフセット。 */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 /* Instant press feedback — pointer-down, not release */
 button,
 a,
@@ -205,4 +213,11 @@ h3 {
   width: 2.5px;
   border-radius: 3px;
   background: var(--color-accent);
+}
+
+/* 長いリストの描画コスト抑止 — 画面外の行はレイアウトだけ計算し描画を省く。
+ * contain-intrinsic-size で行の高さをヒントとして与えスクロールジッタを防ぐ。 */
+.loom-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 64px;
 }

@@ -9,6 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { api, ApiError } from "@/api/client";
 import type { Counts } from "@shared/api-types";
+import { useListViewSearch } from "@/router-search";
 
 /* ======================================================================
  * Workbench shell — A案「ワークベンチ」構造。
@@ -50,9 +51,11 @@ export function LoomMark({ size = 19 }: { size?: number }) {
 /**
  * トップバーのグローバル検索。リスト側へ "loom:filter" CustomEvent を流し、
  * 表示中ページの TristateList / CheckboxList / SelectableSkills の絞り込みに接続する。
+ * useListViewSearch 経由で URL (?q=) にも反映され、リロードで復元される。
  */
 function TopSearch() {
-  const [value, setValue] = useState("");
+  const [urlSearch, setUrlSearch] = useListViewSearch();
+  const [value, setValue] = useState(urlSearch.q ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -78,6 +81,7 @@ function TopSearch() {
 
   const dispatch = (next: string) => {
     setValue(next);
+    setUrlSearch({ q: next || undefined });
     window.dispatchEvent(new CustomEvent("loom:filter", { detail: next }));
   };
 

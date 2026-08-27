@@ -18,6 +18,7 @@ import {
   TristateList,
   useLoomFilter,
 } from "@/components/lists";
+import { useListViewSearch } from "@/router-search";
 import {
   ActionStatus,
   BusyRegion,
@@ -1142,7 +1143,7 @@ function SelectableSkills({
           {filtered.map((row) => (
             <label
               key={row.name}
-              className="flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]"
+              className="loom-row flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]"
             >
               <input
                 type="checkbox"
@@ -1178,7 +1179,18 @@ function SelectableSkills({
 
 export function ExternalSourcesPage() {
   const qc = useQueryClient();
-  const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
+  const [{ view: urlView }, setUrlSearch] = useListViewSearch();
+  const [viewMode, setViewModeState] = useState<ViewMode>(
+    urlView ?? readViewMode()
+  );
+  // URL ?view= を優先して復元 (リロード・戻る/進む・共有リンク)
+  useEffect(() => {
+    if (urlView) setViewModeState(urlView);
+  }, [urlView]);
+  const setViewMode = (mode: ViewMode) => {
+    setViewModeState(mode);
+    setUrlSearch({ view: mode });
+  };
   const q = useQuery({
     queryKey: ["external-sources"],
     queryFn: () => api.externalSources(),

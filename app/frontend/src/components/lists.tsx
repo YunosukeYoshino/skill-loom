@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { SkillRow, Tristate } from "@shared/api-types";
+import { useListViewSearch } from "@/router-search";
 import { Button, pendingLabel } from "./ui";
 
 /**
  * トップバーのグローバル検索と各リストの絞り込みを繋ぐフィルタ状態。
  * "loom:filter" CustomEvent (detail: string) を受信し、setFilter は
  * 同イベントを再送信する — どの入力から変更しても全 UI が同じ値に同期する。
+ * 初期値は URL (?q=) から読み、TopSearch 側で URL へ反映する。
  */
 export function useLoomFilter() {
-  const [filter, setFilterDirect] = useState("");
+  const [{ q }] = useListViewSearch();
+  const [filter, setFilterDirect] = useState(q ?? "");
+  useEffect(() => {
+    setFilterDirect(q ?? "");
+  }, [q]);
   useEffect(() => {
     const onFilter = (event: Event) => {
       setFilterDirect((event as CustomEvent<string>).detail ?? "");
@@ -149,8 +155,23 @@ export function TristateList({
 
   const [states, setStates] = useState(initial);
   const [filter, setFilter] = useLoomFilter();
-  const [sortKey, setSortKey] = useState<SortKey>("status");
-  const [sortAsc, setSortAsc] = useState(true);
+  const [{ sort: urlSort, dir: urlDir }, setUrlSearch] = useListViewSearch();
+  const validSort = (key: string): SortKey | undefined =>
+    key === "name" || key === "category" || key === "status" || key === "source"
+      ? key
+      : undefined;
+  const [sortKey, setSortKey] = useState<SortKey>(
+    validSort(urlSort ?? "") ?? "status"
+  );
+  const [sortAsc, setSortAsc] = useState(urlDir !== "desc");
+  // URL の sort/dir を復元 (直接リロード・戻る/進む)
+  useEffect(() => {
+    const key = validSort(urlSort ?? "");
+    if (key) setSortKey(key);
+    setSortAsc(urlDir !== "desc");
+    // urlSort/urlDir 以外の依存は不要
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSort, urlDir]);
 
   const dataKey =
     mainRows.map((r) => `${r.name}:${r.selection}`).join("|") +
@@ -198,10 +219,13 @@ export function TristateList({
 
   const toggleSort = (key: SortKey) => {
     if (key === sortKey) {
-      setSortAsc((v) => !v);
+      const next = !sortAsc;
+      setSortAsc(next);
+      setUrlSearch({ dir: next ? "asc" : "desc" });
     } else {
       setSortKey(key);
       setSortAsc(true);
+      setUrlSearch({ sort: key, dir: "asc" });
     }
   };
 
@@ -330,7 +354,7 @@ function StatusToggle({
           >
             <input
               type="radio"
-              className="sr-only"
+              className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:size-4 focus-visible:rounded-full focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--color-accent)]"
               name={`state:${name}`}
               checked={selected}
               disabled={opt === "active" && canActivate === false}
@@ -361,7 +385,7 @@ function TristateRow({
   if (compact) {
     return (
       <div
-        className={`grid grid-cols-[minmax(0,1fr)_12rem] items-center gap-x-3 px-3 py-2.5${dirty ? " warp-row" : ""}`}
+        className={`loom-row grid grid-cols-[minmax(0,1fr)_12rem] items-center gap-x-3 px-3 py-2.5${dirty ? " warp-row" : ""}`}
       >
         <div className="min-w-0">
           <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
@@ -387,7 +411,7 @@ function TristateRow({
   }
 
   return (
-    <div className={`${ROW_GRID} py-2.5${dirty ? " warp-row" : ""}`}>
+    <div className={`loom-row ${ROW_GRID} py-2.5${dirty ? " warp-row" : ""}`}>
       <div className="min-w-0">
         <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
           {row.name}
@@ -508,7 +532,7 @@ export function CheckboxList({
           {filtered.map((row) => (
             <label
               key={row.name}
-              className="flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]"
+              className="loom-row flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]"
             >
               <input
                 type="checkbox"

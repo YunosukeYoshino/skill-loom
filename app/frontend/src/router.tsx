@@ -15,6 +15,7 @@ import {
   ProjectDeckPage,
 } from "@/pages";
 import { PageError } from "@/components/ui";
+import { validateListViewSearch } from "./router-search";
 
 function navCurrentFromPath(pathname: string): string {
   if (pathname.startsWith("/drafts")) return "drafts";
@@ -63,12 +64,7 @@ const indexRoute = createRoute({
 const globalRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/global",
-  validateSearch: (search: Record<string, unknown>): { catalog?: boolean } => ({
-    catalog:
-      search.catalog === true || search.catalog === "1" || search.catalog === 1
-        ? true
-        : undefined,
-  }),
+  validateSearch: validateListViewSearch,
   component: function GlobalRoute() {
     const { catalog } = globalRoute.useSearch();
     return <GlobalPage catalog={!!catalog} />;
@@ -78,6 +74,7 @@ const globalRoute = createRoute({
 const externalSourcesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/external-sources",
+  validateSearch: validateListViewSearch,
   component: ExternalSourcesPage,
 });
 
@@ -93,18 +90,14 @@ const externalSourceDetailRoute = createRoute({
 const draftsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/drafts",
+  validateSearch: validateListViewSearch,
   component: DraftsPage,
 });
 
 const projectDeckRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/project-decks/$deckName",
-  validateSearch: (search: Record<string, unknown>): { catalog?: boolean } => ({
-    catalog:
-      search.catalog === true || search.catalog === "1" || search.catalog === 1
-        ? true
-        : undefined,
-  }),
+  validateSearch: validateListViewSearch,
   component: function ProjectDeckRoute() {
     const { deckName } = projectDeckRoute.useParams();
     const { catalog } = projectDeckRoute.useSearch();
