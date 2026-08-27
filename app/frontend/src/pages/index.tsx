@@ -16,17 +16,17 @@ import {
   ExternalImportForm,
   SearchField,
   TristateList,
+  useLoomFilter,
 } from "@/components/lists";
+import { useListViewSearch } from "@/router-search";
 import {
   ActionStatus,
   BusyRegion,
   Button,
-  Masthead,
   Message,
-  Nav,
   PageError,
   PageLoading,
-  Shell,
+  WorkbenchShell,
   pendingLabel,
 } from "@/components/ui";
 
@@ -75,8 +75,8 @@ function ViewModeToggle({
         onClick={() => onChange(mode)}
         className={
           active
-            ? "inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--color-ink)] shadow-[var(--shadow-lift)] transition-[transform,background,color] duration-100 ease-out active:scale-[0.97]"
-            : "inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink-2)] transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--surface)] hover:text-[var(--color-ink)] active:scale-[0.97]"
+            ? "inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--color-ink)] shadow-[0_1px_2px_oklch(20%_0.02_260/0.12)] transition-[transform,background,color,box-shadow] duration-100 ease-out active:scale-[0.96]"
+            : "inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink-2)] transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--surface)] hover:text-[var(--color-ink)] active:scale-[0.96]"
         }
       >
         {icon}
@@ -87,7 +87,7 @@ function ViewModeToggle({
 
   return (
     <div
-      className="ml-auto flex rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-0.5"
+      className="ml-auto flex rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-1"
       role="group"
       aria-label="表示モード"
     >
@@ -197,8 +197,11 @@ function OgpPreview({
       <img
         src={q.data.image}
         alt=""
+        width={112}
+        height={64}
         loading="lazy"
-        className="h-16 w-28 flex-none rounded-[var(--radius-sm)] border border-[var(--color-rule)] object-cover"
+        decoding="async"
+        className="h-16 w-28 flex-none rounded-[calc(var(--radius-sm)-4px)] border border-[var(--color-rule)] object-cover outline-1 outline-[oklch(0_0_0/0.1)]"
         onError={(e) => {
           e.currentTarget.style.display = "none";
         }}
@@ -212,7 +215,10 @@ function OgpPreview({
         <img
           src={q.data.image}
           alt=""
+          width={640}
+          height={360}
           loading="lazy"
+          decoding="async"
           className="h-full w-full object-cover"
           onError={(e) => {
             e.currentTarget.style.display = "none";
@@ -259,7 +265,7 @@ function OgpBanner({ source }: { source: string }) {
           src={q.data.image}
           alt=""
           loading="lazy"
-          className="h-20 w-36 flex-none rounded-[var(--radius-sm)] border border-[var(--color-rule)] object-cover"
+          className="h-20 w-36 flex-none rounded-[calc(var(--radius-sm)-2px)] border border-[var(--color-rule)] object-cover outline-1 outline-[oklch(0_0_0/0.1)]"
           onError={(e) => {
             e.currentTarget.style.display = "none";
           }}
@@ -303,15 +309,17 @@ function CustomUpdatesPanel({
   return (
     <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 className="m-0 text-sm font-semibold">
+        <h2 className="m-0 text-sm font-semibold [font-variant-numeric:tabular-nums]">
           正本が新しい ({items.length})
         </h2>
         <Button variant="primary" disabled={busy} onClick={onUpdateAll}>
-          {pendingLabel(
-            !!busy,
-            `更新があるものをすべてupdate (${items.length})`,
-            "更新中…"
-          )}
+          <span className="[font-variant-numeric:tabular-nums]">
+            {pendingLabel(
+              !!busy,
+              `更新があるものをすべてupdate (${items.length})`,
+              "更新中…"
+            )}
+          </span>
         </Button>
       </div>
       <div className="grid gap-3">
@@ -320,29 +328,25 @@ function CustomUpdatesPanel({
             key={item.name}
             className="rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-3"
           >
-            <summary className="cursor-pointer list-none">
+            <summary className="min-h-10 cursor-pointer list-none">
               <div className="flex flex-wrap items-center gap-2">
                 <code className="font-[family-name:var(--font-mono)] text-sm font-medium">
                   {item.name}
                 </code>
-                <span className="rounded px-1.5 py-0.5 text-[11px] bg-[var(--color-warn-soft)] text-[var(--color-warn)]">
+                <span className="rounded px-1.5 py-0.5 text-[11px] bg-[var(--color-warn-soft)] text-[var(--color-warn-text)]">
                   正本が新しい
                 </span>
                 <span className="font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink-2)]">
                   {item.state} · {item.repoPath}
                 </span>
-                <Button
-                  disabled={busy}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onUpdateOne(item.name);
-                  }}
-                >
-                  {pendingLabel(!!busy, "個別update", "更新中…")}
-                </Button>
               </div>
             </summary>
             <div className="mt-3 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button disabled={busy} onClick={() => onUpdateOne(item.name)}>
+                  {pendingLabel(!!busy, "個別update", "更新中…")}
+                </Button>
+              </div>
               {item.skillDiff ? (
                 <pre className="max-h-72 overflow-auto rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] p-2 text-xs leading-relaxed">
                   {item.skillDiff}
@@ -486,7 +490,7 @@ function PresetsPanel({
 
   const canUseSelected = Boolean(selected) && !busy && !preview;
   const menuItemClass =
-    "block w-full cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-sm transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45";
+    "block min-h-10 w-full cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-sm transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-45";
 
   return (
     <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
@@ -495,10 +499,11 @@ function PresetsPanel({
       >
         <h2 className="m-0 text-sm font-semibold">プリセット</h2>
         <select
+          aria-label="プリセットを選択"
           value={selected}
           onChange={(e) => setSelected(e.target.value)}
           disabled={busy || !presets.length || !!preview}
-          className="min-w-[180px] rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-2.5 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+          className="min-h-10 min-w-[180px] rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-2.5 py-1.5 text-sm text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {presets.length ? (
             presets.map((preset) => (
@@ -526,7 +531,7 @@ function PresetsPanel({
           >
             保存
             <span
-              className="ml-1 text-[10px] text-[var(--color-ink-2)]"
+              className="ml-1 text-[10px] leading-none text-[var(--color-ink-2)]"
               aria-hidden
             >
               ▾
@@ -570,10 +575,10 @@ function PresetsPanel({
           type="button"
           disabled={!canUseSelected}
           onClick={() => {
-            if (confirm(`プリセット "${selected}" を削除しますか？`))
+            if (confirm(`プリセット “${selected}” を削除しますか？`))
               onDelete(selected);
           }}
-          className="ml-auto cursor-pointer rounded-[var(--radius-sm)] px-2 py-1.5 text-sm text-[var(--color-ink-2)] transition-[transform,color,background] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
+          className="ml-auto min-h-10 cursor-pointer rounded-[var(--radius-sm)] px-2 py-1.5 text-sm text-[var(--color-ink-2)] transition-[transform,color,background] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {pendingLabel(!!busy, "削除", "処理中…")}
         </button>
@@ -597,10 +602,10 @@ function PresetsPanel({
               if (e.key === "Escape") closeSaveAsNew();
             }}
             disabled={busy || !!preview}
-            placeholder="新しいプリセット名"
             autoComplete="off"
             spellCheck={false}
-            className="min-w-[200px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+            placeholder="例: 開発・執筆 などの名前…"
+            className="min-h-10 min-w-[200px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
           />
           <Button
             variant="primary"
@@ -775,7 +780,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
       applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
   });
 
-  if (q.isPending) return <PageLoading variant="list" withCounts />;
+  if (q.isPending) return <PageLoading variant="list" />;
   if (q.isError) {
     return <PageError current="global" message={(q.error as Error).message} />;
   }
@@ -794,9 +799,59 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
   const listBusy = apply.isPending || bulkOff.isPending || presetBusy;
 
   return (
-    <Shell>
-      <Masthead title={data.title} counts={data.counts} />
-      <Nav current="global" decks={data.decks || []} />
+    <WorkbenchShell
+      title={catalog ? "Catalog" : "Global"}
+      overline={catalog ? "Catalog · 追加候補" : "Projection · tristate"}
+      sub={
+        catalog
+          ? "外部スキルの追加"
+          : `${data.rows?.length ?? 0} skills${
+              data.counts ? ` · active ${data.counts.active}` : ""
+            }`
+      }
+      counts={data.counts}
+      current="global"
+      decks={data.decks || []}
+      searchable
+      drawer={
+        !catalog ? (
+          <>
+            {data.customUpdatesChecked ? (
+              <CustomUpdatesPanel
+                items={data.customUpdatable || []}
+                busy={customBusy}
+                onUpdateOne={(name) => updateCustomOne.mutate(name)}
+                onUpdateAll={() => updateCustomAll.mutate()}
+              />
+            ) : null}
+            <PresetsPanel
+              presets={data.presets || []}
+              hasPrevious={!!data.hasPreviousPreset}
+              busy={listBusy}
+              preview={presetPreview}
+              onApplyRequest={(name) => presetApplyPreview.mutate(name)}
+              onApplyConfirm={() =>
+                pendingPresetName &&
+                presetApplyConfirm.mutate(pendingPresetName)
+              }
+              onRestoreRequest={() => presetRestorePreview.mutate()}
+              onRestoreConfirm={() => presetRestoreConfirm.mutate()}
+              onOverwriteSave={(name) =>
+                presetSave.mutate({ name, overwrite: true })
+              }
+              onSaveAsNew={(name) =>
+                presetSave.mutate({ name, overwrite: false })
+              }
+              onDelete={(name) => presetDelete.mutate(name)}
+              onCancelPreview={() => {
+                setPresetPreview(null);
+                setPendingPresetName("");
+              }}
+            />
+          </>
+        ) : undefined
+      }
+    >
       <Message
         text={
           data.message ||
@@ -835,7 +890,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
         {catalog ? (
           <Link
             to="/global"
-            className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm"
+            className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
           >
             globalに戻る
           </Link>
@@ -844,7 +899,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
             <Link
               to="/global"
               search={{ catalog: true }}
-              className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm"
+              className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
             >
               skillsを追加
             </Link>
@@ -857,37 +912,6 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
           </>
         )}
       </div>
-      {!catalog && data.customUpdatesChecked ? (
-        <CustomUpdatesPanel
-          items={data.customUpdatable || []}
-          busy={customBusy}
-          onUpdateOne={(name) => updateCustomOne.mutate(name)}
-          onUpdateAll={() => updateCustomAll.mutate()}
-        />
-      ) : null}
-      {!catalog ? (
-        <PresetsPanel
-          presets={data.presets || []}
-          hasPrevious={!!data.hasPreviousPreset}
-          busy={listBusy}
-          preview={presetPreview}
-          onApplyRequest={(name) => presetApplyPreview.mutate(name)}
-          onApplyConfirm={() =>
-            pendingPresetName && presetApplyConfirm.mutate(pendingPresetName)
-          }
-          onRestoreRequest={() => presetRestorePreview.mutate()}
-          onRestoreConfirm={() => presetRestoreConfirm.mutate()}
-          onOverwriteSave={(name) =>
-            presetSave.mutate({ name, overwrite: true })
-          }
-          onSaveAsNew={(name) => presetSave.mutate({ name, overwrite: false })}
-          onDelete={(name) => presetDelete.mutate(name)}
-          onCancelPreview={() => {
-            setPresetPreview(null);
-            setPendingPresetName("");
-          }}
-        />
-      ) : null}
       {catalog ? (
         <ExternalImportForm
           onPreview={(s) => externalPreview.mutate(s)}
@@ -903,7 +927,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
           onBulkOff={() => bulkOff.mutate()}
         />
       )}
-    </Shell>
+    </WorkbenchShell>
   );
 }
 
@@ -958,9 +982,9 @@ export function ExternalPreviewPage({
 
   if (!source)
     return (
-      <Shell>
-        <p>source がありません</p>
-      </Shell>
+      <WorkbenchShell title="外部スキル" current="global">
+        <p className="m-0">source がありません</p>
+      </WorkbenchShell>
     );
   if (q.isPending) return <PageLoading variant="list" />;
   if (q.isError) {
@@ -975,9 +999,13 @@ export function ExternalPreviewPage({
   const previewBusy = install.isPending || addDeck.isPending;
 
   return (
-    <Shell>
-      <Masthead title={data.title} />
-      <Nav current={deck ? `project:${deck}` : "global"} decks={data.decks} />
+    <WorkbenchShell
+      title={data.title}
+      overline="Catalog · 外部プレビュー"
+      current={deck ? `project:${deck}` : "global"}
+      decks={data.decks}
+      searchable
+    >
       <Message
         text={
           data.message || errMessage(install.error) || errMessage(addDeck.error)
@@ -992,7 +1020,7 @@ export function ExternalPreviewPage({
             to="/project-decks/$deckName"
             params={{ deckName: deck }}
             search={{ catalog: true }}
-            className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm"
+            className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
           >
             catalogに戻る
           </Link>
@@ -1000,7 +1028,7 @@ export function ExternalPreviewPage({
           <Link
             to="/global"
             search={{ catalog: true }}
-            className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm"
+            className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
           >
             globalに戻る
           </Link>
@@ -1031,7 +1059,7 @@ export function ExternalPreviewPage({
               ]
         }
       />
-    </Shell>
+    </WorkbenchShell>
   );
 }
 
@@ -1051,7 +1079,7 @@ function SelectableSkills({
   presetChecked?: boolean;
 }) {
   const [selected, setSelected] = useState<string[]>([]);
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useLoomFilter();
 
   useEffect(() => {
     setSelected(
@@ -1078,7 +1106,7 @@ function SelectableSkills({
 
   return (
     <div>
-      <div className="sticky top-0 z-20 mb-2 flex flex-wrap gap-2 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] px-2 py-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
+      <div className="sticky top-[70px] z-20 mb-2 flex flex-wrap gap-2 rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] px-2 py-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
         <SearchField value={filter} onChange={setFilter} />
         <Button
           disabled={busy || filteredNames.length === 0 || allFilteredSelected}
@@ -1115,7 +1143,7 @@ function SelectableSkills({
           {filtered.map((row) => (
             <label
               key={row.name}
-              className="flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]"
+              className="loom-row flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]"
             >
               <input
                 type="checkbox"
@@ -1130,24 +1158,39 @@ function SelectableSkills({
                 }
               />
               <div className="min-w-0">
-                <code className="font-[family-name:var(--font-mono)] text-sm font-medium">
+                <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
                   {row.name}
                 </code>
-                <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">
+                <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
                   {row.description}
                 </p>
               </div>
             </label>
           ))}
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
+          一致するスキルがありません
+        </div>
+      )}
     </div>
   );
 }
 
 export function ExternalSourcesPage() {
   const qc = useQueryClient();
-  const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
+  const [{ view: urlView }, setUrlSearch] = useListViewSearch();
+  const [viewMode, setViewModeState] = useState<ViewMode>(
+    urlView ?? readViewMode()
+  );
+  // URL ?view= を優先して復元 (リロード・戻る/進む・共有リンク)
+  useEffect(() => {
+    if (urlView) setViewModeState(urlView);
+  }, [urlView]);
+  const setViewMode = (mode: ViewMode) => {
+    setViewModeState(mode);
+    setUrlSearch({ view: mode });
+  };
   const q = useQuery({
     queryKey: ["external-sources"],
     queryFn: () => api.externalSources(),
@@ -1182,9 +1225,12 @@ export function ExternalSourcesPage() {
   const sourcesBusy = checkAll.isPending || updateAll.isPending;
 
   return (
-    <Shell>
-      <Masthead title={data.title} />
-      <Nav current="external-sources" decks={data.decks} />
+    <WorkbenchShell
+      title={data.title}
+      overline="Catalog · external sources"
+      current="external-sources"
+      decks={data.decks}
+    >
       <Message
         text={
           data.message ||
@@ -1211,24 +1257,31 @@ export function ExternalSourcesPage() {
             onClick={() => updateAll.mutate()}
             disabled={sourcesBusy}
           >
-            {pendingLabel(
-              updateAll.isPending,
-              `更新があるものをすべてupdate (${data.totalUpdatable})`,
-              "更新中…"
-            )}
+            <span className="[font-variant-numeric:tabular-nums]">
+              {pendingLabel(
+                updateAll.isPending,
+                `更新があるものをすべてupdate (${data.totalUpdatable})`,
+                "更新中…"
+              )}
+            </span>
           </Button>
         ) : null}
         <ViewModeToggle value={viewMode} onChange={setViewMode} />
       </div>
       <BusyRegion busy={sourcesBusy}>
-        {viewMode === "grid" ? (
+        {data.sources.length === 0 ? (
+          <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
+            外部ソースがありません。「skillsを追加」から owner/repo
+            を追加できます。
+          </div>
+        ) : viewMode === "grid" ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
             {data.sources.map((src) => (
               <Link
                 key={src.source}
                 to="/external-sources/$source"
                 params={{ source: src.source }}
-                className="block overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)] transition-all duration-200 hover:-translate-y-1 hover:shadow-md"
+                className="block overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)] transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-1 hover:shadow-[0_12px_32px_oklch(20%_0.02_260/0.1)]"
               >
                 <OgpPreview source={src.source} variant="grid" />
                 <div className="p-3">
@@ -1244,7 +1297,7 @@ export function ExternalSourcesPage() {
                 key={src.source}
                 to="/external-sources/$source"
                 params={{ source: src.source }}
-                className="flex gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 transition-colors duration-200 hover:bg-[var(--color-paper-2)]"
+                className="flex gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 transition-colors duration-200 hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
               >
                 <OgpPreview source={src.source} variant="list" />
                 <div className="min-w-0 flex-1">
@@ -1255,7 +1308,7 @@ export function ExternalSourcesPage() {
           </div>
         )}
       </BusyRegion>
-    </Shell>
+    </WorkbenchShell>
   );
 }
 
@@ -1389,9 +1442,12 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
   };
 
   return (
-    <Shell>
-      <Masthead title={data.title} />
-      <Nav current="external-sources" decks={data.decks} />
+    <WorkbenchShell
+      title={data.title}
+      overline={`External · ${source}`}
+      current="external-sources"
+      decks={data.decks}
+    >
       <Message text={data.message || errMessage(applyGlobal.error)} />
       <ActionStatus
         text={
@@ -1412,7 +1468,7 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Link
           to="/external-sources"
-          className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm"
+          className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
         >
           sourcesに戻る
         </Link>
@@ -1422,16 +1478,18 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             disabled={detailBusy}
             onClick={() => updateAll.mutate()}
           >
-            {pendingLabel(
-              updateAll.isPending,
-              `このsourceをすべてupdate (${data.updatable.length})`,
-              "更新中…"
-            )}
+            <span className="[font-variant-numeric:tabular-nums]">
+              {pendingLabel(
+                updateAll.isPending,
+                `このsourceをすべてupdate (${data.updatable.length})`,
+                "更新中…"
+              )}
+            </span>
           </Button>
         ) : null}
       </div>
       {installed.length ? (
-        <label className="mb-3 flex cursor-pointer items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2.5 text-sm">
+        <label className="mb-3 flex min-h-10 cursor-pointer items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2.5 text-sm">
           <input
             ref={allGlobalRef}
             type="checkbox"
@@ -1440,7 +1498,7 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             onChange={(e) => setAllGlobal(e.target.checked)}
           />
           <span className="font-medium">すべて global オン</span>
-          <span className="text-[var(--color-ink-2)]">
+          <span className="text-[var(--color-ink-2)] [font-variant-numeric:tabular-nums]">
             ({activeCount}/{installed.length})
           </span>
         </label>
@@ -1514,7 +1572,7 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
           />
         </>
       ) : null}
-    </Shell>
+    </WorkbenchShell>
   );
 }
 
@@ -1536,14 +1594,18 @@ export function DraftsPage() {
   const data = q.data;
 
   return (
-    <Shell>
-      <Masthead title={data.title} />
-      <Nav current="drafts" decks={data.decks} />
+    <WorkbenchShell
+      title={data.title}
+      overline="Catalog · drafts"
+      current="drafts"
+      decks={data.decks}
+      searchable
+    >
       <Message text={data.message || errMessage(run.error)} />
       <ActionStatus
         text={run.isPending ? "draft操作を実行しています…" : undefined}
       />
-      <div className="mb-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 text-sm text-[var(--color-ink-2)]">
+      <div className="mb-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
         draft解除で正式配置とlock登録を行います。global追加は ~/.agents/skills
         にも反映します。
       </div>
@@ -1594,7 +1656,7 @@ export function DraftsPage() {
           },
         ]}
       />
-    </Shell>
+    </WorkbenchShell>
   );
 }
 
@@ -1607,6 +1669,7 @@ export function ProjectDeckPage({
 }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const [copied, setCopied] = useState(false);
   const q = useQuery({
     queryKey: ["project-deck", deckName, catalog],
     queryFn: () => api.projectDeck(deckName, catalog),
@@ -1630,7 +1693,7 @@ export function ProjectDeckPage({
     },
   });
 
-  if (q.isPending) return <PageLoading variant="list" withCounts />;
+  if (q.isPending) return <PageLoading variant="list" />;
   if (q.isError) {
     return (
       <PageError
@@ -1642,9 +1705,13 @@ export function ProjectDeckPage({
   const data = q.data;
 
   return (
-    <Shell>
-      <Masthead title={data.title} />
-      <Nav current={`project:${deckName}`} decks={data.decks} />
+    <WorkbenchShell
+      title={data.title}
+      overline={`Deck · ${deckName}`}
+      current={`project:${deckName}`}
+      decks={data.decks}
+      searchable
+    >
       <Message text={data.message || errMessage(action.error)} />
       <ActionStatus
         text={
@@ -1665,11 +1732,14 @@ export function ProjectDeckPage({
           </pre>
           <Button
             className="mt-2"
-            onClick={() =>
-              navigator.clipboard.writeText(data.installCommands.join("\n"))
-            }
+            onClick={() => {
+              navigator.clipboard
+                ?.writeText(data.installCommands.join("\n"))
+                .then(() => setCopied(true))
+                .catch(() => undefined);
+            }}
           >
-            copy
+            {copied ? "コピーしました" : "copy"}
           </Button>
         </div>
       ) : null}
@@ -1678,7 +1748,7 @@ export function ProjectDeckPage({
           <Link
             to="/project-decks/$deckName"
             params={{ deckName }}
-            className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm"
+            className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
           >
             deckだけ表示
           </Link>
@@ -1687,7 +1757,7 @@ export function ProjectDeckPage({
             to="/project-decks/$deckName"
             params={{ deckName }}
             search={{ catalog: true }}
-            className="rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm"
+            className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
           >
             skillsを追加
           </Link>
@@ -1726,6 +1796,6 @@ export function ProjectDeckPage({
               ]
         }
       />
-    </Shell>
+    </WorkbenchShell>
   );
 }

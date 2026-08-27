@@ -28,26 +28,69 @@ body,
 body {
   margin: 0;
   font: var(--text-md) / 1.47 var(--font-body);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.006em;
   background:
     radial-gradient(
       900px 420px at 12% -8%,
-      oklch(54% 0.19 250 / 0.12),
+      oklch(52% 0.175 255 / 0.14),
       transparent 55%
     ),
     radial-gradient(
       700px 360px at 100% 0%,
-      oklch(70% 0.08 250 / 0.08),
+      oklch(72% 0.09 255 / 0.1),
       transparent 50%
     ),
     var(--color-paper);
+  background-attachment: fixed;
   color: var(--color-ink);
+  overscroll-behavior-y: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
+/* 経糸×緯糸の十字テクスチャ — 画面上部だけ、ごく薄く */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      oklch(52% 0.175 255 / 0.025) 0 1px,
+      transparent 1px 7px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      oklch(52% 0.175 255 / 0.025) 0 1px,
+      transparent 1px 7px
+    );
+  -webkit-mask-image: radial-gradient(85% 55% at 50% 0%, #000, transparent 78%);
+  mask-image: radial-gradient(85% 55% at 50% 0%, #000, transparent 78%);
+}
+
+/* フィルムグレイン — 全体に 5%。上のテクスチャと同じく操作は素通し */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2"/></filter><rect width="160" height="160" filter="url(%23n)" opacity="0.6"/></svg>');
+}
+
 * {
   box-sizing: border-box;
+}
+
+/* キーボードフォーカスの統一リング — クリックでは出さない (:focus-visible)。
+ * radius-sm 系コントロールに合わせ 2px オフセット。 */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 /* Instant press feedback — pointer-down, not release */
@@ -56,6 +99,14 @@ a,
 [role="button"],
 label {
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* sticky ヘッダ/ツールバーの下に hash スクロール先が隠れないように */
+h1,
+h2,
+h3 {
+  scroll-margin-top: 5rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -115,4 +166,58 @@ label {
     animation: none;
     border-top-color: var(--color-accent);
   }
+}
+
+/* ===== Loom motif — 織り機モチーフの装飾部品 ===== */
+
+/* Projection の織りバー: セグメント + 糸テクスチャ */
+.weave-bar {
+  display: flex;
+  height: 9px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--color-paper-3);
+  position: relative;
+}
+.weave-bar > i {
+  display: block;
+  height: 100%;
+}
+.weave-bar > .weave-active {
+  background: var(--color-accent);
+}
+.weave-bar > .weave-off {
+  background: var(--color-rule-strong);
+}
+.weave-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    oklch(100% 0 0 / 0.28) 0 1px,
+    transparent 1px 4px
+  );
+}
+
+/* 未反映 (dirty) 行の左端を走る「経糸」 */
+.warp-row {
+  position: relative;
+}
+.warp-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2.5px;
+  border-radius: 3px;
+  background: var(--color-accent);
+}
+
+/* 長いリストの描画コスト抑止 — 画面外の行はレイアウトだけ計算し描画を省く。
+ * contain-intrinsic-size で行の高さをヒントとして与えスクロールジッタを防ぐ。 */
+.loom-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 64px;
 }

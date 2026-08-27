@@ -1,12 +1,39 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { SkillRow, Tristate } from "@shared/api-types";
+import { useListViewSearch } from "@/router-search";
 import { Button, pendingLabel } from "./ui";
+
+/**
+ * トップバーのグローバル検索と各リストの絞り込みを繋ぐフィルタ状態。
+ * "loom:filter" CustomEvent (detail: string) を受信し、setFilter は
+ * 同イベントを再送信する — どの入力から変更しても全 UI が同じ値に同期する。
+ * 初期値は URL (?q=) から読み、TopSearch 側で URL へ反映する。
+ */
+export function useLoomFilter() {
+  const [{ q }] = useListViewSearch();
+  const [filter, setFilterDirect] = useState(q ?? "");
+  useEffect(() => {
+    setFilterDirect(q ?? "");
+  }, [q]);
+  useEffect(() => {
+    const onFilter = (event: Event) => {
+      setFilterDirect((event as CustomEvent<string>).detail ?? "");
+    };
+    window.addEventListener("loom:filter", onFilter);
+    return () => window.removeEventListener("loom:filter", onFilter);
+  }, []);
+  const setFilter = (next: string) => {
+    setFilterDirect(next);
+    window.dispatchEvent(new CustomEvent("loom:filter", { detail: next }));
+  };
+  return [filter, setFilter] as const;
+}
 
 const pillClass: Record<string, string> = {
   active: "bg-[var(--color-accent-soft)] text-[var(--color-accent)]",
   archive: "bg-[var(--color-paper-3)] text-[var(--color-ink-2)]",
   off: "bg-[var(--color-paper-3)] text-[var(--color-ink-2)]",
-  missing: "bg-[var(--color-warn-soft)] text-[var(--color-warn)]",
+  missing: "bg-[var(--color-warn-soft)] text-[var(--color-warn-text)]",
   draft: "bg-[var(--color-draft-soft)] text-[var(--color-draft)]",
   installed: "bg-[var(--color-accent-soft)] text-[var(--color-accent)]",
 };
@@ -38,10 +65,11 @@ export function SearchField({
   return (
     <input
       type="search"
+      aria-label={placeholder}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="min-w-[240px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2 text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)]"
+      className="min-h-10 min-w-[240px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2 text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)]"
     />
   );
 }
@@ -79,15 +107,15 @@ function SortHeader({
             type="button"
             data-sort={col.key}
             onClick={() => onToggle(col.key)}
-            className={`cursor-pointer transition-colors duration-100 hover:text-[var(--color-ink)] active:scale-[0.98] ${col.className || ""} ${
+            className={`min-h-10 cursor-pointer transition-[color,transform] duration-100 hover:text-[var(--color-ink)] active:scale-[0.96] ${col.className || ""} ${
               col.align === "end" ? "justify-self-end text-right" : "text-left"
             } ${active ? "text-[var(--color-accent)]" : ""}`}
           >
             {col.label}
             {active ? (
               <span
-                className="sort-indicator ml-1 text-[11px] text-[var(--color-accent)]"
                 aria-hidden
+                className="ml-1 inline-block text-[9px] leading-none align-middle text-[var(--color-accent)]"
               >
                 {sortAsc ? "▲" : "▼"}
               </span>
@@ -126,9 +154,24 @@ export function TristateList({
   }, [mainRows, archiveRows]);
 
   const [states, setStates] = useState(initial);
-  const [filter, setFilter] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("status");
-  const [sortAsc, setSortAsc] = useState(true);
+  const [filter, setFilter] = useLoomFilter();
+  const [{ sort: urlSort, dir: urlDir }, setUrlSearch] = useListViewSearch();
+  const validSort = (key: string): SortKey | undefined =>
+    key === "name" || key === "category" || key === "status" || key === "source"
+      ? key
+      : undefined;
+  const [sortKey, setSortKey] = useState<SortKey>(
+    validSort(urlSort ?? "") ?? "status"
+  );
+  const [sortAsc, setSortAsc] = useState(urlDir !== "desc");
+  // URL の sort/dir を復元 (直接リロード・戻る/進む)
+  useEffect(() => {
+    const key = validSort(urlSort ?? "");
+    if (key) setSortKey(key);
+    setSortAsc(urlDir !== "desc");
+    // urlSort/urlDir 以外の依存は不要
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSort, urlDir]);
 
   const dataKey =
     mainRows.map((r) => `${r.name}:${r.selection}`).join("|") +
@@ -176,22 +219,26 @@ export function TristateList({
 
   const toggleSort = (key: SortKey) => {
     if (key === sortKey) {
-      setSortAsc((v) => !v);
+      const next = !sortAsc;
+      setSortAsc(next);
+      setUrlSearch({ dir: next ? "asc" : "desc" });
     } else {
       setSortKey(key);
       setSortAsc(true);
+      setUrlSearch({ sort: key, dir: "asc" });
     }
   };
 
-  const dirty = Object.entries(states).some(
+  const dirtyNames = Object.entries(states).filter(
     ([name, value]) => initial[name] !== value
   );
+  const dirty = dirtyNames.length > 0;
   // 表示行が無いのにソート見出しだけ残ると、枠の下半分が空洞に見える。
   const showSortHeader = sortedRows.length > 0;
 
   return (
     <div>
-      <div className="sticky top-0 z-20 mb-2 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
+      <div className="sticky top-[70px] z-20 mb-2 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
         <div
           className={`flex flex-wrap gap-2 px-2 py-2${
             showSortHeader ? " border-b border-[var(--color-rule)]" : ""
@@ -204,6 +251,11 @@ export function TristateList({
             onClick={() => onApply(states)}
           >
             {pendingLabel(!!busy, "反映", "反映中…")}
+            {dirty ? (
+              <span className="rounded-full bg-[oklch(100%_0_0/0.28)] px-1.5 py-px font-[family-name:var(--font-mono)] text-[9.5px] font-semibold [font-variant-numeric:tabular-nums]">
+                {dirtyNames.length}
+              </span>
+            ) : null}
           </Button>
           {onBulkOff ? (
             <Button
@@ -239,11 +291,16 @@ export function TristateList({
                 row={row}
                 value={states[row.name] || "off"}
                 onChange={setOne}
+                dirty={states[row.name] !== initial[row.name]}
               />
             ))}
           </div>
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
+          一致するスキルがありません
+        </div>
+      )}
       {archiveRows.length ? (
         <details className="mt-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)]">
           <summary className="cursor-pointer px-3 py-2.5 text-sm text-[var(--color-ink-2)] transition-colors hover:text-[var(--color-ink)]">
@@ -256,6 +313,7 @@ export function TristateList({
                 row={row}
                 value={states[row.name] || "archive"}
                 onChange={setOne}
+                dirty={states[row.name] !== initial[row.name]}
                 compact
               />
             ))}
@@ -279,7 +337,7 @@ function StatusToggle({
 }) {
   return (
     <div
-      className="inline-flex h-8 w-48 justify-self-end rounded-full border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-0.5"
+      className="inline-flex h-10 w-48 justify-self-end rounded-full border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-0.5"
       role="group"
       aria-label={`${name} status`}
     >
@@ -288,7 +346,7 @@ function StatusToggle({
         return (
           <label
             key={opt}
-            className={`flex flex-1 cursor-pointer items-center justify-center rounded-full px-1 text-[11px] font-semibold tracking-tight transition-[transform,background,color,box-shadow] duration-100 ease-out active:scale-[0.97] ${
+            className={`flex flex-1 cursor-pointer items-center justify-center rounded-full px-1 text-[11px] font-semibold tracking-tight transition-[transform,background,color,box-shadow] duration-100 ease-out active:scale-[0.96] ${
               selected
                 ? "bg-[var(--color-accent)] text-[var(--color-accent-ink)] shadow-[0_1px_2px_oklch(20%_0.02_260_/_0.18)]"
                 : "text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
@@ -296,7 +354,7 @@ function StatusToggle({
           >
             <input
               type="radio"
-              className="sr-only"
+              className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:size-4 focus-visible:rounded-full focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--color-accent)]"
               name={`state:${name}`}
               checked={selected}
               disabled={opt === "active" && canActivate === false}
@@ -315,20 +373,30 @@ function TristateRow({
   value,
   onChange,
   compact = false,
+  dirty = false,
 }: {
   row: SkillRow;
   value: Tristate;
   onChange: (name: string, value: Tristate) => void;
   compact?: boolean;
+  /** 反映前の変更がある行 — 左端に「経糸」が走る */
+  dirty?: boolean;
 }) {
   if (compact) {
     return (
-      <div className="grid grid-cols-[minmax(0,1fr)_12rem] items-center gap-x-3 px-3 py-2.5">
+      <div
+        className={`loom-row grid grid-cols-[minmax(0,1fr)_12rem] items-center gap-x-3 px-3 py-2.5${dirty ? " warp-row" : ""}`}
+      >
         <div className="min-w-0">
-          <code className="font-[family-name:var(--font-mono)] text-sm font-medium">
+          <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
             {row.name}
           </code>
-          <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">
+          {dirty ? (
+            <span className="ml-2 rounded bg-[var(--color-accent-soft)] px-1.5 py-px align-middle font-[family-name:var(--font-mono)] text-[9px] font-semibold tracking-[0.05em] text-[var(--color-accent-text)] uppercase">
+              draft
+            </span>
+          ) : null}
+          <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
             {row.description}
           </p>
         </div>
@@ -343,12 +411,17 @@ function TristateRow({
   }
 
   return (
-    <div className={`${ROW_GRID} py-2.5`}>
+    <div className={`loom-row ${ROW_GRID} py-2.5${dirty ? " warp-row" : ""}`}>
       <div className="min-w-0">
-        <code className="font-[family-name:var(--font-mono)] text-sm font-medium">
+        <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
           {row.name}
         </code>
-        <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">
+        {dirty ? (
+          <span className="ml-2 rounded bg-[var(--color-accent-soft)] px-1.5 py-px align-middle font-[family-name:var(--font-mono)] text-[9px] font-semibold tracking-[0.05em] text-[var(--color-accent-text)] uppercase">
+            draft
+          </span>
+        ) : null}
+        <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
           {row.description}
         </p>
       </div>
@@ -390,7 +463,7 @@ export function CheckboxList({
   const [selected, setSelected] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(rows.map((r) => [r.name, !!r.checked]))
   );
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useLoomFilter();
 
   const dataKey = rows.map((r) => `${r.name}:${r.checked}`).join("|");
   const [prevKey, setPrevKey] = useState(dataKey);
@@ -419,7 +492,7 @@ export function CheckboxList({
 
   return (
     <div>
-      <div className="sticky top-0 z-20 mb-2 flex flex-wrap gap-2 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] px-2 py-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
+      <div className="sticky top-[70px] z-20 mb-2 flex flex-wrap gap-2 rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] px-2 py-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
         <SearchField value={filter} onChange={setFilter} />
         <Button
           disabled={busy || filteredNames.length === 0 || allFilteredSelected}
@@ -459,7 +532,7 @@ export function CheckboxList({
           {filtered.map((row) => (
             <label
               key={row.name}
-              className="flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]"
+              className="loom-row flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]"
             >
               <input
                 type="checkbox"
@@ -474,7 +547,7 @@ export function CheckboxList({
               />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <code className="font-[family-name:var(--font-mono)] text-sm font-medium">
+                  <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
                     {row.name}
                   </code>
                   <span
@@ -483,7 +556,7 @@ export function CheckboxList({
                     {row.state}
                   </span>
                 </div>
-                <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)]">
+                <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
                   {row.description}
                 </p>
                 <div className="mt-1 font-[family-name:var(--font-mono)] text-[10px] text-[var(--color-ink-2)]">
@@ -493,7 +566,11 @@ export function CheckboxList({
             </label>
           ))}
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
+          一致するスキルがありません
+        </div>
+      )}
     </div>
   );
 }
@@ -520,11 +597,14 @@ export function ExternalImportForm({
         <input type="hidden" name="deck" value={deck} />
         <input
           type="text"
+          aria-label="外部skillsの追加元"
           value={source}
           onChange={(e) => setSource(e.target.value)}
-          placeholder="外部skills: owner/repo または GitHub URL"
+          placeholder="owner/repo または GitHub URL…"
           required
-          className="min-w-[280px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)]"
+          autoComplete="off"
+          spellCheck={false}
+          className="min-h-10 min-w-[280px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2 text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)]"
         />
         <Button type="submit" disabled={busy}>
           {pendingLabel(!!busy, "候補を取得", "取得中…")}

@@ -8,42 +8,158 @@ import {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { api, ApiError } from "@/api/client";
+import type { Counts } from "@shared/api-types";
+import { useListViewSearch } from "@/router-search";
 
-type MastheadProps = {
-  title: string;
-  counts?: {
-    active: number;
-    off: number;
-    archive: number;
-    total: number;
-  } | null;
-};
+/* ======================================================================
+ * Workbench shell — A案「ワークベンチ」構造。
+ * トップバー(brand・検索・counts) + 左ナビ(deck ツリー + Projection)
+ * + 中央ステージ + 右ドロワー(更新・プリセット)。
+ * モチーフは "loom": 経糸インジケータ・織りバー・十字テクスチャ。
+ * ====================================================================== */
 
-export function Masthead({ title, counts }: MastheadProps) {
+/** 織り機マーク: 経糸×緯糸と交点 */
+export function LoomMark({ size = 19 }: { size?: number }) {
   return (
-    <header className="mb-4 grid gap-2 rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-4 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
-      <div className="flex items-center gap-2">
-        <span className="font-[family-name:var(--font-display)] text-[0.95rem] font-semibold tracking-[-0.02em] text-[var(--color-ink)]">
-          Skill Loom
-        </span>
-        <span className="h-3.5 w-px bg-[var(--color-rule)]" aria-hidden />
-        <p className="m-0 font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.04em] text-[var(--color-accent)] uppercase">
-          manager
-        </p>
-      </div>
-      <div>
-        <h1 className="m-0 mb-1 font-[family-name:var(--font-display)] text-[clamp(1.6rem,2.6vw,2.1rem)] leading-[1.1] font-semibold tracking-[-0.03em] text-[var(--color-ink)]">
-          {title}
-        </h1>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 19 19"
+      fill="none"
+      aria-hidden="true"
+      className="text-[var(--color-accent)]"
+    >
+      <path
+        d="M2 3.5h15M2 9.5h15M2 15.5h15"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        opacity=".38"
+      />
+      <path
+        d="M5 1.5v16M9.5 1.5v16M14 1.5v16"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        opacity=".38"
+      />
+      <circle cx="9.5" cy="9.5" r="3.2" fill="var(--color-accent)" />
+    </svg>
+  );
+}
+
+/**
+ * トップバーのグローバル検索。リスト側へ "loom:filter" CustomEvent を流し、
+ * 表示中ページの TristateList / CheckboxList / SelectableSkills の絞り込みに接続する。
+ * useListViewSearch 経由で URL (?q=) にも反映され、リロードで復元される。
+ */
+function TopSearch() {
+  const [urlSearch, setUrlSearch] = useListViewSearch();
+  const [value, setValue] = useState(urlSearch.q ?? "");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  // リスト側の SearchField から dispatch された loom:filter にも追従し、
+  // どちらの入力から変更しても表示が一致するようにする。
+  useEffect(() => {
+    const onFilter = (event: Event) => {
+      setValue((event as CustomEvent<string>).detail ?? "");
+    };
+    window.addEventListener("loom:filter", onFilter);
+    return () => window.removeEventListener("loom:filter", onFilter);
+  }, []);
+
+  const dispatch = (next: string) => {
+    setValue(next);
+    setUrlSearch({ q: next || undefined });
+    window.dispatchEvent(new CustomEvent("loom:filter", { detail: next }));
+  };
+
+  return (
+    <label className="ml-1.5 flex min-w-0 max-w-[430px] flex-1 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[color-mix(in_oklab,var(--surface)_65%,transparent)] px-2.5 py-1.5 text-sm text-[var(--color-ink-2)] transition-[border-color,box-shadow] duration-100 focus-within:border-[var(--color-accent)] focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 14 14"
+        fill="none"
+        aria-hidden="true"
+        className="shrink-0 opacity-50"
+      >
+        <circle cx="6" cy="6" r="4.4" stroke="currentColor" strokeWidth="1.4" />
+        <path
+          d="M9.4 9.4L13 13"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
+      </svg>
+      <input
+        ref={inputRef}
+        type="search"
+        aria-label="スキルを検索"
+        value={value}
+        onChange={(e) => dispatch(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            dispatch("");
+            e.currentTarget.blur();
+          }
+        }}
+        placeholder="スキルを検索…"
+        className="w-full min-w-0 bg-transparent font-[family-name:inherit] tracking-inherit text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-2)] placeholder:opacity-75"
+      />
+      <kbd className="shrink-0 rounded-[5px] border border-[var(--color-rule)] border-b-2 bg-[var(--surface)] px-1.5 py-px font-[family-name:var(--font-mono)] text-[9.5px] text-[var(--color-ink-2)]">
+        ⌘K
+      </kbd>
+    </label>
+  );
+}
+
+function Topbar({
+  counts,
+  searchable,
+}: {
+  counts?: Counts | null;
+  searchable?: boolean;
+}) {
+  return (
+    <header className="sticky top-0 z-40 border-b border-[var(--color-chrome-border)] bg-[var(--color-chrome)] backdrop-blur-[20px] backdrop-saturate-180">
+      <div className="mx-auto flex h-14 max-w-[1480px] items-center gap-3.5 px-4 py-2 md:px-6">
+        <div className="flex items-center gap-2.5">
+          <LoomMark />
+          <span className="font-[family-name:var(--font-display)] text-[1.06rem] font-semibold tracking-[-0.015em] [font-variation-settings:'opsz'_40]">
+            Skill{" "}
+            <em className="not-italic text-[var(--color-accent-text)]">Loom</em>
+          </span>
+          <span className="rounded-full border border-[var(--color-rule)] bg-[var(--surface)] px-2 py-0.5 font-[family-name:var(--font-mono)] text-[9.5px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase">
+            manager
+          </span>
+        </div>
+        {searchable ? <TopSearch /> : null}
         {counts ? (
-          <div className="flex flex-wrap gap-3 font-[family-name:var(--font-mono)] text-xs tracking-[0.01em] text-[var(--color-ink-2)]">
+          <div className="ml-auto flex items-baseline gap-3.5 font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink-2)] [font-variant-numeric:tabular-nums]">
             <span className="inline-flex items-center gap-1.5">
-              <i className="inline-block size-1.5 rounded-full bg-[var(--color-accent)]" />
-              active {counts.active}
+              <i
+                aria-hidden="true"
+                className="inline-block size-1.5 rounded-full bg-[var(--color-accent)]"
+              />
+              active{" "}
+              <b className="font-semibold text-[var(--color-ink)]">
+                {counts.active}
+              </b>
             </span>
             <span>off {counts.off}</span>
-            <span>archive {counts.archive}</span>
-            <span>total {counts.total}</span>
+            <span className="max-sm:hidden">archive {counts.archive}</span>
           </div>
         ) : null}
       </div>
@@ -51,45 +167,117 @@ export function Masthead({ title, counts }: MastheadProps) {
   );
 }
 
-type NavProps = {
+/** Projection の織りバー — Inventory から織り込まれた active/off/archive の糸 */
+function ProjectionCard({ counts }: { counts: Counts }) {
+  const total = Math.max(counts.total, 1);
+  return (
+    <div className="m-3 mt-3 border-t border-[var(--color-rule)] px-3 pt-3 pb-2.5">
+      <p className="m-0 font-[family-name:var(--font-mono)] text-[9.5px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase">
+        <b className="font-semibold text-[var(--color-accent-text)]">
+          Projection
+        </b>{" "}
+        — agents
+      </p>
+      <p className="m-0 mt-1.5 font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink-2)] [font-variant-numeric:tabular-nums]">
+        <b className="text-sm font-semibold text-[var(--color-accent-text)]">
+          {counts.active}
+        </b>{" "}
+        active / {counts.off} off / {counts.archive} arch.
+      </p>
+      <div
+        className="weave-bar mt-2"
+        role="img"
+        aria-label={`active ${counts.active} / off ${counts.off} / archive ${counts.archive}`}
+      >
+        <i
+          className="weave-active"
+          style={{ width: `${(counts.active / total) * 100}%` }}
+        />
+        <i
+          className="weave-off"
+          style={{ width: `${(counts.off / total) * 100}%` }}
+        />
+      </div>
+      <p className="m-0 mt-1.5 text-[10.5px] leading-snug text-[var(--color-ink-2)]">
+        Catalog {counts.total} から織り込まれた実行中の subset
+      </p>
+    </div>
+  );
+}
+
+function SideNav({
+  current,
+  decks,
+  counts,
+}: {
   current: string;
   decks: string[];
-};
-
-export function Nav({ current, decks }: NavProps) {
+  counts?: Counts | null;
+}) {
   const [creating, setCreating] = useState(false);
   const deckList = decks ?? [];
   const items: { to: string; label: string; id: string }[] = [
     { to: "/global", label: "Global", id: "global" },
     { to: "/external-sources", label: "External", id: "external-sources" },
     { to: "/drafts", label: "Drafts", id: "drafts" },
-    ...deckList.map((d) => ({
-      to: `/project-decks/${d}`,
-      label: d,
-      id: `project:${d}`,
-    })),
   ];
+  const linkClass = (active: boolean) =>
+    `relative flex min-h-10 items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-sm font-medium transition-[background,color,padding-left] duration-100 ease-out ${
+      active
+        ? "bg-[var(--color-accent-soft)] pr-2.5 pl-[13px] font-semibold text-[var(--color-accent-text)]"
+        : "text-[var(--color-ink-2)] hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)]"
+    }`;
+  const isActive = (item: { id: string }) =>
+    current === item.id || (item.id === "global" && current === "");
 
   return (
-    <div className="mb-4">
-      <nav className="flex flex-wrap gap-1 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-1 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
-        <span className="ml-1.5 self-center font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.04em] text-[var(--color-ink-2)] uppercase">
-          nav
-        </span>
-        {items.map((item) => {
-          const active =
-            current === item.id || (item.id === "global" && current === "");
+    <div className="rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-180 lg:sticky lg:top-[70px]">
+      <nav
+        className="flex flex-col gap-0.5 max-lg:flex-row max-lg:flex-wrap"
+        aria-label="セクション"
+      >
+        {items.map((item) => (
+          <Link
+            key={item.id}
+            to={item.to}
+            className={`max-lg:flex-1 ${linkClass(isActive(item))}`}
+          >
+            {isActive(item) ? (
+              <i
+                aria-hidden
+                className="absolute top-[20%] bottom-[20%] left-[3px] w-0.5 rounded-full bg-[var(--color-accent)]"
+              />
+            ) : null}
+            <span className="mx-auto max-lg:inline">{item.label}</span>
+          </Link>
+        ))}
+        <div className="pt-1 pb-0.5 pl-2.5 font-[family-name:var(--font-mono)] text-[9.5px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase max-lg:w-full max-lg:pt-3">
+          Decks
+        </div>
+        {deckList.map((d) => {
+          const active = current === `project:${d}`;
           return (
             <Link
-              key={item.id}
-              to={item.to}
-              className={
-                active
-                  ? "rounded-[var(--radius-sm)] bg-[var(--color-accent)] px-2.5 py-1.5 text-xs font-semibold text-[var(--color-accent-ink)] transition-[transform,opacity] duration-100 ease-out active:scale-[0.97]"
-                  : "rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink-2)] transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.97]"
-              }
+              key={d}
+              to="/project-decks/$deckName"
+              params={{ deckName: d }}
+              className={`max-lg:flex-1 ${linkClass(active)}`}
             >
-              {item.label}
+              {active ? (
+                <i
+                  aria-hidden
+                  className="absolute top-[20%] bottom-[20%] left-[3px] w-0.5 rounded-full bg-[var(--color-accent)]"
+                />
+              ) : null}
+              <span className="max-lg:mx-auto">
+                <span
+                  aria-hidden
+                  className="mr-1.5 text-[10px] leading-none text-[var(--color-ink-2)]"
+                >
+                  ▸
+                </span>
+                {d}
+              </span>
             </Link>
           );
         })}
@@ -98,15 +286,90 @@ export function Nav({ current, decks }: NavProps) {
           aria-expanded={creating}
           aria-controls="create-deck-form"
           onClick={() => setCreating((open) => !open)}
-          className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink-2)] transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex min-h-10 cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-sm font-medium text-[var(--color-ink-2)] transition-[background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] max-lg:flex-1 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          + Deck
+          <span className="max-lg:mx-auto">+ Deck</span>
         </button>
       </nav>
       {creating ? <CreateDeckForm onClose={() => setCreating(false)} /> : null}
+      {counts ? <ProjectionCard counts={counts} /> : null}
     </div>
   );
 }
+
+export type WorkbenchShellProps = {
+  title: string;
+  /** 見出し上の小さな一行 (例: "Catalog · projection") */
+  overline?: string;
+  /** 見出し下の補足 (例: "26 skills") */
+  sub?: string;
+  counts?: Counts | null;
+  current: string;
+  decks?: string[];
+  /** 右ドロワーに置くパネル (更新・プリセット等)。狭い画面ではステージ下に回る。 */
+  drawer?: ReactNode;
+  /** トップバーにグローバル検索を出す (リスト絞り込みに接続) */
+  searchable?: boolean;
+  children: ReactNode;
+};
+
+export function WorkbenchShell({
+  title,
+  overline,
+  sub,
+  counts,
+  current,
+  decks,
+  drawer,
+  searchable,
+  children,
+}: WorkbenchShellProps) {
+  return (
+    <div className="min-h-screen">
+      <a
+        href="#stage"
+        className="sr-only rounded-[var(--radius-sm)] bg-[var(--color-accent)] px-3 py-2 text-[var(--color-accent-ink)] focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50"
+      >
+        本文へスキップ
+      </a>
+      <Topbar counts={counts} searchable={searchable} />
+      <div className="relative z-[1] mx-auto grid w-full max-w-[1480px] items-start gap-4 px-4 pt-4 pb-11 [grid-template-columns:minmax(0,1fr)] md:px-6 lg:[grid-template-columns:236px_minmax(0,1fr)] xl:[grid-template-columns:236px_minmax(0,1fr)_318px]">
+        <SideNav current={current} decks={decks ?? []} counts={counts} />
+        <main id="stage" className="min-w-0 [scroll-margin-top:5rem]">
+          <div className="pb-3.5">
+            {overline ? (
+              <p className="m-0 flex items-center gap-2 font-[family-name:var(--font-mono)] text-[9.5px] font-medium tracking-[0.12em] text-[var(--color-ink-2)] uppercase">
+                <i
+                  aria-hidden
+                  className="h-[1.5px] w-[18px] bg-[var(--color-accent)]"
+                />
+                {overline}
+              </p>
+            ) : null}
+            <h1 className="m-0 mt-1.5 mb-1 font-[family-name:var(--font-display)] text-[clamp(1.55rem,2.4vw,1.95rem)] leading-[1.08] font-[540] tracking-[-0.02em] [font-variation-settings:'opsz'_60] [text-wrap:balance]">
+              {title}
+            </h1>
+            {sub ? (
+              <p className="m-0 font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink-2)] [font-variant-numeric:tabular-nums]">
+                {sub}
+              </p>
+            ) : null}
+          </div>
+          {children}
+        </main>
+        {drawer ? (
+          <aside className="grid min-w-0 items-start gap-3.5 max-xl:col-span-2 xl:sticky xl:top-[70px]">
+            {drawer}
+          </aside>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/* ======================================================================
+ * 汎用部品 (既存 API を維持)
+ * ====================================================================== */
 
 type CreateDeckFormProps = {
   onClose: () => void;
@@ -114,7 +377,7 @@ type CreateDeckFormProps = {
 
 /**
  * 空の Project Deck を作るフォーム。作成まわりの状態と API 呼び出しを
- * Nav（汎用 UI の置き場）から切り離して持つ。
+ * SideNav（汎用 UI の置き場）から切り離して持つ。
  */
 export function CreateDeckForm({ onClose }: CreateDeckFormProps) {
   const navigate = useNavigate();
@@ -163,7 +426,7 @@ export function CreateDeckForm({ onClose }: CreateDeckFormProps) {
   return (
     <div
       id="create-deck-form"
-      className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150"
+      className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-180"
     >
       <label
         htmlFor="new-deck-name"
@@ -182,7 +445,7 @@ export function CreateDeckForm({ onClose }: CreateDeckFormProps) {
           if (e.key === "Escape") close();
         }}
         disabled={create.isPending}
-        placeholder="例: frontend"
+        placeholder="例: frontend などの deck 名…"
         autoComplete="off"
         spellCheck={false}
         className="min-w-[160px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-1.5 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -198,7 +461,7 @@ export function CreateDeckForm({ onClose }: CreateDeckFormProps) {
         キャンセル
       </Button>
       {error ? (
-        <p className="m-0 basis-full text-sm text-[var(--color-ink)]">
+        <p className="m-0 basis-full text-sm text-[var(--color-ink)] [text-wrap:pretty]">
           {error}
         </p>
       ) : null}
@@ -209,7 +472,11 @@ export function CreateDeckForm({ onClose }: CreateDeckFormProps) {
 export function Message({ text }: { text?: string }) {
   if (!text) return null;
   return (
-    <div className="mb-3 rounded-[var(--radius-md)] border border-[var(--color-accent-soft)] bg-[var(--color-accent-soft)] px-3.5 py-2.5 text-sm text-[var(--color-ink)]">
+    <div
+      className="mb-3 rounded-[var(--radius-md)] border border-[var(--color-accent-soft)] bg-[var(--color-accent-soft)] px-3.5 py-2.5 text-sm text-[var(--color-ink)] [text-wrap:pretty]"
+      role="status"
+      aria-live="polite"
+    >
       {text}
     </div>
   );
@@ -264,11 +531,11 @@ export function Button({
   variant?: "primary" | "secondary";
 }) {
   const base =
-    "cursor-pointer rounded-[var(--radius-sm)] border px-3 py-1.5 text-sm font-medium transition-[transform,background,border-color,opacity] duration-100 ease-out active:scale-[0.97] disabled:opacity-45";
+    "inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-sm font-medium transition-[transform,background,border-color,opacity,box-shadow] duration-100 ease-out active:scale-[0.96] disabled:pointer-events-none disabled:opacity-45";
   const styles =
     variant === "primary"
-      ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-hover)]"
-      : "border-[var(--color-rule)] bg-[var(--surface)] text-[var(--color-ink)] hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]";
+      ? "border-[var(--color-accent-hover)] bg-[var(--btn-primary-face)] text-[var(--color-accent-ink)] shadow-[var(--btn-primary-edge)] hover:brightness-105"
+      : "border-[var(--color-rule)] bg-[var(--btn-secondary-face)] text-[var(--color-ink)] shadow-[var(--btn-secondary-edge)] hover:border-[var(--color-rule-strong)]";
   return (
     <button
       type="button"
@@ -284,42 +551,40 @@ function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`skeleton-block ${className}`} aria-hidden />;
 }
 
-function LoadingMasthead({ withCounts = false }: { withCounts?: boolean }) {
+function LoadingShell({ children }: { children: ReactNode }) {
   return (
-    <header className="mb-4 grid gap-2 rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-4 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150">
-      <div className="flex items-center gap-2">
-        <Skeleton className="h-4 w-20" />
-        <span className="h-3.5 w-px bg-[var(--color-rule)]" aria-hidden />
-        <Skeleton className="h-3 w-14" />
-      </div>
-      <div>
-        <Skeleton className="mb-2 h-8 w-2/5 max-w-xs" />
-        {withCounts ? (
-          <div className="flex flex-wrap gap-3">
-            <Skeleton className="h-3 w-16" />
-            <Skeleton className="h-3 w-10" />
-            <Skeleton className="h-3 w-16" />
-            <Skeleton className="h-3 w-12" />
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-40 border-b border-[var(--color-chrome-border)] bg-[var(--color-chrome)] backdrop-blur-[20px] backdrop-saturate-180">
+        <div className="mx-auto flex h-14 max-w-[1480px] items-center gap-3.5 px-4 py-2 md:px-6">
+          <Skeleton className="h-5 w-28" />
+          <Skeleton className="h-5 w-16" />
+          <Skeleton className="ml-auto h-3.5 w-44" />
+        </div>
+      </header>
+      <div className="mx-auto grid w-full max-w-[1480px] items-start gap-4 px-4 pt-4 pb-11 [grid-template-columns:minmax(0,1fr)] md:px-6 lg:[grid-template-columns:236px_minmax(0,1fr)]">
+        <nav
+          aria-hidden
+          className="flex flex-col gap-2 rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-3 shadow-[var(--shadow-lift)]"
+        >
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-6 w-full max-w-[160px]" />
+          ))}
+        </nav>
+        <main>
+          <div className="pb-3.5">
+            <Skeleton className="mb-2 h-3 w-36" />
+            <Skeleton className="h-9 w-2/5 max-w-xs" />
+            <Skeleton className="mt-2 h-3 w-48" />
           </div>
-        ) : (
-          <Skeleton className="h-3 w-48 max-w-full" />
-        )}
+          <div className="mb-3 flex flex-wrap gap-2 rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-2.5 shadow-[var(--shadow-lift)]">
+            <Skeleton className="h-9 min-w-[240px] flex-1 rounded-[var(--radius-sm)]" />
+            <Skeleton className="h-9 w-20 rounded-[var(--radius-sm)]" />
+            <Skeleton className="h-9 w-20 rounded-[var(--radius-sm)]" />
+          </div>
+          {children}
+        </main>
       </div>
-    </header>
-  );
-}
-
-function LoadingNav() {
-  return (
-    <nav
-      className="mb-4 flex flex-wrap gap-1 rounded-[var(--radius-md)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-1 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-150"
-      aria-hidden
-    >
-      <Skeleton className="mx-1.5 my-1.5 h-3 w-6" />
-      {Array.from({ length: 4 }).map((_, i) => (
-        <Skeleton key={i} className="h-7 w-16 rounded-[var(--radius-sm)]" />
-      ))}
-    </nav>
+    </div>
   );
 }
 
@@ -389,30 +654,20 @@ export type PageLoadingVariant = "list" | "cards" | "detail";
 
 export function PageLoading({
   variant = "list",
-  withCounts = false,
-  label = "読み込み中",
+  label = "読み込み中…",
 }: {
   variant?: PageLoadingVariant;
-  withCounts?: boolean;
   label?: string;
 }) {
   return (
-    <Shell>
+    <LoadingShell>
       <p className="sr-only" role="status" aria-live="polite">
         {label}
       </p>
-      <LoadingMasthead withCounts={withCounts} />
-      <LoadingNav />
-      <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]">
-        <div className="flex flex-wrap gap-2">
-          <Skeleton className="h-9 min-w-[240px] flex-1 rounded-[var(--radius-sm)]" />
-          <Skeleton className="h-9 w-16 rounded-[var(--radius-sm)]" />
-        </div>
-      </div>
       {variant === "cards" ? <LoadingCardGrid /> : null}
       {variant === "list" ? <LoadingListRows /> : null}
       {variant === "detail" ? <LoadingDetailBlocks /> : null}
-    </Shell>
+    </LoadingShell>
   );
 }
 
@@ -428,21 +683,13 @@ export function PageError({
   decks?: string[];
 }) {
   return (
-    <Shell>
-      <Masthead title={title} />
-      <Nav current={current} decks={decks} />
+    <WorkbenchShell title={title} current={current} decks={decks}>
       <Message text={message} />
       <p className="m-0 text-sm text-[var(--color-ink-2)]">
         ナビから別の画面へ移動するか、ページを再読み込みしてください。開発時は
         Vite の内部ポートではなく、起動ログの公開 URL（Skill Loom
         UI）を開いているか確認してください。
       </p>
-    </Shell>
-  );
-}
-
-export function Shell({ children }: { children: ReactNode }) {
-  return (
-    <main className="mx-auto max-w-[1080px] px-4 py-5 pb-14">{children}</main>
+    </WorkbenchShell>
   );
 }
