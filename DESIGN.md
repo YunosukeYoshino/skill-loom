@@ -24,6 +24,7 @@ colors:
   focus: "oklch(52% 0.175 255)"
   warn: "oklch(70% 0.14 75)"
   warn-soft: "oklch(97% 0.03 85)"
+  warn-text: "oklch(46% 0.11 70)"
   draft: "oklch(48% 0.04 250)"
   draft-soft: "oklch(96% 0.015 250)"
 typography:
@@ -71,7 +72,7 @@ The palette is a warm light paper scale with one refined system blue; semantic s
 - **Rules (`rule`, `rule-strong`):** hairline borders, dividers, and sort headers; `rule-strong` is the hover/edge variant.
 - **Chrome (`chrome`, `chrome-border`):** translucent white for sticky topbars, toolbars, and nav panels, always paired with backdrop blur; fall back to opaque white under `prefers-reduced-transparency: reduce`.
 - **Accent (`accent` and its variants):** `accent` drives primary buttons, active nav, and indicators; `accent-hover` is its pressed state; `accent-soft` tints selected rows and focus rings; `accent-ink` is the only text color placed on `accent`; `accent-text` is the accent-family color for text on light backgrounds (it keeps 4.5:1 on `accent-soft`); `focus` marks focused input borders.
-- **Status (`warn`, `warn-soft`, `draft`, `draft-soft`):** tinted background + darker text pairs for status pills; never use status colors as full-surface backgrounds.
+- **Status (`warn`, `warn-soft`, `warn-text`, `draft`, `draft-soft`):** tinted background + darker text pairs for status pills; `warn` itself is for icons and borders only — text on `warn-soft` uses `warn-text` to keep 4.5:1. Never use status colors as full-surface backgrounds.
 
 ## Typography
 

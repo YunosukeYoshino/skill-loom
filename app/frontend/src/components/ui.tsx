@@ -66,6 +66,16 @@ function TopSearch() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // リスト側の SearchField から dispatch された loom:filter にも追従し、
+  // どちらの入力から変更しても表示が一致するようにする。
+  useEffect(() => {
+    const onFilter = (event: Event) => {
+      setValue((event as CustomEvent<string>).detail ?? "");
+    };
+    window.addEventListener("loom:filter", onFilter);
+    return () => window.removeEventListener("loom:filter", onFilter);
+  }, []);
+
   const dispatch = (next: string) => {
     setValue(next);
     window.dispatchEvent(new CustomEvent("loom:filter", { detail: next }));
@@ -255,8 +265,11 @@ function SideNav({
                   className="absolute top-[20%] bottom-[20%] left-[3px] w-0.5 rounded-full bg-[var(--color-accent)]"
                 />
               ) : null}
-              <span aria-hidden className="max-lg:mx-auto">
-                <span className="mr-1.5 text-[10px] leading-none text-[var(--color-ink-2)]">
+              <span className="max-lg:mx-auto">
+                <span
+                  aria-hidden
+                  className="mr-1.5 text-[10px] leading-none text-[var(--color-ink-2)]"
+                >
                   ▸
                 </span>
                 {d}
@@ -517,8 +530,8 @@ export function Button({
     "inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-sm font-medium transition-[transform,background,border-color,opacity,box-shadow] duration-100 ease-out active:scale-[0.96] disabled:pointer-events-none disabled:opacity-45";
   const styles =
     variant === "primary"
-      ? "border-[var(--color-accent-hover)] bg-[linear-gradient(180deg,oklch(55%_0.17_255),var(--color-accent))] text-[var(--color-accent-ink)] shadow-[0_2px_6px_oklch(46%_0.165_255/0.35),inset_0_1px_0_oklch(100%_0_0/0.25)] hover:brightness-105"
-      : "border-[var(--color-rule)] bg-[linear-gradient(180deg,oklch(100%_0_0),oklch(97.5%_0.006_255))] text-[var(--color-ink)] shadow-[0_1px_2px_oklch(20%_0.02_260/0.05),inset_0_1px_0_oklch(100%_0_0/0.7)] hover:border-[var(--color-rule-strong)]";
+      ? "border-[var(--color-accent-hover)] bg-[var(--btn-primary-face)] text-[var(--color-accent-ink)] shadow-[var(--btn-primary-edge)] hover:brightness-105"
+      : "border-[var(--color-rule)] bg-[var(--btn-secondary-face)] text-[var(--color-ink)] shadow-[var(--btn-secondary-edge)] hover:border-[var(--color-rule-strong)]";
   return (
     <button
       type="button"

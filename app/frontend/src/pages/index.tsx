@@ -200,7 +200,7 @@ function OgpPreview({
         height={64}
         loading="lazy"
         decoding="async"
-        className="h-16 w-28 flex-none rounded-[4px] border border-[var(--color-rule)] object-cover outline-1 outline-[oklch(0_0_0/0.1)]"
+        className="h-16 w-28 flex-none rounded-[calc(var(--radius-sm)-4px)] border border-[var(--color-rule)] object-cover outline-1 outline-[oklch(0_0_0/0.1)]"
         onError={(e) => {
           e.currentTarget.style.display = "none";
         }}
@@ -264,7 +264,7 @@ function OgpBanner({ source }: { source: string }) {
           src={q.data.image}
           alt=""
           loading="lazy"
-          className="h-20 w-36 flex-none rounded-[6px] border border-[var(--color-rule)] object-cover outline-1 outline-[oklch(0_0_0/0.1)]"
+          className="h-20 w-36 flex-none rounded-[calc(var(--radius-sm)-2px)] border border-[var(--color-rule)] object-cover outline-1 outline-[oklch(0_0_0/0.1)]"
           onError={(e) => {
             e.currentTarget.style.display = "none";
           }}
@@ -332,7 +332,7 @@ function CustomUpdatesPanel({
                 <code className="font-[family-name:var(--font-mono)] text-sm font-medium">
                   {item.name}
                 </code>
-                <span className="rounded px-1.5 py-0.5 text-[11px] bg-[var(--color-warn-soft)] text-[var(--color-warn)]">
+                <span className="rounded px-1.5 py-0.5 text-[11px] bg-[var(--color-warn-soft)] text-[var(--color-warn-text)]">
                   正本が新しい
                 </span>
                 <span className="font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink-2)]">
@@ -804,8 +804,8 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
       sub={
         catalog
           ? "外部スキルの追加"
-          : `${data.rows?.length ?? 0} skills · ${
-              data.counts ? `active ${data.counts.active}` : ""
+          : `${data.rows?.length ?? 0} skills${
+              data.counts ? ` · active ${data.counts.active}` : ""
             }`
       }
       counts={data.counts}

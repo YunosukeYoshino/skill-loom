@@ -4,17 +4,22 @@ import { Button, pendingLabel } from "./ui";
 
 /**
  * トップバーのグローバル検索と各リストの絞り込みを繋ぐフィルタ状態。
- * "loom:filter" CustomEvent (detail: string) を受信する。
+ * "loom:filter" CustomEvent (detail: string) を受信し、setFilter は
+ * 同イベントを再送信する — どの入力から変更しても全 UI が同じ値に同期する。
  */
 export function useLoomFilter() {
-  const [filter, setFilter] = useState("");
+  const [filter, setFilterDirect] = useState("");
   useEffect(() => {
     const onFilter = (event: Event) => {
-      setFilter((event as CustomEvent<string>).detail ?? "");
+      setFilterDirect((event as CustomEvent<string>).detail ?? "");
     };
     window.addEventListener("loom:filter", onFilter);
     return () => window.removeEventListener("loom:filter", onFilter);
   }, []);
+  const setFilter = (next: string) => {
+    setFilterDirect(next);
+    window.dispatchEvent(new CustomEvent("loom:filter", { detail: next }));
+  };
   return [filter, setFilter] as const;
 }
 
@@ -22,7 +27,7 @@ const pillClass: Record<string, string> = {
   active: "bg-[var(--color-accent-soft)] text-[var(--color-accent)]",
   archive: "bg-[var(--color-paper-3)] text-[var(--color-ink-2)]",
   off: "bg-[var(--color-paper-3)] text-[var(--color-ink-2)]",
-  missing: "bg-[var(--color-warn-soft)] text-[var(--color-warn)]",
+  missing: "bg-[var(--color-warn-soft)] text-[var(--color-warn-text)]",
   draft: "bg-[var(--color-draft-soft)] text-[var(--color-draft)]",
   installed: "bg-[var(--color-accent-soft)] text-[var(--color-accent)]",
 };

@@ -31,6 +31,8 @@
   --color-success-soft: oklch(96% 0.03 145);
   --color-warn: oklch(70% 0.14 75);
   --color-warn-soft: oklch(97% 0.03 85);
+  /* warn はアイコン/罫線用。soft 背景のテキストは warn-text (4.5:1+) */
+  --color-warn-text: oklch(46% 0.11 70);
   --color-danger: oklch(55% 0.2 25);
   --color-danger-soft: oklch(96% 0.03 25);
   --color-draft: oklch(48% 0.04 250);
@@ -40,13 +42,13 @@
    * スキル名・数値は IBM Plex Mono (tabular)。フォールバックは従来のプラットフォーム字体。
    */
   --font-display:
-    "Fraunces", -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui,
+    "Fraunces", -apple-system, blinkmacsystemfont, "SF Pro Display", system-ui,
     serif;
   --font-body:
-    "Instrument Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Instrument Sans", -apple-system, blinkmacsystemfont, "SF Pro Text",
     "Segoe UI", system-ui, sans-serif;
   --font-mono:
-    "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    "IBM Plex Mono", ui-monospace, "SF Mono", menlo, consolas, monospace;
 
   /* Space (4pt) */
   --space-3xs: 0.25rem;
@@ -81,6 +83,22 @@
   --shadow-lift:
     0 1px 2px oklch(20% 0.02 260 / 0.04), 0 8px 24px oklch(20% 0.02 260 / 0.06);
   --blur-chrome: blur(20px) saturate(180%);
+
+  /* Button faces — single source for primary/secondary gradients and edge shadows */
+  --btn-primary-face: linear-gradient(
+    180deg,
+    oklch(55% 0.17 255),
+    var(--color-accent)
+  );
+  --btn-primary-edge:
+    0 2px 6px oklch(46% 0.165 255 / 0.35), inset 0 1px 0 oklch(100% 0 0 / 0.25);
+  --btn-secondary-face: linear-gradient(
+    180deg,
+    oklch(100% 0 0),
+    oklch(97.5% 0.006 255)
+  );
+  --btn-secondary-edge:
+    0 1px 2px oklch(20% 0.02 260 / 0.05), inset 0 1px 0 oklch(100% 0 0 / 0.7);
 
   /* Legacy aliases */
   --bg: var(--color-paper);
