@@ -49,6 +49,7 @@ function runBash(
   opts: { cwd?: string; env?: Record<string, string> } = {}
 ): { exitCode: number; stdout: string; stderr: string } {
   const env: Record<string, string> = {
+    MISE_YES: "1",
     ...(process.env as Record<string, string>),
     ...(opts.env ?? {}),
   };
@@ -392,5 +393,5 @@ describe("skills-add", () => {
 
     const afterHead = revParse();
     expect(afterHead).toBe(beforeHead);
-  });
+  }, 20_000);
 });
