@@ -117,7 +117,7 @@ describe("skills-restore", () => {
     );
     expect(out.stdout).toContain("npx skills add owner/catalog --skill *");
     expect(out.stdout).toContain(path.join(catalog, "agents"));
-  });
+  }, 20_000);
 });
 
 describe("skills-vendor-fork", () => {
@@ -243,6 +243,7 @@ describe("skills-add", () => {
       ".agents/skills/skills-add/scripts/resolve-skill-path.ts",
       ".agents/skills/skills-add/scripts/register-skill-lock.ts",
       ".agents/skills/skills-add/scripts/lock-check.ts",
+      ".agents/skills/skills-add/scripts/sync-skill-name.ts",
       ".agents/skills/skills-add/scripts/run-skills-cli.sh",
       ".agents/skills/skills-add/scripts/skills-add",
     ]) {
@@ -393,5 +394,229 @@ describe("skills-add", () => {
 
     const afterHead = revParse();
     expect(afterHead).toBe(beforeHead);
+  }, 20_000);
+
+  test("--as オプションでエイリアス登録され、installSkill と frontmatter が更新される", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mgmt-add-as-"));
+    const repo = path.join(tmp, "repo");
+    const clone = Bun.spawnSync([
+      "git",
+      "clone",
+      "--quiet",
+      "--no-hardlinks",
+      REPO_ROOT,
+      repo,
+    ]);
+    expect(clone.exitCode).toBe(0);
+
+    for (const rel of [
+      ".agents/skills/skills-add/scripts/normalize-github-url.ts",
+      ".agents/skills/skills-add/scripts/resolve-skill-path.ts",
+      ".agents/skills/skills-add/scripts/register-skill-lock.ts",
+      ".agents/skills/skills-add/scripts/lock-check.ts",
+      ".agents/skills/skills-add/scripts/sync-skill-name.ts",
+      ".agents/skills/skills-add/scripts/run-skills-cli.sh",
+      ".agents/skills/skills-add/scripts/skills-add",
+    ]) {
+      fs.copyFileSync(path.join(REPO_ROOT, rel), path.join(repo, rel));
+    }
+
+    const catalog = path.join(tmp, "catalog");
+    fs.mkdirSync(catalog);
+    const lockFile = path.join(catalog, "skills.lock.json");
+    fs.writeFileSync(
+      lockFile,
+      JSON.stringify({
+        version: 1,
+        custom: { skills: {} },
+        external: {},
+        vendor: {},
+      })
+    );
+
+    const home = path.join(tmp, "home");
+    const active = path.join(home, ".agents", "skills");
+    fs.mkdirSync(active, { recursive: true });
+    const claude = path.join(tmp, "claude-skills");
+    const gemini = path.join(tmp, "gemini-skills");
+
+    const binDir = path.join(tmp, "bin");
+    fs.mkdirSync(binDir);
+    const skillsStub = path.join(binDir, "skills-stub");
+    fs.writeFileSync(
+      skillsStub,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'target="$HOME/.agents/skills"',
+        "for ((i=1; i <= $#; i++)); do",
+        '  if [ "${!i}" = "--skill" ]; then',
+        "    j=$((i+1))",
+        '    name="${!j}"',
+        '    mkdir -p "$target/$name"',
+        '    printf -- \'---\\nname: %s\\ndescription: fixture\\n---\\n\' "$name" > "$target/$name/SKILL.md"',
+        "  fi",
+        "done",
+      ].join("\n")
+    );
+    fs.chmodSync(skillsStub, 0o755);
+
+    const env: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+      HOME: home,
+      PATH: `${binDir}:${process.env.PATH ?? ""}`,
+      MY_SKILLS_ADD_BIN: skillsStub,
+      MY_SKILLS_CATALOG_DIR: catalog,
+      MY_SKILLS_ACTIVE_DIR: active,
+      MY_SKILLS_CLAUDE_SKILLS_DIR: claude,
+      MY_SKILLS_GEMINI_SKILLS_DIR: gemini,
+    };
+
+    const result = runBash(
+      path.join(repo, ".agents/skills/skills-add/scripts/skills-add"),
+      [
+        "owner/repo",
+        "--skill",
+        "original-name",
+        "--as",
+        "aliased-name",
+        "--no-commit",
+      ],
+      { cwd: repo, env }
+    );
+    expect(result.exitCode).toBe(0);
+
+    const lock = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as {
+      external: Record<string, unknown>;
+    };
+    expect(lock.external["aliased-name"]).toEqual({
+      source: "owner/repo",
+      sourceUrl: "https://github.com/owner/repo.git",
+      skillPath: "skills/original-name/SKILL.md",
+      installSkill: "original-name",
+    });
+
+    const activeSkillMd = path.join(active, "aliased-name", "SKILL.md");
+    expect(fs.existsSync(activeSkillMd)).toBe(true);
+    expect(fs.readFileSync(activeSkillMd, "utf-8")).toContain(
+      "name: aliased-name"
+    );
+
+    for (const agentDir of [claude, gemini]) {
+      expect(
+        fs.lstatSync(path.join(agentDir, "aliased-name")).isSymbolicLink()
+      ).toBe(true);
+    }
+  }, 20_000);
+
+  test("既存スキルと衝突した場合は owner--name で自動名前空間化される", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mgmt-add-collision-"));
+    const repo = path.join(tmp, "repo");
+    const clone = Bun.spawnSync([
+      "git",
+      "clone",
+      "--quiet",
+      "--no-hardlinks",
+      REPO_ROOT,
+      repo,
+    ]);
+    expect(clone.exitCode).toBe(0);
+
+    for (const rel of [
+      ".agents/skills/skills-add/scripts/normalize-github-url.ts",
+      ".agents/skills/skills-add/scripts/resolve-skill-path.ts",
+      ".agents/skills/skills-add/scripts/register-skill-lock.ts",
+      ".agents/skills/skills-add/scripts/lock-check.ts",
+      ".agents/skills/skills-add/scripts/sync-skill-name.ts",
+      ".agents/skills/skills-add/scripts/run-skills-cli.sh",
+      ".agents/skills/skills-add/scripts/skills-add",
+    ]) {
+      fs.copyFileSync(path.join(REPO_ROOT, rel), path.join(repo, rel));
+    }
+
+    const catalog = path.join(tmp, "catalog");
+    fs.mkdirSync(catalog);
+    const lockFile = path.join(catalog, "skills.lock.json");
+    fs.writeFileSync(
+      lockFile,
+      JSON.stringify({
+        version: 1,
+        custom: { skills: {} },
+        external: {
+          search: {
+            source: "first-owner/search-repo",
+            sourceUrl: "https://github.com/first-owner/search-repo.git",
+            skillPath: "skills/search/SKILL.md",
+          },
+        },
+        vendor: {},
+      })
+    );
+
+    const home = path.join(tmp, "home");
+    const active = path.join(home, ".agents", "skills");
+    fs.mkdirSync(path.join(active, "search"), { recursive: true });
+    fs.writeFileSync(
+      path.join(active, "search", "SKILL.md"),
+      "---\nname: search\n---\n"
+    );
+    const claude = path.join(tmp, "claude-skills");
+    const gemini = path.join(tmp, "gemini-skills");
+
+    const binDir = path.join(tmp, "bin");
+    fs.mkdirSync(binDir);
+    const skillsStub = path.join(binDir, "skills-stub");
+    fs.writeFileSync(
+      skillsStub,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'target="$HOME/.agents/skills"',
+        "for ((i=1; i <= $#; i++)); do",
+        '  if [ "${!i}" = "--skill" ]; then',
+        "    j=$((i+1))",
+        '    name="${!j}"',
+        '    mkdir -p "$target/$name"',
+        '    printf -- \'---\\nname: %s\\ndescription: fixture\\n---\\n\' "$name" > "$target/$name/SKILL.md"',
+        "  fi",
+        "done",
+      ].join("\n")
+    );
+    fs.chmodSync(skillsStub, 0o755);
+
+    const env: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+      HOME: home,
+      PATH: `${binDir}:${process.env.PATH ?? ""}`,
+      MY_SKILLS_ADD_BIN: skillsStub,
+      MY_SKILLS_CATALOG_DIR: catalog,
+      MY_SKILLS_ACTIVE_DIR: active,
+      MY_SKILLS_CLAUDE_SKILLS_DIR: claude,
+      MY_SKILLS_GEMINI_SKILLS_DIR: gemini,
+    };
+
+    const result = runBash(
+      path.join(repo, ".agents/skills/skills-add/scripts/skills-add"),
+      ["second-owner/search-repo", "--skill", "search", "--no-commit"],
+      { cwd: repo, env }
+    );
+    expect(result.exitCode).toBe(0);
+
+    const lock = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as {
+      external: Record<string, { source?: string; installSkill?: string }>;
+    };
+    expect(lock.external["search"]?.source).toBe("first-owner/search-repo");
+    expect(lock.external["second-owner--search"]).toEqual({
+      source: "second-owner/search-repo",
+      sourceUrl: "https://github.com/second-owner/search-repo.git",
+      skillPath: "skills/search/SKILL.md",
+      installSkill: "search",
+    });
+
+    const nsSkillMd = path.join(active, "second-owner--search", "SKILL.md");
+    expect(fs.existsSync(nsSkillMd)).toBe(true);
+    expect(fs.readFileSync(nsSkillMd, "utf-8")).toContain(
+      "name: second-owner--search"
+    );
   }, 20_000);
 });

@@ -12,6 +12,7 @@ external Skill の取得から selected Catalog の Inventory Lock 更新・コ�
 - `$0` = GitHub URL または `owner/repo` 形式
 - `MY_SKILLS_CATALOG_DIR` = 更新対象 Catalog
 - `--skill <name>` = 特定のスキルのみインストール（省略時は repo 内全スキル）
+- `--as <alias>` = 展開名・エイリアスを指定（`--skill` 1件指定時のみ利用可能）
 - `--no-commit` = lock.json 更新のみ、コミットしない
 
 `$ARGUMENTS` が空の場合はユーザーに URL を質問する。
@@ -38,7 +39,8 @@ MY_SKILLS_CATALOG_DIR="$CATALOG_ROOT" \
 - インストール前後の差分で新規スキルを検出
 - GitHub API で各 SKILL.md の frontmatter `name` を突合して `skillPath` を解決
 - `.skills-ignore.json` に含まれるスキルはスキップ
-- Catalog の `skills.lock.json` に追記
+- 既存スキルとの同名衝突時は `--as <alias>` または自動名前空間（`owner--name`）を適用し、`SKILL.md` の frontmatter `name` も展開名と同期
+- Catalog の `skills.lock.json` に追記（キーを展開名とし、上流スキル名は `installSkill` に記録）
 - デフォルトで Catalog repository にコミット（`--no-commit` でスキップ）
 
 完了基準: スクリプトが exit 0 で終了し、`skills.lock.json` に新規スキルが追記されていること。追記前に、取得元（source・sourceUrl）、解決済み `skillPath`、インストールされた SKILL.md が期待したスキルであるかを検証し、検証に失敗した場合は lock への登録と成功報告を行わないこと。

@@ -22,6 +22,7 @@ source "$DIR/run-skills-cli.sh"
 URL=""
 NO_COMMIT=false
 SKILL_FILTERS=()
+ALIAS=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -33,11 +34,21 @@ while [[ $# -gt 0 ]]; do
         --catalog-dir=*) CATALOG_ROOT="${1#*=}"; shift ;;
         --no-commit) NO_COMMIT=true; shift ;;
         --skill) SKILL_FILTERS+=("$2"); shift 2 ;;
+        --as)
+            [ "$#" -ge 2 ] || { echo "Error: --as requires a name" >&2; exit 2; }
+            ALIAS="$2"
+            shift 2
+            ;;
         *) URL="$1"; shift ;;
     esac
 done
 
-: "${URL:?Usage: skills-add [--catalog-dir PATH] <url-or-owner/repo> [--skill <name>] [--no-commit]}"
+if [ -n "$ALIAS" ] && [ "${#SKILL_FILTERS[@]}" -ne 1 ]; then
+    echo "Error: --as can only be used with a single --skill argument" >&2
+    exit 2
+fi
+
+: "${URL:?Usage: skills-add [--catalog-dir PATH] <url-or-owner/repo> [--skill <name>] [--as <alias>] [--no-commit]}"
 if [ -z "$CATALOG_ROOT" ]; then
     CATALOG_ROOT="$(git rev-parse --show-toplevel)"
 fi
@@ -60,7 +71,7 @@ trap 'rm -f "$BEFORE_FILE" "$AFTER_FILE" "$TREE_FILE"' EXIT
 
 # --- Snapshot before ---
 mkdir -p "$HOME/.agents/skills"
-ls "$HOME/.agents/skills/" | grep -v '^\.' | sort > "$BEFORE_FILE"
+(ls -1 "$HOME/.agents/skills/" 2>/dev/null || true) | (grep -v '^\.' || true) | sort > "$BEFORE_FILE"
 
 # --- Run skills add (bunx with npx fallback) ---
 if [ "${#SKILL_FILTERS[@]}" -gt 0 ]; then
@@ -88,7 +99,7 @@ if [ "${#SKILL_FILTERS[@]}" -gt 0 ]; then
 fi
 
 # --- Snapshot after ---
-ls "$HOME/.agents/skills/" | grep -v '^\.' | sort > "$AFTER_FILE"
+(ls -1 "$HOME/.agents/skills/" 2>/dev/null || true) | (grep -v '^\.' || true) | sort > "$AFTER_FILE"
 
 # --- Find new skills ---
 NEW_SKILLS=$(comm -13 "$BEFORE_FILE" "$AFTER_FILE" || true)
@@ -154,9 +165,55 @@ for skill_name in "${REGISTER_TARGETS[@]}"; do
 
     # Check already in lock
     already=$(bun "$DIR/lock-check.ts" in-lock "$skill_name" "$LOCK_FILE")
-    if [ "$already" = "yes" ]; then
-        echo "  → Already in skills.lock.json, skipping"
-        continue
+
+    TARGET_NAME="$skill_name"
+    INSTALL_SKILL=""
+
+    if [ -n "$ALIAS" ]; then
+        TARGET_NAME="$ALIAS"
+        INSTALL_SKILL="$skill_name"
+        alias_in_lock=$(bun "$DIR/lock-check.ts" in-lock "$TARGET_NAME" "$LOCK_FILE")
+        if [ "$alias_in_lock" = "yes" ]; then
+            echo "  → Alias '$TARGET_NAME' already in skills.lock.json, skipping"
+            continue
+        fi
+    elif [ "$already" = "yes" ]; then
+        OWNER="${OWNER_REPO%%/*}"
+        NAMESPACED_NAME="${OWNER}--${skill_name}"
+        ns_in_lock=$(bun "$DIR/lock-check.ts" in-lock "$NAMESPACED_NAME" "$LOCK_FILE")
+        if [ "$ns_in_lock" = "yes" ]; then
+            echo "  → Both '$skill_name' and '$NAMESPACED_NAME' already in skills.lock.json, skipping"
+            continue
+        fi
+
+        if [ -t 0 ] && [ -r /dev/tty ]; then
+            echo "  ⚠️ Conflict: '$skill_name' already exists in skills.lock.json."
+            echo "    1) Namespace as '$NAMESPACED_NAME' (default)"
+            echo "    2) Enter custom alias"
+            echo "    3) Skip"
+            read -r -p "    Select option [1-3] (default: 1): " choice </dev/tty || choice="1"
+            case "$choice" in
+                2)
+                    read -r -p "    Enter alias: " custom_alias </dev/tty
+                    if [ -z "$custom_alias" ]; then
+                        echo "  → Empty alias, skipping"
+                        continue
+                    fi
+                    TARGET_NAME="$custom_alias"
+                    ;;
+                3)
+                    echo "  → Skipping by user choice"
+                    continue
+                    ;;
+                *)
+                    TARGET_NAME="$NAMESPACED_NAME"
+                    ;;
+            esac
+        else
+            echo "  → Notice: '$skill_name' already in skills.lock.json; namespacing as '$NAMESPACED_NAME'"
+            TARGET_NAME="$NAMESPACED_NAME"
+        fi
+        INSTALL_SKILL="$skill_name"
     fi
 
     # Resolve skillPath via GitHub API
@@ -176,10 +233,29 @@ for skill_name in "${REGISTER_TARGETS[@]}"; do
 
     echo "  → skillPath: $SKILL_PATH"
 
-    # Register in skills.lock.json
-    bun "$DIR/register-skill-lock.ts" "$LOCK_FILE" "$skill_name" "$OWNER_REPO" "$SOURCE_URL" "$SKILL_PATH"
+    # If renamed / namespaced, adjust installed directory and sync frontmatter
+    if [ "$TARGET_NAME" != "$skill_name" ]; then
+        echo "  → Renaming installed skill '$skill_name' to '$TARGET_NAME'"
+        SRC_DIR="$HOME/.agents/skills/$skill_name"
+        TARGET_DIR="$HOME/.agents/skills/$TARGET_NAME"
+        if [ -d "$SRC_DIR" ]; then
+            rm -rf "$TARGET_DIR"
+            mv "$SRC_DIR" "$TARGET_DIR"
+            if [ -f "$TARGET_DIR/SKILL.md" ]; then
+                bun "$DIR/sync-skill-name.ts" "$TARGET_DIR/SKILL.md" "$TARGET_NAME"
+            fi
+            link_agent_skill_dirs "$TARGET_NAME"
+        fi
+    fi
 
-    REGISTERED_NAMES+=("$skill_name")
+    # Register in skills.lock.json
+    if [ -n "$INSTALL_SKILL" ]; then
+        bun "$DIR/register-skill-lock.ts" "$LOCK_FILE" "$TARGET_NAME" "$OWNER_REPO" "$SOURCE_URL" "$SKILL_PATH" "$INSTALL_SKILL"
+    else
+        bun "$DIR/register-skill-lock.ts" "$LOCK_FILE" "$TARGET_NAME" "$OWNER_REPO" "$SOURCE_URL" "$SKILL_PATH"
+    fi
+
+    REGISTERED_NAMES+=("$TARGET_NAME")
 
 done
 
