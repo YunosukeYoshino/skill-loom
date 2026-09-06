@@ -91,4 +91,56 @@ describe("restore-lock", () => {
     expect(out.stdout).not.toContain("--skill broken");
     expect(out.stderr).toContain("missing source");
   });
+
+  test("--install 時に installSkill が指定されたスキルをリネームし frontmatter を同期する", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "restore-install-"));
+    const lockFile = path.join(dir, "skills.lock.json");
+    fs.writeFileSync(
+      lockFile,
+      JSON.stringify({
+        external: {
+          "owner--alpha": {
+            source: "owner/repo",
+            installSkill: "alpha",
+          },
+        },
+      })
+    );
+
+    const home = path.join(dir, "home");
+    const activeDir = path.join(home, ".agents", "skills");
+    fs.mkdirSync(activeDir, { recursive: true });
+
+    const binDir = path.join(dir, "bin");
+    fs.mkdirSync(binDir);
+    const npxStub = path.join(binDir, "npx");
+    fs.writeFileSync(
+      npxStub,
+      `#!/usr/bin/env bash
+mkdir -p "$HOME/.agents/skills/alpha"
+printf -- "---\\nname: alpha\\ndescription: test\\n---\\n" > "$HOME/.agents/skills/alpha/SKILL.md"
+`
+    );
+    fs.chmodSync(npxStub, 0o755);
+
+    const env = {
+      ...process.env,
+      MISE_YES: "1",
+      HOME: home,
+      PATH: `${binDir}:${process.env.PATH ?? ""}`,
+    };
+
+    const res = Bun.spawnSync(
+      [process.execPath, RESTORE_LOCK, "--install", lockFile],
+      {
+        env,
+      }
+    );
+    expect(res.exitCode).toBe(0);
+
+    expect(fs.existsSync(path.join(activeDir, "alpha"))).toBe(false);
+    const targetMd = path.join(activeDir, "owner--alpha", "SKILL.md");
+    expect(fs.existsSync(targetMd)).toBe(true);
+    expect(fs.readFileSync(targetMd, "utf-8")).toContain("name: owner--alpha");
+  });
 });

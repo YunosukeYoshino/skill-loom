@@ -171,16 +171,19 @@ export function installCommands(missing: Set<string>, lock: Lock): string[][] {
   const bySource = new Map<string, string[]>();
 
   for (const name of sortNames(missing)) {
-    const source = external[name]?.source;
+    const meta = external[name];
+    const source = meta?.source;
     if (!source) continue;
+    const installName = meta?.installSkill ?? name;
     const names = bySource.get(source);
-    if (names) names.push(name);
-    else bySource.set(source, [name]);
+    if (names) names.push(installName);
+    else bySource.set(source, [installName]);
   }
 
   return sortNames(bySource.keys()).map((source) => {
     const cmd = [skillsAddBin(), "skills", "add", source];
-    for (const name of bySource.get(source) ?? []) cmd.push("--skill", name);
+    const skills = sortNames(new Set(bySource.get(source) ?? []));
+    for (const name of skills) cmd.push("--skill", name);
     cmd.push("-g");
     for (const agent of GLOBAL_INSTALL_AGENTS) cmd.push("-a", agent);
     cmd.push("-y");
@@ -191,7 +194,11 @@ export function installCommands(missing: Set<string>, lock: Lock): string[][] {
 export class ProjectionInstallError extends Error {}
 
 export function runSkillsCli(cmd: string[]): void {
-  const result = Bun.spawnSync(cmd, { stdout: "inherit", stderr: "inherit" });
+  const result = Bun.spawnSync(cmd, {
+    env: process.env,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
   if (result.exitCode === 0) return;
 
   // bunx が無い環境向けの逃げ道。Python 側と同じ条件でだけ npx に落とす。
@@ -199,6 +206,7 @@ export function runSkillsCli(cmd: string[]): void {
     const fallback = ["npx", ...cmd.slice(1)];
     console.error(`+ ${fallback.join(" ")}  # bunx failed, retrying with npx`);
     const retry = Bun.spawnSync(fallback, {
+      env: process.env,
       stdout: "inherit",
       stderr: "inherit",
     });
@@ -304,6 +312,24 @@ export function applyDeck(
     console.log(`+ ${cmd.join(" ")}`);
     runSkillsCli(cmd);
   }
+
+  // エイリアス・名前空間付きスキルの配置調整（上流名 -> 展開名）と frontmatter 同期
+  const lockExt = lock.external ?? {};
+  for (const name of sortNames(externalInstall)) {
+    const meta = lockExt[name];
+    const installSkill = meta?.installSkill;
+    if (installSkill && installSkill !== name) {
+      const srcDir = join(activeDir(), installSkill);
+      const dstDir = join(activeDir(), name);
+      if (exists(srcDir)) {
+        if (exists(dstDir)) trashPath(dstDir);
+        movePath(srcDir, dstDir);
+        const skillMd = join(dstDir, "SKILL.md");
+        syncSkillMdName(skillMd, name);
+      }
+    }
+  }
+
   linkAgentSkillDirsMany(
     [...externalInstall].filter((name) => exists(join(activeDir(), name)))
   );
@@ -618,4 +644,62 @@ export function installProjectDeck(
   );
   applyDeck(new Set(), restore, install, lock);
   return { unresolved: new Set(), restore, install, alreadyActive };
+}
+
+/**
+ * SKILL.md の YAML frontmatter 内の name フィールドを展開名に同期する。
+ */
+export function syncSkillMdName(filePath: string, newName: string): boolean {
+  if (!existsSync(filePath)) {
+    return false;
+  }
+
+  let content: string;
+  try {
+    content = readFileSync(filePath, "utf-8");
+  } catch {
+    return false;
+  }
+
+  const lines = content.split(/\r?\n/);
+  if (lines.length === 0 || lines[0]?.trim() !== "---") {
+    return false;
+  }
+
+  let inFrontmatter = false;
+  let replaced = false;
+  const newLines: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] as string;
+    if (i === 0 && line.trim() === "---") {
+      inFrontmatter = true;
+      newLines.push(line);
+      continue;
+    }
+    if (inFrontmatter && line.trim() === "---") {
+      if (!replaced) {
+        newLines.push(`name: ${newName}`);
+        replaced = true;
+      }
+      inFrontmatter = false;
+      newLines.push(line);
+      continue;
+    }
+    if (inFrontmatter && /^name\s*:\s*.*$/.test(line)) {
+      newLines.push(`name: ${newName}`);
+      replaced = true;
+      continue;
+    }
+    newLines.push(line);
+  }
+
+  const tmpPath = `${filePath}.tmp`;
+  try {
+    writeFileSync(tmpPath, newLines.join("\n"));
+    renameSync(tmpPath, filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }

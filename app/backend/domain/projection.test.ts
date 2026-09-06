@@ -39,6 +39,7 @@ import {
   installProjectDeck,
   planProjection,
   restorePreviousPreset,
+  syncSkillMdName,
 } from "./projection";
 
 let sandbox: string;
@@ -273,6 +274,57 @@ describe("Restore は Archive から戻して symlink を張り直す", () => {
   });
 });
 
+describe("applyDeck external install", () => {
+  test("installSkill が指定された外部スキルをインストールすると、展開名にリネームされ frontmatter が同期される", () => {
+    const stub = dir("skills-add-stub");
+    writeFileSync(
+      stub,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'target="${MY_SKILLS_ACTIVE_DIR:-}"',
+        'if [ -z "$target" ]; then target="$HOME/.agents/skills"; fi',
+        "for ((i=1; i <= $#; i++)); do",
+        '  if [ "${!i}" = "--skill" ]; then',
+        "    j=$((i+1))",
+        '    name="${!j}"',
+        '    mkdir -p "$target/$name"',
+        '    printf -- \'---\\nname: %s\\ndescription: fixture\\n---\\n\' "$name" > "$target/$name/SKILL.md"',
+        "  fi",
+        "done",
+      ].join("\n")
+    );
+    chmodSync(stub, 0o755);
+    setEnv("MY_SKILLS_ADD_BIN", stub);
+
+    const aliasedLock: Lock = {
+      external: {
+        "owner--alpha": {
+          source: "owner/repo",
+          installSkill: "alpha",
+        },
+      },
+    };
+
+    applyDeck(
+      new Set(),
+      new Set(),
+      new Set(["owner--alpha"]),
+      aliasedLock,
+      new Set()
+    );
+
+    // 上流名 alpha から展開名 owner--alpha にリネームされていること
+    expect(existsSync(dir("active", "alpha"))).toBe(false);
+    const activeMd = dir("active", "owner--alpha", "SKILL.md");
+    expect(existsSync(activeMd)).toBe(true);
+    expect(readFileSync(activeMd, "utf-8")).toContain("name: owner--alpha");
+
+    // エージェントシンボリックリンクが展開名に張られていること
+    expect(linked("owner--alpha")).toBe(true);
+  });
+});
+
 describe("deregisterFromCliLock", () => {
   test("CLI lock が無ければ警告なし", () => {
     expect(deregisterFromCliLock(new Set(["alpha"]))).toBe("");
@@ -473,6 +525,44 @@ describe("installCommands", () => {
   test("external に載っていない名前は無視する", () => {
     expect(installCommands(new Set(["alpha"]), lock)).toEqual([]);
   });
+
+  test("installSkill がある場合は上流スキル名を --skill に渡す", () => {
+    const aliasedLock: Lock = {
+      external: {
+        "owner--alpha": {
+          source: "owner/repo",
+          installSkill: "alpha",
+        },
+        "custom-beta": {
+          source: "owner/repo",
+          installSkill: "beta",
+        },
+      },
+    };
+
+    expect(
+      installCommands(new Set(["owner--alpha", "custom-beta"]), aliasedLock)
+    ).toEqual([
+      [
+        "bunx",
+        "skills",
+        "add",
+        "owner/repo",
+        "--skill",
+        "alpha",
+        "--skill",
+        "beta",
+        "-g",
+        "-a",
+        "claude-code",
+        "-a",
+        "codex",
+        "-a",
+        "antigravity",
+        "-y",
+      ],
+    ]);
+  });
 });
 
 describe("installCustomFromRepo", () => {
@@ -551,5 +641,36 @@ describe("installProjectDeck", () => {
     expect(result.restore.size).toBe(0);
     expect(existsSync(dir("archive", "alpha"))).toBe(true);
     expect(existsSync(dir("active", "alpha"))).toBe(false);
+  });
+});
+
+describe("syncSkillMdName", () => {
+  test("SKILL.md の frontmatter name を置換する", () => {
+    const mdPath = dir("active", "test-skill.md");
+    writeFileSync(
+      mdPath,
+      `---
+name: old-name
+description: A sample skill
+---
+
+# Title
+Body text
+`
+    );
+
+    const result = syncSkillMdName(mdPath, "new-namespaced-name");
+    expect(result).toBe(true);
+
+    const content = readFileSync(mdPath, "utf-8");
+    expect(content).toContain("name: new-namespaced-name");
+    expect(content).toContain("description: A sample skill");
+    expect(content).toContain("# Title");
+  });
+
+  test("存在しないファイルなら false を返す", () => {
+    expect(syncSkillMdName(dir("active", "non-existent.md"), "any")).toBe(
+      false
+    );
   });
 });
