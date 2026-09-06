@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -31,9 +32,13 @@ import {
   isArgvSafeSkillName,
   registerInstalledExternalSelection,
   removeExternalSkillFromManagement,
+  resolveExternalCandidatesMapping,
   runExternalInstall,
 } from "./external";
-import { externalSourceDetailPayload } from "../payloads";
+import {
+  externalPreviewPayload,
+  externalSourceDetailPayload,
+} from "../payloads";
 import { sha256 } from "../infrastructure/github";
 import type { Lock } from "./inventory";
 
@@ -454,14 +459,21 @@ describe("addExternalToLock", () => {
     ).toBe("skills/bare/SKILL.md");
   });
 
-  test("custom skill と同名なら external には足さない", () => {
+  test("custom skill と同名なら名前空間化して登録する", () => {
     addExternalToLock("owner/repo", new Set(["mine"]), [
       { name: "mine", description: "" },
     ]);
 
     expect(
       JSON.parse(readFileSync(dir("skills.lock.json"), "utf-8")).external
-    ).toEqual({});
+    ).toEqual({
+      "owner--mine": {
+        source: "owner/repo",
+        sourceUrl: "https://github.com/owner/repo.git",
+        skillPath: "skills/mine/SKILL.md",
+        installSkill: "mine",
+      },
+    });
   });
 
   test("source に無い名前は弾く", () => {
@@ -652,5 +664,214 @@ describe("externalSourceDetailPayload", () => {
     expect(detail.installed[0]?.updateCommand).toBe(
       "'/tmp/update stub;echo pwned' skills update alpha -g -y"
     );
+  });
+});
+
+describe("resolveExternalCandidatesMapping", () => {
+  test("衝突がない場合は upstreamName と deployName が同一", () => {
+    const testLock: Lock = {
+      external: {},
+    };
+    const candidates = [{ name: "alpha", path: "skills/alpha/SKILL.md" }];
+    const mapping = resolveExternalCandidatesMapping(
+      testLock,
+      "owner/repo",
+      candidates
+    );
+    expect(mapping).toEqual([
+      {
+        candidate: candidates[0]!,
+        upstreamName: "alpha",
+        deployName: "alpha",
+        isColliding: false,
+      },
+    ]);
+  });
+
+  test("Custom スキルと名前が衝突する場合、owner--name に名前空間化される", () => {
+    const testLock: Lock = {
+      custom: {
+        repo: "my/catalog",
+        skills: { alpha: { repoPath: "custom/alpha" } },
+      },
+      external: {},
+    };
+    const candidates = [{ name: "alpha", path: "skills/alpha/SKILL.md" }];
+    const mapping = resolveExternalCandidatesMapping(
+      testLock,
+      "other-owner/repo",
+      candidates
+    );
+    expect(mapping).toEqual([
+      {
+        candidate: candidates[0]!,
+        upstreamName: "alpha",
+        deployName: "other-owner--alpha",
+        isColliding: true,
+      },
+    ]);
+  });
+
+  test("別リポジトリの External スキルと衝突する場合、owner--name に名前空間化される", () => {
+    const testLock: Lock = {
+      external: {
+        alpha: {
+          source: "first-owner/repo",
+          skillPath: "skills/alpha/SKILL.md",
+        },
+      },
+    };
+    const candidates = [{ name: "alpha", path: "skills/alpha/SKILL.md" }];
+    const mapping = resolveExternalCandidatesMapping(
+      testLock,
+      "second-owner/repo",
+      candidates
+    );
+    expect(mapping).toEqual([
+      {
+        candidate: candidates[0]!,
+        upstreamName: "alpha",
+        deployName: "second-owner--alpha",
+        isColliding: true,
+      },
+    ]);
+  });
+
+  test("同一リポジトリの既存スキルとは衝突とみなさない", () => {
+    const testLock: Lock = {
+      external: {
+        alpha: {
+          source: "owner/repo",
+          skillPath: "skills/alpha/SKILL.md",
+        },
+      },
+    };
+    const candidates = [{ name: "alpha", path: "skills/alpha/SKILL.md" }];
+    const mapping = resolveExternalCandidatesMapping(
+      testLock,
+      "owner/repo",
+      candidates
+    );
+    expect(mapping).toEqual([
+      {
+        candidate: candidates[0]!,
+        upstreamName: "alpha",
+        deployName: "alpha",
+        isColliding: false,
+      },
+    ]);
+  });
+});
+
+describe("addExternalToLock with collision", () => {
+  test("衝突時に名前空間化されたキーと installSkill を記録する", () => {
+    const lockPath = dir("skills.lock.json");
+    setEnv("MY_SKILLS_LOCK_FILE", lockPath);
+    writeFileSync(
+      lockPath,
+      JSON.stringify({
+        version: 1,
+        custom: {
+          repo: "owner/catalog",
+          skills: { alpha: { category: "custom", repoPath: "custom/alpha" } },
+        },
+        external: {},
+        vendor: {},
+      })
+    );
+
+    const candidates = [{ name: "alpha", path: "skills/alpha/SKILL.md" }];
+
+    addExternalToLock("other/repo", new Set(["other--alpha"]), candidates);
+
+    const updated = JSON.parse(readFileSync(lockPath, "utf-8")) as Lock;
+    expect(updated.external).toEqual({
+      "other--alpha": {
+        source: "other/repo",
+        sourceUrl: "https://github.com/other/repo.git",
+        skillPath: "skills/alpha/SKILL.md",
+        installSkill: "alpha",
+      },
+    });
+  });
+});
+
+describe("runExternalInstall with collision", () => {
+  test("衝突時に --as オプション付きで skills-add を呼び出す", async () => {
+    const logFile = dir("skills-add-args.log");
+    const script = dir("skills-add-stub");
+    writeFileSync(script, `#!/bin/sh\necho "$@" >> '${logFile}'\n`);
+    chmodSync(script, 0o755);
+    setEnv("MY_SKILLS_ADD_SCRIPT", script);
+
+    const lockPath = dir("skills.lock.json");
+    setEnv("MY_SKILLS_LOCK_FILE", lockPath);
+    writeFileSync(
+      lockPath,
+      JSON.stringify({
+        version: 1,
+        custom: {
+          repo: "owner/catalog",
+          skills: { alpha: { category: "custom", repoPath: "custom/alpha" } },
+        },
+        external: {},
+        vendor: {},
+      })
+    );
+
+    await runExternalInstall("other/repo", new Set(["other--alpha", "beta"]));
+
+    const logContent = readFileSync(logFile, "utf-8");
+    // beta は通常インストール
+    expect(logContent).toContain("other/repo --no-commit --skill beta");
+    // alpha は --as 付きで個別インストール
+    expect(logContent).toContain(
+      "other/repo --skill alpha --as other--alpha --no-commit"
+    );
+  });
+});
+
+describe("externalPreviewPayload with collision", () => {
+  test("衝突するスキルの候補行が名前空間化される", () => {
+    const testLock: Lock = {
+      custom: {
+        repo: "owner/catalog",
+        skills: { alpha: { repoPath: "custom/alpha" } },
+      },
+      external: {},
+    };
+    const candidates = [
+      {
+        name: "alpha",
+        path: "skills/alpha/SKILL.md",
+        description: "Alpha skill",
+      },
+      { name: "beta", path: "skills/beta/SKILL.md", description: "Beta skill" },
+    ];
+
+    const payload = externalPreviewPayload(
+      testLock,
+      "",
+      "other/repo",
+      candidates
+    );
+    expect(payload.rows).toEqual([
+      {
+        name: "other--alpha",
+        category: "[名前空間: other--alpha] skills/alpha/SKILL.md",
+        description: "Alpha skill",
+        source: "external",
+        state: "missing",
+        checked: false,
+      },
+      {
+        name: "beta",
+        category: "skills/beta/SKILL.md",
+        description: "Beta skill",
+        source: "external",
+        state: "missing",
+        checked: false,
+      },
+    ]);
   });
 });

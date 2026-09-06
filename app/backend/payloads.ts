@@ -27,6 +27,7 @@ import {
   externalSourceStatusLabel,
   externalSourceSummary,
   externalUpdateCommand,
+  resolveExternalCandidatesMapping,
   skillHasRemoteUpdate,
   type SourceUpdateStatus,
 } from "./domain/external";
@@ -325,6 +326,12 @@ export function externalPreviewPayload(
   const ownerRepo = normalizeGithubSource(source);
   const active = visibleInstalledNames(lock, activeDir());
   const archived = visibleInstalledNames(lock, archiveDir());
+  const resolved = resolveExternalCandidatesMapping(
+    lock,
+    ownerRepo,
+    candidates
+  );
+
   return {
     page: "external-preview",
     title: `外部skillsを取り込む - ${ownerRepo}`,
@@ -332,14 +339,16 @@ export function externalPreviewPayload(
     decks: deckNames(),
     deckName,
     source: ownerRepo,
-    rows: candidates.map((candidate) => ({
-      name: candidate.name,
-      category: candidate.path ?? ownerRepo,
+    rows: resolved.map(({ candidate, deployName, isColliding }) => ({
+      name: deployName,
+      category: isColliding
+        ? `[名前空間: ${deployName}] ${candidate.path ?? ownerRepo}`
+        : (candidate.path ?? ownerRepo),
       description: candidate.description ?? "",
       source: "external",
-      state: active.has(candidate.name)
+      state: active.has(deployName)
         ? "active"
-        : archived.has(candidate.name)
+        : archived.has(deployName)
           ? "archive"
           : "missing",
       checked: false,

@@ -118,7 +118,7 @@ export function externalSourceStatusLabel(
 
 // ---- 外部 CLI のコマンド ----
 
-const EXTERNAL_SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const EXTERNAL_SKILL_NAME_PATTERN = /^[a-z0-9]+(?:--?[a-z0-9]+)*$/;
 
 function assertValidExternalSkillName(name: string): void {
   if (!EXTERNAL_SKILL_NAME_PATTERN.test(name))
@@ -465,6 +465,78 @@ export function formatExternalUpdateMessage(
  */
 // ---- 取り込み ----
 
+export type ResolvedExternalCandidate = {
+  candidate: ExternalCandidate;
+  upstreamName: string;
+  deployName: string;
+  isColliding: boolean;
+};
+
+export function resolveExternalCandidatesMapping(
+  lock: Lock,
+  source: string,
+  candidates: ExternalCandidate[]
+): ResolvedExternalCandidate[] {
+  const ownerRepo = normalizeGithubSource(source);
+  const owner =
+    (ownerRepo.includes("/") ? ownerRepo.split("/")[0] : ownerRepo) ||
+    ownerRepo;
+
+  const custom = lock.custom?.skills ?? {};
+  const vendor = lock.vendor?.skills ?? {};
+  const external = lock.external ?? {};
+  const active = visibleInstalledNames(lock, activeDir());
+  const archived = visibleInstalledNames(lock, archiveDir());
+
+  return candidates.map((candidate) => {
+    const upstreamName = candidate.name;
+    const namespaced = `${owner}--${upstreamName}`;
+
+    // 既に名前空間付きでインストールまたは登録されている場合
+    if (
+      namespaced in external ||
+      active.has(namespaced) ||
+      archived.has(namespaced)
+    ) {
+      return {
+        candidate,
+        upstreamName,
+        deployName: namespaced,
+        isColliding: true,
+      };
+    }
+
+    // 既に同名で手元にインストール済み（active / archive）の場合
+    if (active.has(upstreamName) || archived.has(upstreamName)) {
+      return {
+        candidate,
+        upstreamName,
+        deployName: upstreamName,
+        isColliding: false,
+      };
+    }
+
+    // 手元に未インストールで、既存の Custom/Vendor/別External と衝突する場合
+    let isColliding = false;
+    if (upstreamName in custom || upstreamName in vendor) {
+      isColliding = true;
+    } else if (upstreamName in external) {
+      const existing = external[upstreamName];
+      if (existing?.source && existing.source !== ownerRepo) {
+        isColliding = true;
+      }
+    }
+
+    const deployName = isColliding ? namespaced : upstreamName;
+    return {
+      candidate,
+      upstreamName,
+      deployName,
+      isColliding,
+    };
+  });
+}
+
 /**
  * 外部 skill を実際に global へ install する。
  *
@@ -479,19 +551,66 @@ export async function runExternalInstall(
   selected: Set<string>
 ): Promise<void> {
   for (const name of selected) assertValidExternalSkillName(name);
-  const command = ["bash", skillsAddScript(), source, "--no-commit"];
-  for (const name of sortNames(selected)) command.push("--skill", name);
-  const proc = Bun.spawn(command, {
-    stdout: "pipe",
-    stderr: "pipe",
-    timeout: 180_000 * Math.max(1, selected.size),
-  });
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    throw new Error(
-      `Command '${command.join(" ")}' returned non-zero exit status ${exitCode}.`
-    );
+  const ownerRepo = normalizeGithubSource(source);
+  const owner =
+    (ownerRepo.includes("/") ? ownerRepo.split("/")[0] : ownerRepo) ||
+    ownerRepo;
+  const prefix = `${owner}--`;
+
+  const aliased: Array<{ deployName: string; upstreamName: string }> = [];
+  const standard: string[] = [];
+
+  for (const name of sortNames(selected)) {
+    if (name.startsWith(prefix) && name.length > prefix.length) {
+      aliased.push({
+        deployName: name,
+        upstreamName: name.slice(prefix.length),
+      });
+    } else {
+      standard.push(name);
+    }
   }
+
+  if (standard.length > 0) {
+    const command = ["bash", skillsAddScript(), source, "--no-commit"];
+    for (const name of standard) command.push("--skill", name);
+    const proc = Bun.spawn(command, {
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 180_000 * standard.length,
+    });
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      throw new Error(
+        `Command '${command.join(" ")}' returned non-zero exit status ${exitCode}.`
+      );
+    }
+  }
+
+  for (const item of aliased) {
+    const command = [
+      "bash",
+      skillsAddScript(),
+      source,
+      "--skill",
+      item.upstreamName,
+      "--as",
+      item.deployName,
+      "--no-commit",
+    ];
+    const proc = Bun.spawn(command, {
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 180_000,
+    });
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      throw new Error(
+        `Command '${command.join(" ")}' returned non-zero exit status ${exitCode}.`
+      );
+    }
+  }
+
   linkAgentSkillDirsMany(selected);
 }
 
@@ -508,21 +627,49 @@ export function addExternalToLock(
 ): void {
   for (const name of selected) assertValidExternalSkillName(name);
   const ownerRepo = normalizeGithubSource(source);
-  const candidateByName = new Map(
-    candidates.map((candidate) => [candidate.name, candidate])
-  );
+  const owner =
+    (ownerRepo.includes("/") ? ownerRepo.split("/")[0] : ownerRepo) ||
+    ownerRepo;
+  const prefix = `${owner}--`;
   const lock = loadLock();
   const external = (lock.external ??= {});
   const custom = lock.custom?.skills ?? {};
+  const vendor = lock.vendor?.skills ?? {};
+
+  const candidateByUpstream = new Map(candidates.map((c) => [c.name, c]));
 
   for (const name of sortNames(selected)) {
-    if (name in custom) continue;
-    const candidate = candidateByName.get(name);
+    const isPrefixed = name.startsWith(prefix) && name.length > prefix.length;
+    const upstreamName = isPrefixed ? name.slice(prefix.length) : name;
+    const candidate =
+      candidateByUpstream.get(upstreamName) ?? candidateByUpstream.get(name);
     if (!candidate) throw new ValueError(`Skill not found in source: ${name}`);
-    external[name] = {
+
+    let deployName = name;
+    let installSkill: string | undefined = undefined;
+
+    if (isPrefixed) {
+      deployName = name;
+      installSkill = upstreamName;
+    } else {
+      const hasCollision =
+        name in custom ||
+        name in vendor ||
+        (name in external && external[name]?.source !== ownerRepo);
+      if (hasCollision) {
+        deployName = `${owner}--${name}`;
+        installSkill = name;
+      }
+    }
+
+    if (deployName in custom) continue;
+
+    external[deployName] = {
       source: ownerRepo,
       sourceUrl: `https://github.com/${ownerRepo}.git`,
-      skillPath: candidate.path ?? `skills/${name}/SKILL.md`,
+      skillPath:
+        candidate.path ?? `skills/${installSkill ?? deployName}/SKILL.md`,
+      ...(installSkill ? { installSkill } : {}),
     };
   }
   saveLock(lock);
@@ -541,18 +688,38 @@ export function registerInstalledExternalSelection(
 ): [Lock, number] {
   for (const name of selected) assertValidExternalSkillName(name);
   const ownerRepo = normalizeGithubSource(source);
+  const owner =
+    (ownerRepo.includes("/") ? ownerRepo.split("/")[0] : ownerRepo) ||
+    ownerRepo;
+  const prefix = `${owner}--`;
   const lock = loadLock();
   const external = (lock.external ??= {});
   const custom = lock.custom?.skills ?? {};
   const globalSkills = loadGlobalLock();
 
   for (const name of sortNames(selected)) {
+    const isAliased = name.startsWith(prefix) && name.length > prefix.length;
+    const upstreamName = isAliased ? name.slice(prefix.length) : name;
     if (name in custom) continue;
-    const globalMeta = globalSkills[name] ?? {};
+
+    const existingMeta = external[name];
+    const globalMeta = globalSkills[name] ?? globalSkills[upstreamName] ?? {};
+
     external[name] = {
       source: ownerRepo,
-      sourceUrl: globalMeta.sourceUrl ?? `https://github.com/${ownerRepo}.git`,
-      skillPath: globalMeta.skillPath ?? `skills/${name}/SKILL.md`,
+      sourceUrl:
+        globalMeta.sourceUrl ??
+        existingMeta?.sourceUrl ??
+        `https://github.com/${ownerRepo}.git`,
+      skillPath:
+        globalMeta.skillPath ??
+        existingMeta?.skillPath ??
+        `skills/${upstreamName}/SKILL.md`,
+      ...(existingMeta?.installSkill
+        ? { installSkill: existingMeta.installSkill }
+        : isAliased
+          ? { installSkill: upstreamName }
+          : {}),
     };
   }
   saveLock(lock);
