@@ -159,10 +159,13 @@ function localContentHash(name: string): string {
  */
 export async function skillHasRemoteUpdate(
   name: string,
-  candidate: ExternalCandidate
+  candidate: ExternalCandidate,
+  upstreamName = name
 ): Promise<boolean> {
-  const cliStatus = await cliSkillNeedsUpdate(name);
-  if (cliStatus !== null) return cliStatus;
+  if (upstreamName === name) {
+    const cliStatus = await cliSkillNeedsUpdate(name);
+    if (cliStatus !== null) return cliStatus;
+  }
   const remoteHash = candidate.contentHash ?? "";
   const localHash = localContentHash(name);
   return Boolean(remoteHash && localHash && remoteHash !== localHash);
@@ -207,11 +210,12 @@ function updateSkillPathInLock(name: string, newPath: string): void {
 
 function resolveAndUpdateSkillPath(
   name: string,
-  source: string
+  source: string,
+  upstreamName = name
 ): string | null {
   try {
     for (const candidate of externalSkillCandidates(source)) {
-      if (candidate.name === name && candidate.path) {
+      if (candidate.name === upstreamName && candidate.path) {
         updateSkillPathInLock(name, candidate.path);
         return candidate.path;
       }
@@ -229,9 +233,12 @@ export async function checkInstalledSkillRemoteUpdate(
 ): Promise<UpdateResult> {
   const [source, name] = task;
   let skillPath = task[2];
+  const upstreamName = loadLock().external?.[name]?.installSkill ?? name;
   try {
-    const cliStatus = await cliSkillNeedsUpdate(name);
-    if (cliStatus !== null) return [source, name, cliStatus, null];
+    if (upstreamName === name) {
+      const cliStatus = await cliSkillNeedsUpdate(name);
+      if (cliStatus !== null) return [source, name, cliStatus, null];
+    }
 
     const ownerRepo = normalizeGithubSource(source);
     let remoteHash: string;
@@ -240,7 +247,7 @@ export async function checkInstalledSkillRemoteUpdate(
     } catch (error) {
       // 404 は「消えた」ではなく「リポジトリ内で移動した」ことが多い。clone して探し直す。
       if (!(error instanceof HttpError) || error.code !== 404) throw error;
-      const newPath = resolveAndUpdateSkillPath(name, source);
+      const newPath = resolveAndUpdateSkillPath(name, source, upstreamName);
       if (!newPath) throw error;
       skillPath = newPath;
       remoteHash = await fetchRemoteSkillContentHash(ownerRepo, skillPath);
@@ -301,8 +308,11 @@ export async function updatableSkillsForSource(
   );
   const updatable: string[] = [];
   for (const name of sortNames(installed)) {
-    const candidate = candidateByName.get(name) ?? { name };
-    if (await skillHasRemoteUpdate(name, candidate)) updatable.push(name);
+    const upstreamName = lock.external?.[name]?.installSkill ?? name;
+    const candidate = candidateByName.get(upstreamName) ??
+      candidateByName.get(name) ?? { name: upstreamName };
+    if (await skillHasRemoteUpdate(name, candidate, upstreamName))
+      updatable.push(name);
   }
   return updatable;
 }
@@ -472,29 +482,65 @@ export type ResolvedExternalCandidate = {
   isColliding: boolean;
 };
 
+function githubOwner(ownerRepo: string): string {
+  const index = ownerRepo.indexOf("/");
+  return (index < 0 ? ownerRepo : ownerRepo.slice(0, index)) || ownerRepo;
+}
+
+export function namespacedExternalName(
+  ownerRepo: string,
+  upstreamName: string
+): string {
+  return `${githubOwner(ownerRepo)}--${upstreamName}`;
+}
+
+export function matchResolvedCandidate(
+  mapping: ResolvedExternalCandidate[],
+  selectedName: string
+): ResolvedExternalCandidate | undefined {
+  return (
+    mapping.find((row) => row.deployName === selectedName) ??
+    mapping.find((row) => row.upstreamName === selectedName)
+  );
+}
+
+export function resolveSelectedExternalSkills(
+  lock: Lock,
+  source: string,
+  selected: Set<string>,
+  candidates: ExternalCandidate[]
+): ResolvedExternalCandidate[] {
+  const mapping = resolveExternalCandidatesMapping(lock, source, candidates);
+  return sortNames(selected).map((name) => {
+    const resolved = matchResolvedCandidate(mapping, name);
+    if (!resolved) throw new ValueError(`Skill not found in source: ${name}`);
+    return resolved;
+  });
+}
+
 export function resolveExternalCandidatesMapping(
   lock: Lock,
   source: string,
   candidates: ExternalCandidate[]
 ): ResolvedExternalCandidate[] {
   const ownerRepo = normalizeGithubSource(source);
-  const owner =
-    (ownerRepo.includes("/") ? ownerRepo.split("/")[0] : ownerRepo) ||
-    ownerRepo;
+  const namespacedOf = (upstreamName: string) =>
+    namespacedExternalName(ownerRepo, upstreamName);
 
   const custom = lock.custom?.skills ?? {};
-  const vendor = lock.vendor?.skills ?? {};
+  const vendor = lock.vendor ?? {};
   const external = lock.external ?? {};
   const active = visibleInstalledNames(lock, activeDir());
   const archived = visibleInstalledNames(lock, archiveDir());
 
   return candidates.map((candidate) => {
     const upstreamName = candidate.name;
-    const namespaced = `${owner}--${upstreamName}`;
+    const namespaced = namespacedOf(upstreamName);
+    const existingNamespaced = external[namespaced];
+    const existingUpstream = external[upstreamName];
 
-    // 既に名前空間付きでインストールまたは登録されている場合
     if (
-      namespaced in external ||
+      existingNamespaced?.source === ownerRepo ||
       active.has(namespaced) ||
       archived.has(namespaced)
     ) {
@@ -506,8 +552,7 @@ export function resolveExternalCandidatesMapping(
       };
     }
 
-    // 既に同名で手元にインストール済み（active / archive）の場合
-    if (active.has(upstreamName) || archived.has(upstreamName)) {
+    if (existingUpstream?.source === ownerRepo) {
       return {
         candidate,
         upstreamName,
@@ -516,23 +561,18 @@ export function resolveExternalCandidatesMapping(
       };
     }
 
-    // 手元に未インストールで、既存の Custom/Vendor/別External と衝突する場合
-    let isColliding = false;
-    if (upstreamName in custom || upstreamName in vendor) {
-      isColliding = true;
-    } else if (upstreamName in external) {
-      const existing = external[upstreamName];
-      if (existing?.source && existing.source !== ownerRepo) {
-        isColliding = true;
-      }
-    }
+    const taken =
+      upstreamName in custom ||
+      upstreamName in vendor ||
+      Boolean(existingUpstream) ||
+      active.has(upstreamName) ||
+      archived.has(upstreamName);
 
-    const deployName = isColliding ? namespaced : upstreamName;
     return {
       candidate,
       upstreamName,
-      deployName,
-      isColliding,
+      deployName: taken ? namespaced : upstreamName,
+      isColliding: taken,
     };
   });
 }
@@ -548,26 +588,31 @@ export function resolveExternalCandidatesMapping(
  */
 export async function runExternalInstall(
   source: string,
-  selected: Set<string>
+  selected: Set<string>,
+  candidates?: ExternalCandidate[]
 ): Promise<void> {
   for (const name of selected) assertValidExternalSkillName(name);
   const ownerRepo = normalizeGithubSource(source);
-  const owner =
-    (ownerRepo.includes("/") ? ownerRepo.split("/")[0] : ownerRepo) ||
-    ownerRepo;
-  const prefix = `${owner}--`;
+  const resolved = resolveSelectedExternalSkills(
+    loadLock(),
+    ownerRepo,
+    selected,
+    candidates ?? externalSkillCandidates(ownerRepo)
+  );
 
   const aliased: Array<{ deployName: string; upstreamName: string }> = [];
   const standard: string[] = [];
+  const deployNames: string[] = [];
 
-  for (const name of sortNames(selected)) {
-    if (name.startsWith(prefix) && name.length > prefix.length) {
+  for (const row of resolved) {
+    deployNames.push(row.deployName);
+    if (row.deployName !== row.upstreamName) {
       aliased.push({
-        deployName: name,
-        upstreamName: name.slice(prefix.length),
+        deployName: row.deployName,
+        upstreamName: row.upstreamName,
       });
     } else {
-      standard.push(name);
+      standard.push(row.upstreamName);
     }
   }
 
@@ -611,7 +656,7 @@ export async function runExternalInstall(
     }
   }
 
-  linkAgentSkillDirsMany(selected);
+  linkAgentSkillDirsMany(deployNames);
 }
 
 /**
@@ -627,53 +672,31 @@ export function addExternalToLock(
 ): void {
   for (const name of selected) assertValidExternalSkillName(name);
   const ownerRepo = normalizeGithubSource(source);
-  const owner =
-    (ownerRepo.includes("/") ? ownerRepo.split("/")[0] : ownerRepo) ||
-    ownerRepo;
-  const prefix = `${owner}--`;
   const lock = loadLock();
   const external = (lock.external ??= {});
   const custom = lock.custom?.skills ?? {};
-  const vendor = lock.vendor?.skills ?? {};
+  const resolved = resolveSelectedExternalSkills(
+    lock,
+    ownerRepo,
+    selected,
+    candidates
+  );
+  const ignored = new Set<string>();
 
-  const candidateByUpstream = new Map(candidates.map((c) => [c.name, c]));
-
-  for (const name of sortNames(selected)) {
-    const isPrefixed = name.startsWith(prefix) && name.length > prefix.length;
-    const upstreamName = isPrefixed ? name.slice(prefix.length) : name;
-    const candidate =
-      candidateByUpstream.get(upstreamName) ?? candidateByUpstream.get(name);
-    if (!candidate) throw new ValueError(`Skill not found in source: ${name}`);
-
-    let deployName = name;
-    let installSkill: string | undefined = undefined;
-
-    if (isPrefixed) {
-      deployName = name;
-      installSkill = upstreamName;
-    } else {
-      const hasCollision =
-        name in custom ||
-        name in vendor ||
-        (name in external && external[name]?.source !== ownerRepo);
-      if (hasCollision) {
-        deployName = `${owner}--${name}`;
-        installSkill = name;
-      }
-    }
-
+  for (const row of resolved) {
+    const { candidate, deployName, upstreamName } = row;
     if (deployName in custom) continue;
-
+    ignored.add(deployName);
+    ignored.add(upstreamName);
     external[deployName] = {
       source: ownerRepo,
       sourceUrl: `https://github.com/${ownerRepo}.git`,
-      skillPath:
-        candidate.path ?? `skills/${installSkill ?? deployName}/SKILL.md`,
-      ...(installSkill ? { installSkill } : {}),
+      skillPath: candidate.path ?? `skills/${upstreamName}/SKILL.md`,
+      ...(deployName !== upstreamName ? { installSkill: upstreamName } : {}),
     };
   }
   saveLock(lock);
-  removeIgnoredSkills(selected);
+  removeIgnoredSkills(ignored.size > 0 ? ignored : selected);
 }
 
 /**
@@ -684,28 +707,39 @@ export function addExternalToLock(
  */
 export function registerInstalledExternalSelection(
   source: string,
-  selected: Set<string>
+  selected: Set<string>,
+  candidates?: ExternalCandidate[]
 ): [Lock, number] {
   for (const name of selected) assertValidExternalSkillName(name);
   const ownerRepo = normalizeGithubSource(source);
-  const owner =
-    (ownerRepo.includes("/") ? ownerRepo.split("/")[0] : ownerRepo) ||
-    ownerRepo;
-  const prefix = `${owner}--`;
   const lock = loadLock();
   const external = (lock.external ??= {});
   const custom = lock.custom?.skills ?? {};
   const globalSkills = loadGlobalLock();
+  const resolved = candidates
+    ? resolveSelectedExternalSkills(lock, ownerRepo, selected, candidates)
+    : sortNames(selected).map((name) => ({
+        deployName: name,
+        upstreamName: external[name]?.installSkill ?? name,
+        candidate: {
+          name: external[name]?.installSkill ?? name,
+          path: external[name]?.skillPath,
+        },
+      }));
+  const ignored = new Set<string>();
 
-  for (const name of sortNames(selected)) {
-    const isAliased = name.startsWith(prefix) && name.length > prefix.length;
-    const upstreamName = isAliased ? name.slice(prefix.length) : name;
-    if (name in custom) continue;
+  for (const row of resolved) {
+    const deployName = row.deployName;
+    const upstreamName = row.upstreamName;
+    if (deployName in custom) continue;
+    ignored.add(deployName);
+    ignored.add(upstreamName);
 
-    const existingMeta = external[name];
-    const globalMeta = globalSkills[name] ?? globalSkills[upstreamName] ?? {};
+    const existingMeta = external[deployName] ?? external[upstreamName];
+    const globalMeta =
+      globalSkills[deployName] ?? globalSkills[upstreamName] ?? {};
 
-    external[name] = {
+    external[deployName] = {
       source: ownerRepo,
       sourceUrl:
         globalMeta.sourceUrl ??
@@ -714,16 +748,17 @@ export function registerInstalledExternalSelection(
       skillPath:
         globalMeta.skillPath ??
         existingMeta?.skillPath ??
+        row.candidate.path ??
         `skills/${upstreamName}/SKILL.md`,
-      ...(existingMeta?.installSkill
-        ? { installSkill: existingMeta.installSkill }
-        : isAliased
-          ? { installSkill: upstreamName }
-          : {}),
+      ...(upstreamName !== deployName
+        ? { installSkill: existingMeta?.installSkill ?? upstreamName }
+        : {}),
     };
   }
   saveLock(lock);
-  const removedIgnored = removeIgnoredSkills(selected);
+  const removedIgnored = removeIgnoredSkills(
+    ignored.size > 0 ? ignored : selected
+  );
   return [loadLock(), removedIgnored];
 }
 

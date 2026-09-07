@@ -323,6 +323,66 @@ describe("applyDeck external install", () => {
     // エージェントシンボリックリンクが展開名に張られていること
     expect(linked("owner--alpha")).toBe(true);
   });
+
+  test("installSkill でリネームしても既存の上流名ディレクトリは残る", () => {
+    mkdirSync(dir("active", "alpha"), { recursive: true });
+    writeFileSync(
+      dir("active", "alpha", "SKILL.md"),
+      "---\nname: alpha\ndescription: original\n---\n"
+    );
+    for (const agent of ["claude-skills", "gemini-skills"]) {
+      mkdirSync(dir(agent), { recursive: true });
+      symlinkSync(dir("active", "alpha"), dir(agent, "alpha"));
+    }
+
+    const stub = dir("skills-add-stub");
+    writeFileSync(
+      stub,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'target="${MY_SKILLS_ACTIVE_DIR:-}"',
+        'if [ -z "$target" ]; then target="$HOME/.agents/skills"; fi',
+        "for ((i=1; i <= $#; i++)); do",
+        '  if [ "${!i}" = "--skill" ]; then',
+        "    j=$((i+1))",
+        '    name="${!j}"',
+        '    mkdir -p "$target/$name"',
+        '    printf -- \'---\\nname: %s\\ndescription: incoming\\n---\\n\' "$name" > "$target/$name/SKILL.md"',
+        "  fi",
+        "done",
+      ].join("\n")
+    );
+    chmodSync(stub, 0o755);
+    setEnv("MY_SKILLS_ADD_BIN", stub);
+
+    applyDeck(
+      new Set(),
+      new Set(),
+      new Set(["owner--alpha"]),
+      {
+        external: {
+          "owner--alpha": {
+            source: "owner/repo",
+            installSkill: "alpha",
+          },
+        },
+      },
+      new Set()
+    );
+
+    expect(readFileSync(dir("active", "alpha", "SKILL.md"), "utf-8")).toContain(
+      "description: original"
+    );
+    expect(
+      readFileSync(dir("active", "owner--alpha", "SKILL.md"), "utf-8")
+    ).toContain("name: owner--alpha");
+    expect(
+      readFileSync(dir("active", "owner--alpha", "SKILL.md"), "utf-8")
+    ).toContain("description: incoming");
+    expect(linked("alpha")).toBe(true);
+    expect(linked("owner--alpha")).toBe(true);
+  });
 });
 
 describe("deregisterFromCliLock", () => {

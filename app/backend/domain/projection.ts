@@ -23,6 +23,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import {
   activeDir,
@@ -57,6 +58,9 @@ import {
   validatePresetName,
   writePresetFile,
 } from "./presets";
+import { syncSkillMdName } from "./skillMd";
+
+export { syncSkillMdName } from "./skillMd";
 
 /** Python の `Path.exists()`。symlink を辿り、壊れた symlink では false。 */
 function exists(path: string): boolean {
@@ -264,6 +268,55 @@ function movePath(src: string, dst: string): void {
   }
 }
 
+function isAliasedExternal(
+  name: string,
+  meta: { installSkill?: string } | undefined
+): meta is { installSkill: string } {
+  return Boolean(meta?.installSkill && meta.installSkill !== name);
+}
+
+function stashPathFor(installSkill: string): string {
+  return join(tmpdir(), `skill-loom-stash-${process.pid}-${installSkill}`);
+}
+
+/**
+ * skills CLI は常に上流名のフォルダへ書く。先にその名前を退避し、
+ * 新規 install を展開名へ移してから元のフォルダを戻す。
+ */
+function withStashedUpstream(installSkill: string, fn: () => void): void {
+  const srcDir = join(activeDir(), installSkill);
+  if (!exists(srcDir) && !isSymlink(srcDir)) {
+    fn();
+    return;
+  }
+
+  unlinkAgentSkillDirs(installSkill);
+  const stashDir = stashPathFor(installSkill);
+  if (exists(stashDir) || isSymlink(stashDir)) trashPath(stashDir);
+  movePath(srcDir, stashDir);
+  try {
+    fn();
+  } finally {
+    if (exists(stashDir) || isSymlink(stashDir)) {
+      const restored = join(activeDir(), installSkill);
+      if (exists(restored) || isSymlink(restored)) trashPath(restored);
+      movePath(stashDir, restored);
+      linkAgentSkillDirs(installSkill);
+    }
+  }
+}
+
+function placeAliasedSkill(deployName: string, installSkill: string): void {
+  const srcDir = join(activeDir(), installSkill);
+  const dstDir = join(activeDir(), deployName);
+  if (!exists(srcDir) && !isSymlink(srcDir)) return;
+  if (exists(dstDir) || isSymlink(dstDir)) trashPath(dstDir);
+  unlinkAgentSkillDirs(installSkill);
+  movePath(srcDir, dstDir);
+  syncSkillMdName(join(dstDir, "SKILL.md"), deployName);
+  linkAgentSkillDirs(deployName);
+}
+
 /**
  * projection を書き換える。CLI lock を更新できなかったときだけ警告文を返す。
  *
@@ -308,25 +361,27 @@ export function applyDeck(
   const externalInstall = new Set(
     [...install].filter((name) => external.has(name))
   );
-  for (const cmd of installCommands(externalInstall, lock)) {
+  const lockExt = lock.external ?? {};
+  const aliased = sortNames(externalInstall).filter((name) =>
+    isAliasedExternal(name, lockExt[name])
+  );
+  const standard = new Set(
+    [...externalInstall].filter((name) => !aliased.includes(name))
+  );
+
+  for (const cmd of installCommands(standard, lock)) {
     console.log(`+ ${cmd.join(" ")}`);
     runSkillsCli(cmd);
   }
 
-  // エイリアス・名前空間付きスキルの配置調整（上流名 -> 展開名）と frontmatter 同期
-  const lockExt = lock.external ?? {};
-  for (const name of sortNames(externalInstall)) {
-    const meta = lockExt[name];
-    const installSkill = meta?.installSkill;
-    if (installSkill && installSkill !== name) {
-      const srcDir = join(activeDir(), installSkill);
-      const dstDir = join(activeDir(), name);
-      if (exists(srcDir)) {
-        if (exists(dstDir)) trashPath(dstDir);
-        movePath(srcDir, dstDir);
-        const skillMd = join(dstDir, "SKILL.md");
-        syncSkillMdName(skillMd, name);
-      }
+  for (const name of aliased) {
+    const installSkill = lockExt[name]?.installSkill as string;
+    for (const cmd of installCommands(new Set([name]), lock)) {
+      console.log(`+ ${cmd.join(" ")}`);
+      withStashedUpstream(installSkill, () => {
+        runSkillsCli(cmd);
+        placeAliasedSkill(name, installSkill);
+      });
     }
   }
 
@@ -644,62 +699,4 @@ export function installProjectDeck(
   );
   applyDeck(new Set(), restore, install, lock);
   return { unresolved: new Set(), restore, install, alreadyActive };
-}
-
-/**
- * SKILL.md の YAML frontmatter 内の name フィールドを展開名に同期する。
- */
-export function syncSkillMdName(filePath: string, newName: string): boolean {
-  if (!existsSync(filePath)) {
-    return false;
-  }
-
-  let content: string;
-  try {
-    content = readFileSync(filePath, "utf-8");
-  } catch {
-    return false;
-  }
-
-  const lines = content.split(/\r?\n/);
-  if (lines.length === 0 || lines[0]?.trim() !== "---") {
-    return false;
-  }
-
-  let inFrontmatter = false;
-  let replaced = false;
-  const newLines: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] as string;
-    if (i === 0 && line.trim() === "---") {
-      inFrontmatter = true;
-      newLines.push(line);
-      continue;
-    }
-    if (inFrontmatter && line.trim() === "---") {
-      if (!replaced) {
-        newLines.push(`name: ${newName}`);
-        replaced = true;
-      }
-      inFrontmatter = false;
-      newLines.push(line);
-      continue;
-    }
-    if (inFrontmatter && /^name\s*:\s*.*$/.test(line)) {
-      newLines.push(`name: ${newName}`);
-      replaced = true;
-      continue;
-    }
-    newLines.push(line);
-  }
-
-  const tmpPath = `${filePath}.tmp`;
-  try {
-    writeFileSync(tmpPath, newLines.join("\n"));
-    renameSync(tmpPath, filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }

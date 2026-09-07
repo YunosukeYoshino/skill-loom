@@ -143,4 +143,59 @@ printf -- "---\\nname: alpha\\ndescription: test\\n---\\n" > "$HOME/.agents/skil
     expect(fs.existsSync(targetMd)).toBe(true);
     expect(fs.readFileSync(targetMd, "utf-8")).toContain("name: owner--alpha");
   });
+
+  test("--install 時に既存の上流名ディレクトリを残す", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "restore-coexist-"));
+    const lockFile = path.join(dir, "skills.lock.json");
+    fs.writeFileSync(
+      lockFile,
+      JSON.stringify({
+        external: {
+          "owner--alpha": {
+            source: "owner/repo",
+            installSkill: "alpha",
+          },
+        },
+      })
+    );
+
+    const home = path.join(dir, "home");
+    const activeDir = path.join(home, ".agents", "skills");
+    fs.mkdirSync(path.join(activeDir, "alpha"), { recursive: true });
+    fs.writeFileSync(
+      path.join(activeDir, "alpha", "SKILL.md"),
+      "---\nname: alpha\ndescription: original\n---\n"
+    );
+
+    const binDir = path.join(dir, "bin");
+    fs.mkdirSync(binDir);
+    const npxStub = path.join(binDir, "npx");
+    fs.writeFileSync(
+      npxStub,
+      `#!/usr/bin/env bash
+mkdir -p "$HOME/.agents/skills/alpha"
+printf -- "---\\nname: alpha\\ndescription: incoming\\n---\\n" > "$HOME/.agents/skills/alpha/SKILL.md"
+`
+    );
+    fs.chmodSync(npxStub, 0o755);
+
+    const res = Bun.spawnSync(
+      [process.execPath, RESTORE_LOCK, "--install", lockFile],
+      {
+        env: {
+          ...process.env,
+          MISE_YES: "1",
+          HOME: home,
+          PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        },
+      }
+    );
+    expect(res.exitCode).toBe(0);
+    expect(
+      fs.readFileSync(path.join(activeDir, "alpha", "SKILL.md"), "utf-8")
+    ).toContain("description: original");
+    expect(
+      fs.readFileSync(path.join(activeDir, "owner--alpha", "SKILL.md"), "utf-8")
+    ).toContain("name: owner--alpha");
+  });
 });

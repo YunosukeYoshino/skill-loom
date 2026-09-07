@@ -7,6 +7,7 @@
  * 使い方:
  *   bun lock-check.ts ignore <skill> <ignore-file>   # 'yes' か 'no' を出力
  *   bun lock-check.ts in-lock <skill> <lock-file>    # 'yes' か 'no' を出力
+ *   bun lock-check.ts lookup <skill> <lock-file>     # none | custom | vendor | external SOURCE
  */
 
 import fs from "node:fs";
@@ -29,45 +30,57 @@ function isIgnored(skill: string, ignoreFile: string): boolean {
 }
 
 function isInLock(skill: string, lockFile: string): boolean {
+  return lookupLock(skill, lockFile) !== "none";
+}
+
+function lookupLock(skill: string, lockFile: string): string {
   const lock = readJson(lockFile) as {
-    external?: Record<string, unknown>;
+    external?: Record<string, { source?: unknown }>;
     custom?: { skills?: Record<string, unknown> };
     vendor?: Record<string, unknown>;
   } | null;
-  if (!lock) return false;
-  if (
-    lock.external &&
-    Object.prototype.hasOwnProperty.call(lock.external, skill)
-  )
-    return true;
+  if (!lock) return "none";
   if (
     lock.custom?.skills &&
     Object.prototype.hasOwnProperty.call(lock.custom.skills, skill)
   )
-    return true;
+    return "custom";
   if (lock.vendor && Object.prototype.hasOwnProperty.call(lock.vendor, skill))
-    return true;
-  return false;
+    return "vendor";
+  if (
+    lock.external &&
+    Object.prototype.hasOwnProperty.call(lock.external, skill)
+  ) {
+    const source = lock.external[skill]?.source;
+    return typeof source === "string" && source !== ""
+      ? `external ${source}`
+      : "external";
+  }
+  return "none";
 }
 
 function main(): void {
   const [command, skill, file] = process.argv.slice(2);
   if (file === undefined || skill === undefined) {
     console.error(
-      "Error: usage: lock-check.ts <ignore|in-lock> <skill> <file>"
+      "Error: usage: lock-check.ts <ignore|in-lock|lookup> <skill> <file>"
     );
     process.exit(2);
   }
-  let result: boolean;
   if (command === "ignore") {
-    result = isIgnored(skill, file);
-  } else if (command === "in-lock") {
-    result = isInLock(skill, file);
-  } else {
-    console.error(`Error: unknown command: ${command}`);
-    process.exit(2);
+    process.stdout.write(isIgnored(skill, file) ? "yes\n" : "no\n");
+    return;
   }
-  process.stdout.write(result ? "yes\n" : "no\n");
+  if (command === "in-lock") {
+    process.stdout.write(isInLock(skill, file) ? "yes\n" : "no\n");
+    return;
+  }
+  if (command === "lookup") {
+    process.stdout.write(`${lookupLock(skill, file)}\n`);
+    return;
+  }
+  console.error(`Error: unknown command: ${command}`);
+  process.exit(2);
 }
 
 if (import.meta.main) {

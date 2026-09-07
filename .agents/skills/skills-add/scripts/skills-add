@@ -8,7 +8,7 @@
 #   デフォルトで git commit まで実行する（--no-commit でスキップ可能）。
 #
 # 使い方:
-#   bash scripts/skills-add [--catalog-dir PATH] <url-or-owner/repo> [--skill <name>] [--no-commit]
+#   bash scripts/skills-add [--catalog-dir PATH] <url-or-owner/repo> [--skill <name>] [--as <alias>] [--prefix] [--no-commit]
 
 set -euo pipefail
 
@@ -18,11 +18,14 @@ CATALOG_ROOT="${MY_SKILLS_CATALOG_DIR:-}"
 # shellcheck source=run-skills-cli.sh
 source "$DIR/run-skills-cli.sh"
 
+VALID_NAME_RE='^[a-z0-9]+(--?[a-z0-9]+)*$'
+
 # --- Argument parsing ---
 URL=""
 NO_COMMIT=false
 SKILL_FILTERS=()
 ALIAS=""
+FORCE_PREFIX=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -39,6 +42,7 @@ while [[ $# -gt 0 ]]; do
             ALIAS="$2"
             shift 2
             ;;
+        --prefix) FORCE_PREFIX=true; shift ;;
         *) URL="$1"; shift ;;
     esac
 done
@@ -48,7 +52,7 @@ if [ -n "$ALIAS" ] && [ "${#SKILL_FILTERS[@]}" -ne 1 ]; then
     exit 2
 fi
 
-: "${URL:?Usage: skills-add [--catalog-dir PATH] <url-or-owner/repo> [--skill <name>] [--as <alias>] [--no-commit]}"
+: "${URL:?Usage: skills-add [--catalog-dir PATH] <url-or-owner/repo> [--skill <name>] [--as <alias>] [--prefix] [--no-commit]}"
 if [ -z "$CATALOG_ROOT" ]; then
     CATALOG_ROOT="$(git rev-parse --show-toplevel)"
 fi
@@ -56,12 +60,219 @@ fi
 CATALOG_ROOT="$(cd "$CATALOG_ROOT" && pwd -P)"
 LOCK_FILE="$CATALOG_ROOT/skills.lock.json"
 IGNORE_FILE="$CATALOG_ROOT/.skills-ignore.json"
+ACTIVE_DIR="${MY_SKILLS_ACTIVE_DIR:-$HOME/.agents/skills}"
+CLAUDE_DIR="${MY_SKILLS_CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
+GEMINI_DIR="${MY_SKILLS_GEMINI_SKILLS_DIR:-$HOME/.gemini/config/skills}"
+VENDOR_FORK="$ENGINE_ROOT/.agents/skills/vendor-fork/scripts/skills-vendor-fork"
 
 # --- Normalize URL to owner/repo ---
 OWNER_REPO=$(bun "$DIR/normalize-github-url.ts" "$URL")
 SOURCE_URL="https://github.com/${OWNER_REPO}.git"
+OWNER="${OWNER_REPO%%/*}"
 
 echo "=== Installing ${OWNER_REPO} ==="
+
+validate_deploy_name() {
+    local name="$1"
+    [[ "$name" =~ $VALID_NAME_RE ]]
+}
+
+lock_lookup() {
+    bun "$DIR/lock-check.ts" lookup "$1" "$LOCK_FILE"
+}
+
+unlink_agent_skill_dirs() {
+    local skill_name="$1"
+    [ -n "$skill_name" ] || return 0
+    for agent_dir in "$CLAUDE_DIR" "$GEMINI_DIR"; do
+        if [ -L "$agent_dir/$skill_name" ]; then
+            rm -f "$agent_dir/$skill_name"
+        fi
+    done
+}
+
+link_agent_skill_dirs() {
+    local skill_name="$1"
+    [ -n "$skill_name" ] || return 0
+    [ -d "$ACTIVE_DIR/$skill_name" ] || return 0
+    "$ENGINE_ROOT/skill-loom" --catalog-dir "$CATALOG_ROOT" link-agents "$skill_name"
+}
+
+place_aliased_skill() {
+    local skill_name="$1"
+    local target_name="$2"
+    local src_dir="$ACTIVE_DIR/$skill_name"
+    local target_dir="$ACTIVE_DIR/$target_name"
+    [ -d "$src_dir" ] || return 0
+    unlink_agent_skill_dirs "$skill_name"
+    if [ -e "$target_dir" ]; then
+        rm -rf "$target_dir"
+    fi
+    mv "$src_dir" "$target_dir"
+    if [ -f "$target_dir/SKILL.md" ]; then
+        bun "$DIR/sync-skill-name.ts" "$target_dir/SKILL.md" "$target_name"
+    fi
+    link_agent_skill_dirs "$target_name"
+}
+
+restore_stashed_upstream() {
+    local skill_name="$1"
+    local src_dir="$2"
+    local stash="$3"
+    if [ -n "$stash" ] && [ -d "$stash/$skill_name" ]; then
+        if [ -e "$src_dir" ]; then
+            rm -rf "$src_dir"
+        fi
+        mv "$stash/$skill_name" "$src_dir"
+        link_agent_skill_dirs "$skill_name"
+        rm -rf "$stash"
+    fi
+}
+
+install_aliased() {
+    local skill_name="$1"
+    local target_name="$2"
+    local src_dir="$ACTIVE_DIR/$skill_name"
+    local stash=""
+
+    if [ -d "$src_dir" ] || [ -L "$src_dir" ]; then
+        stash=$(mktemp -d "${TMPDIR:-/tmp}/skill-loom-stash.XXXXXX")
+        unlink_agent_skill_dirs "$skill_name"
+        mv "$src_dir" "$stash/$skill_name"
+    fi
+
+    set +e
+    skills_cli add "$OWNER_REPO" --skill "$skill_name" -g -a claude-code -a codex -a antigravity -y
+    local ec=$?
+    set -e
+    if [ "$ec" -ne 0 ]; then
+        restore_stashed_upstream "$skill_name" "$src_dir" "$stash"
+        return "$ec"
+    fi
+    set +e
+    place_aliased_skill "$skill_name" "$target_name"
+    local place_ec=$?
+    set -e
+    restore_stashed_upstream "$skill_name" "$src_dir" "$stash"
+    return "$place_ec"
+}
+
+prompt_collision() {
+    local skill_name="$1"
+    local namespaced_name="$2"
+    echo "  ⚠️ Conflict: '$skill_name' already exists in skills.lock.json."
+    echo "    1) Namespace as '$namespaced_name' (default)"
+    echo "    2) Enter custom alias"
+    echo "    3) Fork as Vendor Skill"
+    echo "    4) Skip"
+    read -r -p "    Select option [1-4] (default: 1): " choice </dev/tty || choice="1"
+    case "$choice" in
+        2)
+            while true; do
+                read -r -p "    Enter alias: " custom_alias </dev/tty || custom_alias=""
+                if [ -z "$custom_alias" ]; then
+                    echo "  → Empty alias, skipping"
+                    return 1
+                fi
+                if ! validate_deploy_name "$custom_alias"; then
+                    echo "  → Invalid alias '$custom_alias' (use kebab-case, no slashes)"
+                    continue
+                fi
+                if [ "$(lock_lookup "$custom_alias")" != "none" ]; then
+                    echo "  → Alias '$custom_alias' already in skills.lock.json"
+                    continue
+                fi
+                TARGET_NAME="$custom_alias"
+                return 0
+            done
+            ;;
+        3)
+            echo "  → Forking '$skill_name' as Vendor Skill"
+            if ! bash "$VENDOR_FORK" --catalog-dir "$CATALOG_ROOT" "$skill_name"; then
+                echo "  → Vendor fork failed, skipping"
+                return 1
+            fi
+            bun "$DIR/register-skill-lock.ts" --vendor "$LOCK_FILE" "$skill_name" "$OWNER_REPO"
+            echo "  → Registered vendor/$skill_name (skipped external import)"
+            return 1
+            ;;
+        4)
+            echo "  → Skipping by user choice"
+            return 1
+            ;;
+        *)
+            TARGET_NAME="$namespaced_name"
+            return 0
+            ;;
+    esac
+}
+
+plan_skill() {
+    local skill_name="$1"
+    TARGET_NAME="$skill_name"
+    INSTALL_SKILL=""
+
+    local in_ignore
+    in_ignore=$(bun "$DIR/lock-check.ts" ignore "$skill_name" "$IGNORE_FILE")
+    if [ "$in_ignore" = "yes" ]; then
+        echo "  → Skipping (in .skills-ignore.json)"
+        return 1
+    fi
+
+    local lookup namespaced_name
+    lookup=$(lock_lookup "$skill_name")
+    namespaced_name="${OWNER}--${skill_name}"
+
+    if [ -n "$ALIAS" ]; then
+        if ! validate_deploy_name "$ALIAS"; then
+            echo "Error: --as '$ALIAS' is not a valid skill name (kebab-case, no slashes)" >&2
+            exit 2
+        fi
+        if [ "$(lock_lookup "$ALIAS")" != "none" ]; then
+            echo "  → Alias '$ALIAS' already in skills.lock.json, skipping"
+            return 1
+        fi
+        TARGET_NAME="$ALIAS"
+        INSTALL_SKILL="$skill_name"
+        return 0
+    fi
+
+    if [ "$FORCE_PREFIX" = true ]; then
+        if [ "$(lock_lookup "$namespaced_name")" != "none" ]; then
+            echo "  → '$namespaced_name' already in skills.lock.json, skipping"
+            return 1
+        fi
+        TARGET_NAME="$namespaced_name"
+        INSTALL_SKILL="$skill_name"
+        return 0
+    fi
+
+    if [ "$lookup" = "external $OWNER_REPO" ]; then
+        echo "  → Skipping (already registered from $OWNER_REPO)"
+        return 1
+    fi
+
+    if [ "$lookup" != "none" ]; then
+        if [ "$(lock_lookup "$namespaced_name")" != "none" ]; then
+            echo "  → Both '$skill_name' and '$namespaced_name' already in skills.lock.json, skipping"
+            return 1
+        fi
+        if [ -t 0 ] && [ -r /dev/tty ]; then
+            if ! prompt_collision "$skill_name" "$namespaced_name"; then
+                return 1
+            fi
+        else
+            echo "  → Notice: '$skill_name' already in skills.lock.json; namespacing as '$namespaced_name'"
+            TARGET_NAME="$namespaced_name"
+        fi
+        INSTALL_SKILL="$skill_name"
+        return 0
+    fi
+
+    TARGET_NAME="$skill_name"
+    INSTALL_SKILL=""
+    return 0
+}
 
 # --- Temp files ---
 BEFORE_FILE=$(mktemp)
@@ -69,78 +280,10 @@ AFTER_FILE=$(mktemp)
 TREE_FILE=$(mktemp)
 trap 'rm -f "$BEFORE_FILE" "$AFTER_FILE" "$TREE_FILE"' EXIT
 
-# --- Snapshot before ---
-mkdir -p "$HOME/.agents/skills"
-(ls -1 "$HOME/.agents/skills/" 2>/dev/null || true) | (grep -v '^\.' || true) | sort > "$BEFORE_FILE"
+mkdir -p "$ACTIVE_DIR"
+(ls -1 "$ACTIVE_DIR/" 2>/dev/null || true) | (grep -v '^\.' || true) | sort > "$BEFORE_FILE"
 
-# --- Run skills add (bunx with npx fallback) ---
-if [ "${#SKILL_FILTERS[@]}" -gt 0 ]; then
-    SKILL_ARGS=()
-    for skill in "${SKILL_FILTERS[@]}"; do
-        SKILL_ARGS+=(--skill "$skill")
-    done
-    skills_cli add "$OWNER_REPO" "${SKILL_ARGS[@]}" -g -a claude-code -a codex -a antigravity -y
-else
-    skills_cli add "$OWNER_REPO" -g -a claude-code -a codex -a antigravity -y
-fi
-
-# --- Link Claude/Gemini to ~/.agents/skills (skills CLI skips ~/.gemini/config/skills) ---
-link_agent_skill_dirs() {
-    local skill_name="$1"
-    [ -n "$skill_name" ] || return 0
-    [ -d "$HOME/.agents/skills/$skill_name" ] || return 0
-    "$ENGINE_ROOT/skill-loom" --catalog-dir "$CATALOG_ROOT" link-agents "$skill_name"
-}
-
-if [ "${#SKILL_FILTERS[@]}" -gt 0 ]; then
-    for skill in "${SKILL_FILTERS[@]}"; do
-        link_agent_skill_dirs "$skill"
-    done
-fi
-
-# --- Snapshot after ---
-(ls -1 "$HOME/.agents/skills/" 2>/dev/null || true) | (grep -v '^\.' || true) | sort > "$AFTER_FILE"
-
-# --- Find new skills ---
-NEW_SKILLS=$(comm -13 "$BEFORE_FILE" "$AFTER_FILE" || true)
-
-if [ "${#SKILL_FILTERS[@]}" -eq 0 ]; then
-    while IFS= read -r skill_name; do
-        link_agent_skill_dirs "$skill_name"
-    done <<< "$NEW_SKILLS"
-fi
-
-# Skills to register in lock (include pre-installed targets from --skill filters)
-REGISTER_TARGETS=()
-if [ "${#SKILL_FILTERS[@]}" -gt 0 ]; then
-    for skill in "${SKILL_FILTERS[@]}"; do
-        if [ -d "$HOME/.agents/skills/$skill" ]; then
-            REGISTER_TARGETS+=("$skill")
-        fi
-    done
-else
-    while IFS= read -r skill_name; do
-        [ -n "$skill_name" ] && REGISTER_TARGETS+=("$skill_name")
-    done <<< "$NEW_SKILLS"
-fi
-
-if [ "${#REGISTER_TARGETS[@]}" -eq 0 ]; then
-    if [ -z "$NEW_SKILLS" ]; then
-        echo "No new skills installed (already up to date)."
-    else
-        echo "No skills to register."
-    fi
-    exit 0
-fi
-
-if [ -z "$NEW_SKILLS" ]; then
-    echo "Skills already installed globally; checking lock registration..."
-fi
-
-echo ""
-echo "=== Registering in skills.lock.json ==="
-
-# --- Fetch repo tree once ---
+# --- Fetch repo tree once (skillPath + unfiltered name discovery) ---
 echo "  Fetching repo tree from GitHub..."
 HAS_TREE=false
 if gh api "repos/${OWNER_REPO}/git/trees/HEAD?recursive=1" > "$TREE_FILE" 2>/dev/null; then
@@ -149,81 +292,94 @@ else
     echo "  Warning: Could not fetch repo tree. Will use pattern matching for skillPath."
 fi
 
-# --- Process each skill target ---
-REGISTERED_NAMES=()
+PLANNED_UPSTREAM=()
+PLANNED_DEPLOY=()
+PLANNED_INSTALL_SKILL=()
 
-for skill_name in "${REGISTER_TARGETS[@]}"; do
+plan_and_record() {
+    local skill_name="$1"
     echo ""
     echo "  Processing: $skill_name"
-
-    # Check ignore list
-    in_ignore=$(bun "$DIR/lock-check.ts" ignore "$skill_name" "$IGNORE_FILE")
-    if [ "$in_ignore" = "yes" ]; then
-        echo "  → Skipping (in .skills-ignore.json)"
-        continue
+    if plan_skill "$skill_name"; then
+        PLANNED_UPSTREAM+=("$skill_name")
+        PLANNED_DEPLOY+=("$TARGET_NAME")
+        PLANNED_INSTALL_SKILL+=("$INSTALL_SKILL")
     fi
+}
 
-    # Check already in lock
-    already=$(bun "$DIR/lock-check.ts" in-lock "$skill_name" "$LOCK_FILE")
+if [ "${#SKILL_FILTERS[@]}" -gt 0 ]; then
+    for skill in "${SKILL_FILTERS[@]}"; do
+        plan_and_record "$skill"
+    done
+else
+    skills_cli add "$OWNER_REPO" -g -a claude-code -a codex -a antigravity -y
+    (ls -1 "$ACTIVE_DIR/" 2>/dev/null || true) | (grep -v '^\.' || true) | sort > "$AFTER_FILE"
+    NEW_SKILLS=$(comm -13 "$BEFORE_FILE" "$AFTER_FILE" || true)
+    while IFS= read -r skill_name; do
+        [ -n "$skill_name" ] || continue
+        plan_and_record "$skill_name"
+    done <<< "$NEW_SKILLS"
+fi
 
-    TARGET_NAME="$skill_name"
-    INSTALL_SKILL=""
+if [ "${#PLANNED_UPSTREAM[@]}" -eq 0 ]; then
+    echo "No new skills registered."
+    exit 0
+fi
 
-    if [ -n "$ALIAS" ]; then
-        TARGET_NAME="$ALIAS"
-        INSTALL_SKILL="$skill_name"
-        alias_in_lock=$(bun "$DIR/lock-check.ts" in-lock "$TARGET_NAME" "$LOCK_FILE")
-        if [ "$alias_in_lock" = "yes" ]; then
-            echo "  → Alias '$TARGET_NAME' already in skills.lock.json, skipping"
-            continue
-        fi
-    elif [ "$already" = "yes" ]; then
-        OWNER="${OWNER_REPO%%/*}"
-        NAMESPACED_NAME="${OWNER}--${skill_name}"
-        ns_in_lock=$(bun "$DIR/lock-check.ts" in-lock "$NAMESPACED_NAME" "$LOCK_FILE")
-        if [ "$ns_in_lock" = "yes" ]; then
-            echo "  → Both '$skill_name' and '$NAMESPACED_NAME' already in skills.lock.json, skipping"
-            continue
-        fi
-
-        if [ -t 0 ] && [ -r /dev/tty ]; then
-            echo "  ⚠️ Conflict: '$skill_name' already exists in skills.lock.json."
-            echo "    1) Namespace as '$NAMESPACED_NAME' (default)"
-            echo "    2) Enter custom alias"
-            echo "    3) Skip"
-            read -r -p "    Select option [1-3] (default: 1): " choice </dev/tty || choice="1"
-            case "$choice" in
-                2)
-                    read -r -p "    Enter alias: " custom_alias </dev/tty
-                    if [ -z "$custom_alias" ]; then
-                        echo "  → Empty alias, skipping"
-                        continue
-                    fi
-                    TARGET_NAME="$custom_alias"
-                    ;;
-                3)
-                    echo "  → Skipping by user choice"
-                    continue
-                    ;;
-                *)
-                    TARGET_NAME="$NAMESPACED_NAME"
-                    ;;
-            esac
+if [ "${#SKILL_FILTERS[@]}" -gt 0 ]; then
+    STANDARD_SKILLS=()
+    i=0
+    while [ "$i" -lt "${#PLANNED_UPSTREAM[@]}" ]; do
+        upstream="${PLANNED_UPSTREAM[$i]}"
+        deploy="${PLANNED_DEPLOY[$i]}"
+        if [ "$deploy" = "$upstream" ]; then
+            STANDARD_SKILLS+=("$upstream")
         else
-            echo "  → Notice: '$skill_name' already in skills.lock.json; namespacing as '$NAMESPACED_NAME'"
-            TARGET_NAME="$NAMESPACED_NAME"
+            install_aliased "$upstream" "$deploy"
         fi
-        INSTALL_SKILL="$skill_name"
+        i=$((i + 1))
+    done
+    if [ "${#STANDARD_SKILLS[@]}" -gt 0 ]; then
+        SKILL_ARGS=()
+        for skill in "${STANDARD_SKILLS[@]}"; do
+            SKILL_ARGS+=(--skill "$skill")
+        done
+        skills_cli add "$OWNER_REPO" "${SKILL_ARGS[@]}" -g -a claude-code -a codex -a antigravity -y
+        for skill in "${STANDARD_SKILLS[@]}"; do
+            link_agent_skill_dirs "$skill"
+        done
     fi
+else
+    i=0
+    while [ "$i" -lt "${#PLANNED_UPSTREAM[@]}" ]; do
+        upstream="${PLANNED_UPSTREAM[$i]}"
+        deploy="${PLANNED_DEPLOY[$i]}"
+        if [ "$deploy" != "$upstream" ] && [ -d "$ACTIVE_DIR/$upstream" ]; then
+            place_aliased_skill "$upstream" "$deploy"
+        else
+            link_agent_skill_dirs "$deploy"
+        fi
+        i=$((i + 1))
+    done
+fi
 
-    # Resolve skillPath via GitHub API
+(ls -1 "$ACTIVE_DIR/" 2>/dev/null || true) | (grep -v '^\.' || true) | sort > "$AFTER_FILE"
+
+echo ""
+echo "=== Registering in skills.lock.json ==="
+
+REGISTERED_NAMES=()
+i=0
+while [ "$i" -lt "${#PLANNED_UPSTREAM[@]}" ]; do
+    skill_name="${PLANNED_UPSTREAM[$i]}"
+    TARGET_NAME="${PLANNED_DEPLOY[$i]}"
+    INSTALL_SKILL="${PLANNED_INSTALL_SKILL[$i]}"
+
     SKILL_PATH=""
     if [ "$HAS_TREE" = "true" ]; then
         SKILL_PATH=$(SKILL_NAME="$skill_name" OWNER_REPO="$OWNER_REPO" TREE_FILE="$TREE_FILE" \
             bun "$DIR/resolve-skill-path.ts" 2>/dev/null) || true
     fi
-
-    # Fallback: pattern matching
     if [ -z "$SKILL_PATH" ]; then
         if [ "$HAS_TREE" = "true" ]; then
             echo "  Warning: skillPath not resolved via API, using pattern matching"
@@ -232,34 +388,15 @@ for skill_name in "${REGISTER_TARGETS[@]}"; do
     fi
 
     echo "  → skillPath: $SKILL_PATH"
-
-    # If renamed / namespaced, adjust installed directory and sync frontmatter
-    if [ "$TARGET_NAME" != "$skill_name" ]; then
-        echo "  → Renaming installed skill '$skill_name' to '$TARGET_NAME'"
-        SRC_DIR="$HOME/.agents/skills/$skill_name"
-        TARGET_DIR="$HOME/.agents/skills/$TARGET_NAME"
-        if [ -d "$SRC_DIR" ]; then
-            rm -rf "$TARGET_DIR"
-            mv "$SRC_DIR" "$TARGET_DIR"
-            if [ -f "$TARGET_DIR/SKILL.md" ]; then
-                bun "$DIR/sync-skill-name.ts" "$TARGET_DIR/SKILL.md" "$TARGET_NAME"
-            fi
-            link_agent_skill_dirs "$TARGET_NAME"
-        fi
-    fi
-
-    # Register in skills.lock.json
     if [ -n "$INSTALL_SKILL" ]; then
         bun "$DIR/register-skill-lock.ts" "$LOCK_FILE" "$TARGET_NAME" "$OWNER_REPO" "$SOURCE_URL" "$SKILL_PATH" "$INSTALL_SKILL"
     else
         bun "$DIR/register-skill-lock.ts" "$LOCK_FILE" "$TARGET_NAME" "$OWNER_REPO" "$SOURCE_URL" "$SKILL_PATH"
     fi
-
     REGISTERED_NAMES+=("$TARGET_NAME")
-
+    i=$((i + 1))
 done
 
-# --- Summary & commit ---
 if [ "${#REGISTERED_NAMES[@]}" -eq 0 ]; then
     echo ""
     echo "No new skills registered."

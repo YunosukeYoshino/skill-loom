@@ -43,6 +43,29 @@ const VENDOR_SYNC = path.join(
   ".agents/skills/vendor-fork/scripts/skills-sync-upstream"
 );
 
+const SKILLS_ADD_SCRIPTS = [
+  ".agents/skills/skills-add/scripts/normalize-github-url.ts",
+  ".agents/skills/skills-add/scripts/resolve-skill-path.ts",
+  ".agents/skills/skills-add/scripts/register-skill-lock.ts",
+  ".agents/skills/skills-add/scripts/update-inventory-lock.ts",
+  ".agents/skills/skills-add/scripts/lock-check.ts",
+  ".agents/skills/skills-add/scripts/sync-skill-name.ts",
+  ".agents/skills/skills-add/scripts/run-skills-cli.sh",
+  ".agents/skills/skills-add/scripts/skills-add",
+] as const;
+
+function copySkillsAddScripts(repo: string): void {
+  for (const rel of SKILLS_ADD_SCRIPTS) {
+    fs.copyFileSync(path.join(REPO_ROOT, rel), path.join(repo, rel));
+  }
+  const skillMdRel = "app/backend/domain/skillMd.ts";
+  fs.mkdirSync(path.dirname(path.join(repo, skillMdRel)), { recursive: true });
+  fs.copyFileSync(
+    path.join(REPO_ROOT, skillMdRel),
+    path.join(repo, skillMdRel)
+  );
+}
+
 function runBash(
   script: string,
   args: string[],
@@ -238,17 +261,7 @@ describe("skills-add", () => {
     ]);
     expect(clone.exitCode).toBe(0);
 
-    for (const rel of [
-      ".agents/skills/skills-add/scripts/normalize-github-url.ts",
-      ".agents/skills/skills-add/scripts/resolve-skill-path.ts",
-      ".agents/skills/skills-add/scripts/register-skill-lock.ts",
-      ".agents/skills/skills-add/scripts/lock-check.ts",
-      ".agents/skills/skills-add/scripts/sync-skill-name.ts",
-      ".agents/skills/skills-add/scripts/run-skills-cli.sh",
-      ".agents/skills/skills-add/scripts/skills-add",
-    ]) {
-      fs.copyFileSync(path.join(REPO_ROOT, rel), path.join(repo, rel));
-    }
+    copySkillsAddScripts(repo);
 
     const catalog = path.join(tmp, "catalog");
     fs.mkdirSync(catalog);
@@ -409,17 +422,7 @@ describe("skills-add", () => {
     ]);
     expect(clone.exitCode).toBe(0);
 
-    for (const rel of [
-      ".agents/skills/skills-add/scripts/normalize-github-url.ts",
-      ".agents/skills/skills-add/scripts/resolve-skill-path.ts",
-      ".agents/skills/skills-add/scripts/register-skill-lock.ts",
-      ".agents/skills/skills-add/scripts/lock-check.ts",
-      ".agents/skills/skills-add/scripts/sync-skill-name.ts",
-      ".agents/skills/skills-add/scripts/run-skills-cli.sh",
-      ".agents/skills/skills-add/scripts/skills-add",
-    ]) {
-      fs.copyFileSync(path.join(REPO_ROOT, rel), path.join(repo, rel));
-    }
+    copySkillsAddScripts(repo);
 
     const catalog = path.join(tmp, "catalog");
     fs.mkdirSync(catalog);
@@ -506,6 +509,7 @@ describe("skills-add", () => {
       expect(
         fs.lstatSync(path.join(agentDir, "aliased-name")).isSymbolicLink()
       ).toBe(true);
+      expect(fs.existsSync(path.join(agentDir, "original-name"))).toBe(false);
     }
   }, 20_000);
 
@@ -522,17 +526,7 @@ describe("skills-add", () => {
     ]);
     expect(clone.exitCode).toBe(0);
 
-    for (const rel of [
-      ".agents/skills/skills-add/scripts/normalize-github-url.ts",
-      ".agents/skills/skills-add/scripts/resolve-skill-path.ts",
-      ".agents/skills/skills-add/scripts/register-skill-lock.ts",
-      ".agents/skills/skills-add/scripts/lock-check.ts",
-      ".agents/skills/skills-add/scripts/sync-skill-name.ts",
-      ".agents/skills/skills-add/scripts/run-skills-cli.sh",
-      ".agents/skills/skills-add/scripts/skills-add",
-    ]) {
-      fs.copyFileSync(path.join(REPO_ROOT, rel), path.join(repo, rel));
-    }
+    copySkillsAddScripts(repo);
 
     const catalog = path.join(tmp, "catalog");
     fs.mkdirSync(catalog);
@@ -618,5 +612,207 @@ describe("skills-add", () => {
     expect(fs.readFileSync(nsSkillMd, "utf-8")).toContain(
       "name: second-owner--search"
     );
+    expect(fs.existsSync(path.join(active, "search"))).toBe(true);
+    expect(
+      fs.readFileSync(path.join(active, "search", "SKILL.md"), "utf-8")
+    ).toContain("name: search");
+  }, 20_000);
+
+  test("同一 source の再 add は skip する", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mgmt-add-same-"));
+    const repo = path.join(tmp, "repo");
+    const clone = Bun.spawnSync([
+      "git",
+      "clone",
+      "--quiet",
+      "--no-hardlinks",
+      REPO_ROOT,
+      repo,
+    ]);
+    expect(clone.exitCode).toBe(0);
+
+    copySkillsAddScripts(repo);
+
+    const catalog = path.join(tmp, "catalog");
+    fs.mkdirSync(catalog);
+    const lockFile = path.join(catalog, "skills.lock.json");
+    fs.writeFileSync(
+      lockFile,
+      JSON.stringify({
+        version: 1,
+        custom: { skills: {} },
+        external: {
+          search: {
+            source: "owner/repo",
+            sourceUrl: "https://github.com/owner/repo.git",
+            skillPath: "skills/search/SKILL.md",
+          },
+        },
+        vendor: {},
+      })
+    );
+
+    const home = path.join(tmp, "home");
+    const active = path.join(home, ".agents", "skills");
+    fs.mkdirSync(path.join(active, "search"), { recursive: true });
+    fs.writeFileSync(
+      path.join(active, "search", "SKILL.md"),
+      "---\nname: search\n---\n"
+    );
+
+    const binDir = path.join(tmp, "bin");
+    fs.mkdirSync(binDir);
+    const skillsStub = path.join(binDir, "skills-stub");
+    fs.writeFileSync(skillsStub, "#!/usr/bin/env bash\nexit 0\n");
+    fs.chmodSync(skillsStub, 0o755);
+
+    const result = runBash(
+      path.join(repo, ".agents/skills/skills-add/scripts/skills-add"),
+      ["owner/repo", "--skill", "search", "--no-commit"],
+      {
+        cwd: repo,
+        env: {
+          ...(process.env as Record<string, string>),
+          HOME: home,
+          PATH: `${binDir}:${process.env.PATH ?? ""}`,
+          MY_SKILLS_ADD_BIN: skillsStub,
+          MY_SKILLS_CATALOG_DIR: catalog,
+          MY_SKILLS_ACTIVE_DIR: active,
+        },
+      }
+    );
+    expect(result.exitCode).toBe(0);
+    const lock = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as {
+      external: Record<string, unknown>;
+    };
+    expect(lock.external["owner--search"]).toBeUndefined();
+    expect(lock.external["search"]).toEqual({
+      source: "owner/repo",
+      sourceUrl: "https://github.com/owner/repo.git",
+      skillPath: "skills/search/SKILL.md",
+    });
+  }, 20_000);
+
+  test("--as にスラッシュを含む名前は拒否する", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mgmt-add-bad-as-"));
+    const repo = path.join(tmp, "repo");
+    const clone = Bun.spawnSync([
+      "git",
+      "clone",
+      "--quiet",
+      "--no-hardlinks",
+      REPO_ROOT,
+      repo,
+    ]);
+    expect(clone.exitCode).toBe(0);
+    copySkillsAddScripts(repo);
+    const catalog = path.join(tmp, "catalog");
+    fs.mkdirSync(catalog);
+    fs.writeFileSync(
+      path.join(catalog, "skills.lock.json"),
+      JSON.stringify({
+        version: 1,
+        custom: { skills: {} },
+        external: {},
+        vendor: {},
+      })
+    );
+    const result = runBash(
+      path.join(repo, ".agents/skills/skills-add/scripts/skills-add"),
+      ["owner/repo", "--skill", "alpha", "--as", "owner/alpha", "--no-commit"],
+      {
+        cwd: repo,
+        env: {
+          ...(process.env as Record<string, string>),
+          HOME: path.join(tmp, "home"),
+          MY_SKILLS_CATALOG_DIR: catalog,
+        },
+      }
+    );
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("not a valid skill name");
+  }, 20_000);
+
+  test("--prefix は衝突がなくても owner--name で登録する", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mgmt-add-prefix-"));
+    const repo = path.join(tmp, "repo");
+    const clone = Bun.spawnSync([
+      "git",
+      "clone",
+      "--quiet",
+      "--no-hardlinks",
+      REPO_ROOT,
+      repo,
+    ]);
+    expect(clone.exitCode).toBe(0);
+    copySkillsAddScripts(repo);
+    const catalog = path.join(tmp, "catalog");
+    fs.mkdirSync(catalog);
+    const lockFile = path.join(catalog, "skills.lock.json");
+    fs.writeFileSync(
+      lockFile,
+      JSON.stringify({
+        version: 1,
+        custom: { skills: {} },
+        external: {},
+        vendor: {},
+      })
+    );
+    const home = path.join(tmp, "home");
+    const active = path.join(home, ".agents", "skills");
+    fs.mkdirSync(active, { recursive: true });
+    const binDir = path.join(tmp, "bin");
+    fs.mkdirSync(binDir);
+    const skillsStub = path.join(binDir, "skills-stub");
+    fs.writeFileSync(
+      skillsStub,
+      [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'target="$HOME/.agents/skills"',
+        "for ((i=1; i <= $#; i++)); do",
+        '  if [ "${!i}" = "--skill" ]; then',
+        "    j=$((i+1))",
+        '    name="${!j}"',
+        '    mkdir -p "$target/$name"',
+        '    printf -- \'---\\nname: %s\\ndescription: fixture\\n---\\n\' "$name" > "$target/$name/SKILL.md"',
+        "  fi",
+        "done",
+      ].join("\n")
+    );
+    fs.chmodSync(skillsStub, 0o755);
+
+    const claude = path.join(tmp, "claude-skills");
+    const gemini = path.join(tmp, "gemini-skills");
+    const result = runBash(
+      path.join(repo, ".agents/skills/skills-add/scripts/skills-add"),
+      ["owner/repo", "--skill", "alpha", "--prefix", "--no-commit"],
+      {
+        cwd: repo,
+        env: {
+          ...(process.env as Record<string, string>),
+          HOME: home,
+          PATH: `${binDir}:${process.env.PATH ?? ""}`,
+          MY_SKILLS_ADD_BIN: skillsStub,
+          MY_SKILLS_CATALOG_DIR: catalog,
+          MY_SKILLS_ACTIVE_DIR: active,
+          MY_SKILLS_CLAUDE_SKILLS_DIR: claude,
+          MY_SKILLS_GEMINI_SKILLS_DIR: gemini,
+        },
+      }
+    );
+    expect(result.exitCode).toBe(0);
+    const lock = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as {
+      external: Record<string, unknown>;
+    };
+    expect(lock.external["owner--alpha"]).toEqual({
+      source: "owner/repo",
+      sourceUrl: "https://github.com/owner/repo.git",
+      skillPath: "skills/alpha/SKILL.md",
+      installSkill: "alpha",
+    });
+    expect(
+      fs.readFileSync(path.join(active, "owner--alpha", "SKILL.md"), "utf-8")
+    ).toContain("name: owner--alpha");
   }, 20_000);
 });

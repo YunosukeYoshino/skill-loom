@@ -638,6 +638,33 @@ describe("externalSourceDetailPayload", () => {
     ]);
   });
 
+  test("エイリアス登録したスキルは展開名で installed、上流名は available に出さない", async () => {
+    place("active", "owner--alpha", "---\nname: owner--alpha\n---\n");
+    const detail = await externalSourceDetailPayload(
+      {
+        external: {
+          "owner--alpha": {
+            source: "owner/repo",
+            skillPath: "skills/alpha/SKILL.md",
+            installSkill: "alpha",
+          },
+        },
+      },
+      "owner/repo",
+      [
+        {
+          name: "alpha",
+          path: "skills/alpha/SKILL.md",
+          description: "Alpha skill",
+        },
+      ]
+    );
+    expect(detail.installed.map((skill) => skill.name)).toEqual([
+      "owner--alpha",
+    ]);
+    expect(detail.available.map((skill) => skill.name)).toEqual([]);
+  });
+
   test("表示する update command は shell に貼り付けても引数境界を保つ", async () => {
     place("active", "alpha", "local alpha\n");
     setEnv("MY_SKILLS_UPDATE_BIN", "/tmp/update stub;echo pwned");
@@ -761,6 +788,53 @@ describe("resolveExternalCandidatesMapping", () => {
       },
     ]);
   });
+
+  test("Vendor スキルと名前が衝突する場合、owner--name に名前空間化される", () => {
+    const testLock: Lock = {
+      vendor: { alpha: { source: "other/repo" } },
+      external: {},
+    };
+    const candidates = [{ name: "alpha", path: "skills/alpha/SKILL.md" }];
+    const mapping = resolveExternalCandidatesMapping(
+      testLock,
+      "second-owner/repo",
+      candidates
+    );
+    expect(mapping).toEqual([
+      {
+        candidate: candidates[0]!,
+        upstreamName: "alpha",
+        deployName: "second-owner--alpha",
+        isColliding: true,
+      },
+    ]);
+  });
+
+  test("active にある同名スキルは衝突として名前空間化する", () => {
+    place("active", "alpha", "---\nname: alpha\n---\n");
+    const testLock: Lock = {
+      external: {
+        alpha: {
+          source: "first-owner/repo",
+          skillPath: "skills/alpha/SKILL.md",
+        },
+      },
+    };
+    const candidates = [{ name: "alpha", path: "skills/alpha/SKILL.md" }];
+    const mapping = resolveExternalCandidatesMapping(
+      testLock,
+      "second-owner/repo",
+      candidates
+    );
+    expect(mapping).toEqual([
+      {
+        candidate: candidates[0]!,
+        upstreamName: "alpha",
+        deployName: "second-owner--alpha",
+        isColliding: true,
+      },
+    ]);
+  });
 });
 
 describe("addExternalToLock with collision", () => {
@@ -783,6 +857,34 @@ describe("addExternalToLock with collision", () => {
     const candidates = [{ name: "alpha", path: "skills/alpha/SKILL.md" }];
 
     addExternalToLock("other/repo", new Set(["other--alpha"]), candidates);
+
+    const updated = JSON.parse(readFileSync(lockPath, "utf-8")) as Lock;
+    expect(updated.external).toEqual({
+      "other--alpha": {
+        source: "other/repo",
+        sourceUrl: "https://github.com/other/repo.git",
+        skillPath: "skills/alpha/SKILL.md",
+        installSkill: "alpha",
+      },
+    });
+  });
+
+  test("Vendor と衝突する場合も名前空間化して登録する", () => {
+    const lockPath = dir("skills.lock.json");
+    setEnv("MY_SKILLS_LOCK_FILE", lockPath);
+    writeFileSync(
+      lockPath,
+      JSON.stringify({
+        version: 1,
+        custom: { repo: "owner/catalog", skills: {} },
+        external: {},
+        vendor: { alpha: { source: "old/repo" } },
+      })
+    );
+
+    addExternalToLock("other/repo", new Set(["alpha"]), [
+      { name: "alpha", path: "skills/alpha/SKILL.md" },
+    ]);
 
     const updated = JSON.parse(readFileSync(lockPath, "utf-8")) as Lock;
     expect(updated.external).toEqual({
@@ -818,6 +920,10 @@ describe("runExternalInstall with collision", () => {
         vendor: {},
       })
     );
+    useCandidates([
+      { name: "alpha", path: "skills/alpha/SKILL.md" },
+      { name: "beta", path: "skills/beta/SKILL.md" },
+    ]);
 
     await runExternalInstall("other/repo", new Set(["other--alpha", "beta"]));
 

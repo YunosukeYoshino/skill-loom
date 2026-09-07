@@ -45,6 +45,7 @@ import {
   isArgvSafeSkillName,
   registerInstalledExternalSelection,
   removeExternalSkillFromManagement,
+  resolveSelectedExternalSkills,
   runExternalInstall,
 } from "./domain/external";
 import { commitRepoChanges } from "./infrastructure/git";
@@ -1268,8 +1269,20 @@ app.post("/api/external/install", async (c) => {
   }
   if (!tryAcquireApply())
     return errorResponse(IMPORT_BUSY_MESSAGE, 409, catalogPayload(deckName));
+
+  let candidates: ReturnType<typeof externalSkillCandidates>;
+  let deploySelected: Set<string>;
   try {
-    await runExternalInstall(ownerRepo, selected);
+    candidates = externalSkillCandidates(ownerRepo);
+    deploySelected = new Set(
+      resolveSelectedExternalSkills(
+        loadLock(),
+        ownerRepo,
+        selected,
+        candidates
+      ).map((row) => row.deployName)
+    );
+    await runExternalInstall(ownerRepo, deploySelected, candidates);
   } catch (error) {
     return errorResponse(
       `取り込みに失敗: ${errorText(error)}`,
@@ -1280,10 +1293,11 @@ app.post("/api/external/install", async (c) => {
     releaseApply();
   }
 
-  const names = sortNames(selected).join(", ");
+  const names = sortNames(deploySelected).join(", ");
   const [, unignoredCount] = registerInstalledExternalSelection(
     ownerRepo,
-    selected
+    deploySelected,
+    candidates
   );
   const unignoredMessage = unignoredCount
     ? ` / ignored解除 ${unignoredCount}`
@@ -1308,7 +1322,7 @@ app.post("/api/external/install", async (c) => {
   const path = writeProjectDeckSkills(
     deckName,
     deck,
-    new Set([...currentSkills, ...selected])
+    new Set([...currentSkills, ...deploySelected])
   );
   const deckCommitNote = commitRepoChanges(
     `chore: add ${names} to project deck ${deckName}`,
@@ -1356,9 +1370,19 @@ app.post("/api/external/add-to-deck", async (c) => {
     return errorResponse(IMPORT_BUSY_MESSAGE, 409, catalogPayload(deckName));
 
   let savedCount: number;
+  let deploySelected: Set<string>;
   try {
-    addExternalToLock(ownerRepo, selected, externalSkillCandidates(ownerRepo));
-    savedCount = addSkillsToProjectDeck(deckName, selected);
+    const candidates = externalSkillCandidates(ownerRepo);
+    deploySelected = new Set(
+      resolveSelectedExternalSkills(
+        loadLock(),
+        ownerRepo,
+        selected,
+        candidates
+      ).map((row) => row.deployName)
+    );
+    addExternalToLock(ownerRepo, deploySelected, candidates);
+    savedCount = addSkillsToProjectDeck(deckName, deploySelected);
   } catch (error) {
     return errorResponse(
       `deck追加に失敗: ${errorText(error)}`,
@@ -1369,7 +1393,7 @@ app.post("/api/external/add-to-deck", async (c) => {
     releaseApply();
   }
 
-  const names = sortNames(selected).join(", ");
+  const names = sortNames(deploySelected).join(", ");
   const commitNote = commitRepoChanges(
     `chore: add ${names} to skills.lock.json and deck ${deckName}`,
     [lockFile(), deckPath(deckName, true)]

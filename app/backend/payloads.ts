@@ -178,18 +178,10 @@ export async function externalSourceDetailPayload(
     )
   );
 
-  const candidateByName = new Map<string, ExternalCandidate>(
+  const candidateByUpstream = new Map<string, ExternalCandidate>(
     candidates.map((candidate) => [candidate.name, candidate])
   );
-  for (const [name, meta] of Object.entries(installed)) {
-    if (!candidateByName.has(name)) {
-      candidateByName.set(name, {
-        name,
-        description: skillDescription(lock, name),
-        path: meta.skillPath ?? "",
-      });
-    }
-  }
+  const matchedUpstreams = new Set<string>();
 
   const installedSkills: InstalledExternal[] = [];
   const availableRows: SkillRow[] = [];
@@ -201,28 +193,37 @@ export async function externalSourceDetailPayload(
     )
   );
 
-  for (const name of sortNames(candidateByName.keys())) {
-    const candidate = candidateByName.get(name) as ExternalCandidate;
-    // active でないものは更新確認しない。update しても projection に出ないため。
+  for (const name of sortNames(Object.keys(installed))) {
+    const meta = installed[name];
+    const upstreamName = meta?.installSkill ?? name;
+    matchedUpstreams.add(upstreamName);
+    const candidate = candidateByUpstream.get(upstreamName) ??
+      candidateByUpstream.get(name) ?? {
+        name: upstreamName,
+        description: skillDescription(lock, name),
+        path: meta?.skillPath ?? "",
+      };
     const hasUpdate =
-      activeExternal.has(name) && (await skillHasRemoteUpdate(name, candidate));
+      activeExternal.has(name) &&
+      (await skillHasRemoteUpdate(name, candidate, upstreamName));
     if (hasUpdate) updatableSkills.push(name);
 
-    if (name in installed) {
-      installedSkills.push({
-        name,
-        description: candidate.description ?? "",
-        path: candidate.path ?? "",
-        state: skillProjectionState(name, activeExternal, archivedExternal),
-        hasUpdate,
-        updateCommand: hasUpdate
-          ? shellCommandText(externalUpdateCommand(name))
-          : "",
-        managed: true,
-      });
-      continue;
-    }
+    installedSkills.push({
+      name,
+      description: candidate.description ?? "",
+      path: candidate.path ?? "",
+      state: skillProjectionState(name, activeExternal, archivedExternal),
+      hasUpdate,
+      updateCommand: hasUpdate
+        ? shellCommandText(externalUpdateCommand(name))
+        : "",
+      managed: true,
+    });
+  }
 
+  for (const name of sortNames(candidateByUpstream.keys())) {
+    if (matchedUpstreams.has(name) || name in installed) continue;
+    const candidate = candidateByUpstream.get(name) as ExternalCandidate;
     availableRows.push({
       name,
       category: candidate.path || ownerRepo,
