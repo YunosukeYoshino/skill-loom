@@ -1,3 +1,7 @@
 bunx lint-staged
 bun run typecheck
-bun run test
+# Tests create isolated Catalog repositories; hook-local Git paths must not leak into them.
+(
+  unset $(git rev-parse --local-env-vars)
+  bun run test
+)
