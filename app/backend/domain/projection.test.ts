@@ -19,6 +19,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   readlinkSync,
   rmSync,
   symlinkSync,
@@ -734,3 +735,58 @@ Body text
     );
   });
 });
+
+test.each([0, 1])(
+  "private stash preserves unrelated temp entries and restores upstream (exit %s)",
+  (exitCode) => {
+    install("active", "alpha");
+    const temp = dir("tmp");
+    mkdirSync(temp);
+    const previousTmp = process.env.TMPDIR;
+    process.env.TMPDIR = temp;
+    const predictable = join(temp, `skill-loom-stash-${process.pid}-alpha`);
+    mkdirSync(predictable);
+    writeFileSync(join(predictable, "sentinel"), "unrelated");
+    const stub = dir("install-stub");
+    writeFileSync(
+      stub,
+      `#!/bin/bash
+set -eu
+mkdir -p "$MY_SKILLS_ACTIVE_DIR/alpha"
+printf -- '---\\nname: alpha\\n---\\nincoming\\n' > "$MY_SKILLS_ACTIVE_DIR/alpha/SKILL.md"
+exit ${exitCode}
+`
+    );
+    chmodSync(stub, 0o755);
+    setEnv("MY_SKILLS_ADD_BIN", stub);
+    try {
+      const apply = () =>
+        applyDeck(
+          new Set(),
+          new Set(),
+          new Set(["owner--alpha"]),
+          {
+            external: {
+              "owner--alpha": { source: "owner/repo", installSkill: "alpha" },
+            },
+          },
+          new Set()
+        );
+      if (exitCode) expect(apply).toThrow();
+      else apply();
+      expect(readFileSync(dir("active", "alpha", "SKILL.md"), "utf8")).toBe(
+        "---\nname: alpha\n---\n"
+      );
+      expect(linked("alpha")).toBe(true);
+      expect(readFileSync(join(predictable, "sentinel"), "utf8")).toBe(
+        "unrelated"
+      );
+      expect(readdirSync(temp)).toEqual([
+        `skill-loom-stash-${process.pid}-alpha`,
+      ]);
+    } finally {
+      if (previousTmp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = previousTmp;
+    }
+  }
+);

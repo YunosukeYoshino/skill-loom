@@ -17,6 +17,8 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
+  rmdirSync,
   readFileSync,
   renameSync,
   symlinkSync,
@@ -275,10 +277,6 @@ function isAliasedExternal(
   return Boolean(meta?.installSkill && meta.installSkill !== name);
 }
 
-function stashPathFor(installSkill: string): string {
-  return join(tmpdir(), `skill-loom-stash-${process.pid}-${installSkill}`);
-}
-
 /**
  * skills CLI は常に上流名のフォルダへ書く。先にその名前を退避し、
  * 新規 install を展開名へ移してから元のフォルダを戻す。
@@ -290,11 +288,11 @@ function withStashedUpstream(installSkill: string, fn: () => void): void {
     return;
   }
 
-  unlinkAgentSkillDirs(installSkill);
-  const stashDir = stashPathFor(installSkill);
-  if (exists(stashDir) || isSymlink(stashDir)) trashPath(stashDir);
+  const stashRoot = mkdtempSync(join(tmpdir(), "skill-loom-stash-"));
+  const stashDir = join(stashRoot, installSkill);
   movePath(srcDir, stashDir);
   try {
+    unlinkAgentSkillDirs(installSkill);
     fn();
   } finally {
     if (exists(stashDir) || isSymlink(stashDir)) {
@@ -303,6 +301,7 @@ function withStashedUpstream(installSkill: string, fn: () => void): void {
       movePath(stashDir, restored);
       linkAgentSkillDirs(installSkill);
     }
+    rmdirSync(stashRoot);
   }
 }
 

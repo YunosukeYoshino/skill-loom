@@ -816,3 +816,122 @@ describe("skills-add", () => {
     ).toContain("name: owner--alpha");
   }, 20_000);
 });
+
+describe("PR 6 skills-add regressions", () => {
+  function fixture() {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "add-regression-"));
+    const home = path.join(root, "home");
+    const active = path.join(home, ".agents/skills");
+    const catalog = path.join(root, "catalog");
+    const bin = path.join(root, "bin");
+    for (const dir of [active, catalog, bin])
+      fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(catalog, "skills.lock.json"),
+      JSON.stringify({
+        version: 1,
+        custom: { repo: "owner/catalog", skills: {} },
+        vendor: {},
+        external: {},
+      })
+    );
+    fs.writeFileSync(path.join(bin, "gh"), "#!/bin/sh\nexit 1\n");
+    fs.chmodSync(path.join(bin, "gh"), 0o755);
+    const stub = path.join(bin, "install");
+    fs.writeFileSync(
+      stub,
+      `#!/bin/bash
+set -eu
+mkdir -p "$MY_SKILLS_ACTIVE_DIR/alpha"
+printf -- '---\\nname: alpha\\n---\\nincoming\\n' > "$MY_SKILLS_ACTIVE_DIR/alpha/SKILL.md"
+`
+    );
+    fs.chmodSync(stub, 0o755);
+    const env = {
+      ...process.env,
+      HOME: home,
+      MY_SKILLS_ACTIVE_DIR: active,
+      MY_SKILLS_CATALOG_DIR: catalog,
+      MY_SKILLS_CLAUDE_SKILLS_DIR: path.join(home, ".claude/skills"),
+      MY_SKILLS_GEMINI_SKILLS_DIR: path.join(home, ".gemini/config/skills"),
+      MY_SKILLS_ADD_BIN: stub,
+      PATH: `${bin}:${process.env.PATH}`,
+    };
+    const run = (args: string[]) =>
+      runBash(
+        path.join(SKILLS_ADD_DIR, "skills-add"),
+        ["Owner/repo", "--skill", "alpha", ...args, "--no-commit"],
+        { env }
+      );
+    const runUnfiltered = () =>
+      runBash(
+        path.join(SKILLS_ADD_DIR, "skills-add"),
+        ["Owner/repo", "--no-commit"],
+        { env }
+      );
+    return { root, active, catalog, stub, run, runUnfiltered };
+  }
+
+  test.each(["directory", "symlink"])(
+    "--as preserves an unmanaged destination %s",
+    (kind) => {
+      const f = fixture();
+      const target = path.join(f.active, "local-copy");
+      if (kind === "directory") {
+        fs.mkdirSync(target);
+        fs.writeFileSync(path.join(target, "SKILL.md"), "original");
+      } else fs.symlinkSync("missing-target", target);
+      f.run(["--as", "local-copy"]);
+      if (kind === "directory")
+        expect(fs.readFileSync(path.join(target, "SKILL.md"), "utf8")).toBe(
+          "original"
+        );
+      else expect(fs.readlinkSync(target)).toBe("missing-target");
+      expect(
+        JSON.parse(
+          fs.readFileSync(path.join(f.catalog, "skills.lock.json"), "utf8")
+        ).external
+      ).toEqual({});
+    },
+    20_000
+  );
+
+  test("an unfiltered new install keeps the upstream name", () => {
+    const f = fixture();
+    expect(f.runUnfiltered().exitCode).toBe(0);
+    expect(fs.existsSync(path.join(f.active, "alpha/SKILL.md"))).toBe(true);
+  }, 20_000);
+
+  test("--prefix lowercases the owner", () => {
+    const f = fixture();
+    expect(f.run(["--prefix"]).exitCode).toBe(0);
+    expect(
+      fs.readFileSync(path.join(f.active, "owner--alpha/SKILL.md"), "utf8")
+    ).toContain("name: owner--alpha");
+  }, 20_000);
+
+  test("an unmanaged upstream directory triggers namespacing", () => {
+    const f = fixture();
+    fs.mkdirSync(path.join(f.active, "alpha"));
+    fs.writeFileSync(path.join(f.active, "alpha/SKILL.md"), "original");
+    expect(f.run([]).exitCode).toBe(0);
+    expect(fs.readFileSync(path.join(f.active, "alpha/SKILL.md"), "utf8")).toBe(
+      "original"
+    );
+    expect(
+      fs.readFileSync(path.join(f.active, "owner--alpha/SKILL.md"), "utf8")
+    ).toContain("name: owner--alpha");
+  }, 20_000);
+
+  test("SIGTERM restores the stashed upstream", () => {
+    const f = fixture();
+    fs.mkdirSync(path.join(f.active, "alpha"));
+    fs.writeFileSync(path.join(f.active, "alpha/SKILL.md"), "original");
+    fs.writeFileSync(f.stub, '#!/bin/bash\nkill -TERM "$PPID"\nexit 1\n');
+    expect(f.run(["--as", "alias"]).exitCode).not.toBe(0);
+    expect(fs.existsSync(path.join(f.active, "alpha/SKILL.md"))).toBe(true);
+    expect(fs.readFileSync(path.join(f.active, "alpha/SKILL.md"), "utf8")).toBe(
+      "original"
+    );
+  }, 20_000);
+});

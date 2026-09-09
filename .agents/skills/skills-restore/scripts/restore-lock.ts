@@ -59,10 +59,8 @@ function loadPlans(
       );
       continue;
     }
-    const installName =
-      typeof meta?.installSkill === "string" ? meta.installSkill : name;
     const list = bySource.get(source) ?? [];
-    list.push(installName);
+    list.push(name);
     bySource.set(source, list);
   }
 
@@ -84,15 +82,18 @@ function resolveActiveDir(): string {
   );
 }
 
-function unlinkAgentSkill(name: string): void {
+function agentSkillDirs(): string[] {
   const home = process.env.HOME ?? os.homedir();
-  const dirs = [
+  return [
     process.env.MY_SKILLS_CLAUDE_SKILLS_DIR ??
       path.join(home, ".claude", "skills"),
     process.env.MY_SKILLS_GEMINI_SKILLS_DIR ??
       path.join(home, ".gemini", "config", "skills"),
   ];
-  for (const dir of dirs) {
+}
+
+function unlinkAgentSkill(name: string): void {
+  for (const dir of agentSkillDirs()) {
     const link = path.join(dir, name);
     try {
       if (fs.lstatSync(link).isSymbolicLink()) fs.unlinkSync(link);
@@ -102,8 +103,33 @@ function unlinkAgentSkill(name: string): void {
   }
 }
 
+function linkAgentSkill(activeDir: string, name: string): void {
+  const target = path.join(activeDir, name);
+  if (!fs.existsSync(target)) return;
+  for (const dir of agentSkillDirs()) {
+    fs.mkdirSync(dir, { recursive: true });
+    const link = path.join(dir, name);
+    try {
+      if (!fs.lstatSync(link).isSymbolicLink()) continue;
+      fs.unlinkSync(link);
+    } catch {
+      /* missing */
+    }
+    fs.symlinkSync(path.relative(dir, target), link);
+  }
+}
+
 function moveDir(src: string, dst: string): void {
   fs.renameSync(src, dst);
+}
+
+function pathPresent(target: string): boolean {
+  try {
+    fs.lstatSync(target);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function withStashedUpstream(
@@ -112,25 +138,24 @@ function withStashedUpstream(
   fn: () => void
 ): void {
   const srcDir = path.join(activeDir, installSkill);
-  if (!fs.existsSync(srcDir)) {
+  if (!pathPresent(srcDir)) {
     fn();
     return;
   }
-  unlinkAgentSkill(installSkill);
-  const stashDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), `skill-loom-stash-${installSkill}-`)
-  );
+  const stashDir = fs.mkdtempSync(path.join(activeDir, ".skill-loom-stash-"));
   const stashPath = path.join(stashDir, installSkill);
   moveDir(srcDir, stashPath);
   try {
+    unlinkAgentSkill(installSkill);
     fn();
   } finally {
-    if (fs.existsSync(stashPath)) {
+    if (pathPresent(stashPath)) {
       const restored = path.join(activeDir, installSkill);
-      if (fs.existsSync(restored)) {
+      if (pathPresent(restored)) {
         fs.rmSync(restored, { recursive: true, force: true });
       }
       moveDir(stashPath, restored);
+      linkAgentSkill(activeDir, installSkill);
     }
     fs.rmSync(stashDir, { recursive: true, force: true });
   }
@@ -143,13 +168,14 @@ function placeAliasedSkill(
 ): void {
   const srcDir = path.join(activeDir, installSkill);
   const dstDir = path.join(activeDir, deployName);
-  if (!fs.existsSync(srcDir)) return;
+  if (!pathPresent(srcDir)) return;
   unlinkAgentSkill(installSkill);
-  if (fs.existsSync(dstDir)) {
+  if (pathPresent(dstDir)) {
     fs.rmSync(dstDir, { recursive: true, force: true });
   }
   moveDir(srcDir, dstDir);
   syncSkillMdName(path.join(dstDir, "SKILL.md"), deployName);
+  linkAgentSkill(activeDir, deployName);
 }
 
 function aliasedJobs(
@@ -192,7 +218,7 @@ function main(): void {
   const plans = loadPlans(lockPath);
   const aliased = aliasedJobs(lockPath);
   const aliasedKeys = new Set(
-    aliased.map((job) => `${job.source}\0${job.installSkill}`)
+    aliased.map((job) => `${job.source}\0${job.deployName}`)
   );
 
   for (const plan of plans) {

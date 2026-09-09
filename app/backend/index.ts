@@ -1270,19 +1270,18 @@ app.post("/api/external/install", async (c) => {
   if (!tryAcquireApply())
     return errorResponse(IMPORT_BUSY_MESSAGE, 409, catalogPayload(deckName));
 
-  let candidates: ReturnType<typeof externalSkillCandidates>;
+  let resolved: ReturnType<typeof resolveSelectedExternalSkills>;
   let deploySelected: Set<string>;
   try {
-    candidates = externalSkillCandidates(ownerRepo);
-    deploySelected = new Set(
-      resolveSelectedExternalSkills(
-        loadLock(),
-        ownerRepo,
-        selected,
-        candidates
-      ).map((row) => row.deployName)
+    const candidates = externalSkillCandidates(ownerRepo);
+    resolved = resolveSelectedExternalSkills(
+      loadLock(),
+      ownerRepo,
+      selected,
+      candidates
     );
-    await runExternalInstall(ownerRepo, deploySelected, candidates);
+    deploySelected = new Set(resolved.map((row) => row.deployName));
+    await runExternalInstall(ownerRepo, deploySelected, resolved);
   } catch (error) {
     return errorResponse(
       `取り込みに失敗: ${errorText(error)}`,
@@ -1297,7 +1296,7 @@ app.post("/api/external/install", async (c) => {
   const [, unignoredCount] = registerInstalledExternalSelection(
     ownerRepo,
     deploySelected,
-    candidates
+    resolved
   );
   const unignoredMessage = unignoredCount
     ? ` / ignored解除 ${unignoredCount}`

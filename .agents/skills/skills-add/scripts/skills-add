@@ -77,6 +77,12 @@ validate_deploy_name() {
     [[ "$name" =~ $VALID_NAME_RE ]]
 }
 
+deploy_name_taken() {
+    local candidate="$1"
+    [ "$(lock_lookup "$candidate")" != "none" ] ||
+        [ -e "$ACTIVE_DIR/$candidate" ] || [ -L "$ACTIVE_DIR/$candidate" ]
+}
+
 lock_lookup() {
     bun "$DIR/lock-check.ts" lookup "$1" "$LOCK_FILE"
 }
@@ -104,11 +110,12 @@ place_aliased_skill() {
     local src_dir="$ACTIVE_DIR/$skill_name"
     local target_dir="$ACTIVE_DIR/$target_name"
     [ -d "$src_dir" ] || return 0
-    unlink_agent_skill_dirs "$skill_name"
-    if [ -e "$target_dir" ]; then
-        rm -rf "$target_dir"
+    if [ -e "$target_dir" ] || [ -L "$target_dir" ]; then
+        echo "Error: deploy target already exists: $target_dir" >&2
+        return 1
     fi
-    mv "$src_dir" "$target_dir"
+    unlink_agent_skill_dirs "$skill_name"
+    mv "$src_dir" "$target_dir" || return $?
     if [ -f "$target_dir/SKILL.md" ]; then
         bun "$DIR/sync-skill-name.ts" "$target_dir/SKILL.md" "$target_name"
     fi
@@ -119,8 +126,8 @@ restore_stashed_upstream() {
     local skill_name="$1"
     local src_dir="$2"
     local stash="$3"
-    if [ -n "$stash" ] && [ -d "$stash/$skill_name" ]; then
-        if [ -e "$src_dir" ]; then
+    if [ -n "$stash" ] && { [ -e "$stash/$skill_name" ] || [ -L "$stash/$skill_name" ]; }; then
+        if [ -e "$src_dir" ] || [ -L "$src_dir" ]; then
             rm -rf "$src_dir"
         fi
         mv "$stash/$skill_name" "$src_dir"
@@ -129,12 +136,16 @@ restore_stashed_upstream() {
     fi
 }
 
-install_aliased() {
+# A subshell scopes cleanup traps to this installation; the outer EXIT trap stays intact.
+install_aliased() (
     local skill_name="$1"
     local target_name="$2"
     local src_dir="$ACTIVE_DIR/$skill_name"
     local stash=""
 
+    trap 'restore_stashed_upstream "$skill_name" "$src_dir" "$stash"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     if [ -d "$src_dir" ] || [ -L "$src_dir" ]; then
         stash=$(mktemp -d "${TMPDIR:-/tmp}/skill-loom-stash.XXXXXX")
         unlink_agent_skill_dirs "$skill_name"
@@ -146,16 +157,10 @@ install_aliased() {
     local ec=$?
     set -e
     if [ "$ec" -ne 0 ]; then
-        restore_stashed_upstream "$skill_name" "$src_dir" "$stash"
         return "$ec"
     fi
-    set +e
     place_aliased_skill "$skill_name" "$target_name"
-    local place_ec=$?
-    set -e
-    restore_stashed_upstream "$skill_name" "$src_dir" "$stash"
-    return "$place_ec"
-}
+)
 
 prompt_collision() {
     local skill_name="$1"
@@ -178,7 +183,7 @@ prompt_collision() {
                     echo "  → Invalid alias '$custom_alias' (use kebab-case, no slashes)"
                     continue
                 fi
-                if [ "$(lock_lookup "$custom_alias")" != "none" ]; then
+                if deploy_name_taken "$custom_alias"; then
                     echo "  → Alias '$custom_alias' already in skills.lock.json"
                     continue
                 fi
@@ -221,14 +226,14 @@ plan_skill() {
 
     local lookup namespaced_name
     lookup=$(lock_lookup "$skill_name")
-    namespaced_name="${OWNER}--${skill_name}"
+    namespaced_name="$(printf '%s' "${OWNER}--${skill_name}" | tr '[:upper:]' '[:lower:]')"
 
     if [ -n "$ALIAS" ]; then
         if ! validate_deploy_name "$ALIAS"; then
             echo "Error: --as '$ALIAS' is not a valid skill name (kebab-case, no slashes)" >&2
             exit 2
         fi
-        if [ "$(lock_lookup "$ALIAS")" != "none" ]; then
+        if deploy_name_taken "$ALIAS"; then
             echo "  → Alias '$ALIAS' already in skills.lock.json, skipping"
             return 1
         fi
@@ -238,7 +243,7 @@ plan_skill() {
     fi
 
     if [ "$FORCE_PREFIX" = true ]; then
-        if [ "$(lock_lookup "$namespaced_name")" != "none" ]; then
+        if deploy_name_taken "$namespaced_name"; then
             echo "  → '$namespaced_name' already in skills.lock.json, skipping"
             return 1
         fi
@@ -252,8 +257,8 @@ plan_skill() {
         return 1
     fi
 
-    if [ "$lookup" != "none" ]; then
-        if [ "$(lock_lookup "$namespaced_name")" != "none" ]; then
+    if [ "$lookup" != "none" ] || grep -Fxq -- "$skill_name" "$BEFORE_FILE"; then
+        if deploy_name_taken "$namespaced_name"; then
             echo "  → Both '$skill_name' and '$namespaced_name' already in skills.lock.json, skipping"
             return 1
         fi
@@ -301,6 +306,10 @@ plan_and_record() {
     echo ""
     echo "  Processing: $skill_name"
     if plan_skill "$skill_name"; then
+        if ! validate_deploy_name "$TARGET_NAME"; then
+            echo "Error: invalid deploy name: $TARGET_NAME" >&2
+            exit 2
+        fi
         PLANNED_UPSTREAM+=("$skill_name")
         PLANNED_DEPLOY+=("$TARGET_NAME")
         PLANNED_INSTALL_SKILL+=("$INSTALL_SKILL")

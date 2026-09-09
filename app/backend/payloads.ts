@@ -221,11 +221,20 @@ export async function externalSourceDetailPayload(
     });
   }
 
-  for (const name of sortNames(candidateByUpstream.keys())) {
-    if (matchedUpstreams.has(name) || name in installed) continue;
-    const candidate = candidateByUpstream.get(name) as ExternalCandidate;
+  const availableMapping = resolveExternalCandidatesMapping(
+    lock,
+    ownerRepo,
+    sortNames(candidateByUpstream.keys())
+      .filter((name) => !matchedUpstreams.has(name))
+      .map((name) => candidateByUpstream.get(name) as ExternalCandidate)
+  );
+  const conflicts = availableMapping.flatMap((row) =>
+    row.conflict ? [row.upstreamName] : []
+  );
+  for (const { candidate, deployName, conflict } of availableMapping) {
+    if (conflict) continue;
     availableRows.push({
-      name,
+      name: deployName,
       category: candidate.path || ownerRepo,
       description: candidate.description ?? "",
       source: "external",
@@ -237,7 +246,14 @@ export async function externalSourceDetailPayload(
   return {
     page: "external-source-detail",
     title: ownerRepo,
-    message,
+    message: [
+      message,
+      conflicts.length
+        ? `名前が重複しています。CLI で別名を指定してください: ${conflicts.join(", ")}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" / "),
     decks: deckNames(),
     source: ownerRepo,
     installed: installedSkills,
@@ -336,24 +352,36 @@ export function externalPreviewPayload(
   return {
     page: "external-preview",
     title: `外部skillsを取り込む - ${ownerRepo}`,
-    message,
+    message: [
+      message,
+      ...resolved
+        .filter((row) => row.conflict)
+        .map(
+          (row) =>
+            `名前が重複しています。CLI で別名を指定してください: ${row.upstreamName}`
+        ),
+    ]
+      .filter(Boolean)
+      .join(" / "),
     decks: deckNames(),
     deckName,
     source: ownerRepo,
-    rows: resolved.map(({ candidate, deployName, isColliding }) => ({
-      name: deployName,
-      category: isColliding
-        ? `[名前空間: ${deployName}] ${candidate.path ?? ownerRepo}`
-        : (candidate.path ?? ownerRepo),
-      description: candidate.description ?? "",
-      source: "external",
-      state: active.has(deployName)
-        ? "active"
-        : archived.has(deployName)
-          ? "archive"
-          : "missing",
-      checked: false,
-    })),
+    rows: resolved
+      .filter((row) => !row.conflict)
+      .map(({ candidate, deployName, isColliding }) => ({
+        name: deployName,
+        category: isColliding
+          ? `[名前空間: ${deployName}] ${candidate.path ?? ownerRepo}`
+          : (candidate.path ?? ownerRepo),
+        description: candidate.description ?? "",
+        source: "external",
+        state: active.has(deployName)
+          ? "active"
+          : archived.has(deployName)
+            ? "archive"
+            : "missing",
+        checked: false,
+      })),
   };
 }
 

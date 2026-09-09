@@ -34,12 +34,17 @@ import {
   removeExternalSkillFromManagement,
   resolveExternalCandidatesMapping,
   runExternalInstall,
+  resolveSelectedExternalSkills,
+  skillHasRemoteUpdate,
 } from "./external";
 import {
   externalPreviewPayload,
   externalSourceDetailPayload,
 } from "../payloads";
-import { sha256 } from "../infrastructure/github";
+import {
+  discoverExternalSkillCandidates,
+  sha256,
+} from "../infrastructure/github";
 import type { Lock } from "./inventory";
 
 let sandbox: string;
@@ -160,7 +165,7 @@ describe("activeExternalSkillNames / installedExternalUpdateTasks", () => {
 
     expect([...activeExternalSkillNames(lock)]).toEqual(["alpha"]);
     expect(installedExternalUpdateTasks(lock)).toEqual([
-      ["owner-one/repo-one", "alpha", "skills/alpha/SKILL.md"],
+      ["owner-one/repo-one", "alpha", "skills/alpha/SKILL.md", "alpha"],
     ]);
   });
 
@@ -980,4 +985,289 @@ describe("externalPreviewPayload with collision", () => {
       },
     ]);
   });
+});
+
+describe("PR 6 import regressions", () => {
+  beforeEach(() => {
+    setEnv("MY_SKILLS_LOCK_FILE", dir("skills.lock.json"));
+    setEnv("MY_SKILLS_PROJECT_DECKS_DIR", dir("decks"));
+    writeFileSync(
+      dir("skills.lock.json"),
+      JSON.stringify({
+        version: 1,
+        custom: { repo: "owner/catalog", skills: {} },
+        vendor: {},
+        external: {},
+      })
+    );
+  });
+
+  test("occupied namespace is rejected without rewriting the lock", () => {
+    const data = {
+      version: 1,
+      custom: { repo: "owner/catalog", skills: {} },
+      vendor: {},
+      external: {
+        alpha: {
+          source: "first/repo",
+          sourceUrl: "https://github.com/first/repo.git",
+          skillPath: "skills/alpha/SKILL.md",
+        },
+        "owner--alpha": {
+          source: "owner/other",
+          sourceUrl: "https://github.com/owner/other.git",
+          skillPath: "skills/alpha/SKILL.md",
+        },
+      },
+    };
+    writeFileSync(dir("skills.lock.json"), JSON.stringify(data));
+    expect(() =>
+      addExternalToLock("owner/repo", new Set(["alpha"]), [{ name: "alpha" }])
+    ).toThrow("already exists");
+    expect(JSON.parse(readFileSync(dir("skills.lock.json"), "utf8"))).toEqual(
+      data
+    );
+  });
+
+  test("an unmanaged namespace directory is not reused", () => {
+    place("active", "owner--alpha", "local");
+    expect(() =>
+      resolveSelectedExternalSkills(
+        { external: { alpha: { source: "first/repo" } } },
+        "owner/repo",
+        new Set(["alpha"]),
+        [{ name: "alpha" }]
+      )
+    ).toThrow("already exists");
+  });
+
+  test("uppercase owner generates a lowercase deploy name", () => {
+    expect(
+      resolveExternalCandidatesMapping(
+        { vendor: { alpha: {} } },
+        "Owner/repo",
+        [{ name: "alpha" }]
+      )[0]?.deployName
+    ).toBe("owner--alpha");
+  });
+
+  test.each(["add", "register"])(
+    "%s keeps another skill ignored and does not copy its metadata",
+    (action) => {
+      const original = {
+        source: "first/repo",
+        sourceUrl: "https://github.com/first/repo.git",
+        skillPath: "private/old/SKILL.md",
+        installSkill: "old",
+      };
+      writeFileSync(
+        dir("skills.lock.json"),
+        JSON.stringify({
+          version: 1,
+          custom: { repo: "owner/catalog", skills: {} },
+          vendor: {},
+          external: { alpha: original },
+        })
+      );
+      writeFileSync(
+        dir("skill-lock.json"),
+        JSON.stringify({ skills: { alpha: original } })
+      );
+      writeFileSync(
+        dir("ignore.json"),
+        JSON.stringify({ ignore: ["alpha", "owner--alpha"] })
+      );
+      const candidates = [{ name: "alpha", path: "packs/alpha/SKILL.md" }];
+      if (action === "add")
+        addExternalToLock("owner/repo", new Set(["owner--alpha"]), candidates);
+      else
+        registerInstalledExternalSelection(
+          "owner/repo",
+          new Set(["owner--alpha"]),
+          resolveSelectedExternalSkills(
+            { external: { alpha: original } },
+            "owner/repo",
+            new Set(["alpha"]),
+            candidates
+          )
+        );
+      expect(
+        JSON.parse(readFileSync(dir("ignore.json"), "utf8")).ignore
+      ).toEqual(["alpha"]);
+      const updated = JSON.parse(readFileSync(dir("skills.lock.json"), "utf8"));
+      expect(updated.external.alpha).toEqual(original);
+      if (action === "add")
+        expect(updated.external["owner--alpha"].installSkill).toBe("alpha");
+    }
+  );
+
+  test("alias metadata belongs to its own source", () => {
+    writeFileSync(
+      dir("skills.lock.json"),
+      JSON.stringify({
+        version: 1,
+        custom: { repo: "owner/catalog", skills: {} },
+        vendor: {},
+        external: {
+          alpha: {
+            source: "first/repo",
+            sourceUrl: "https://github.com/first/repo.git",
+            skillPath: "wrong/SKILL.md",
+            installSkill: "wrong",
+          },
+        },
+      })
+    );
+    const candidates = [{ name: "alpha", path: "packs/alpha/SKILL.md" }];
+    const resolved = resolveSelectedExternalSkills(
+      {
+        external: {
+          alpha: {
+            source: "first/repo",
+            sourceUrl: "https://github.com/first/repo.git",
+            skillPath: "skills/alpha/SKILL.md",
+          },
+        },
+      },
+      "owner/repo",
+      new Set(["alpha"]),
+      candidates
+    );
+    const [updated] = registerInstalledExternalSelection(
+      "owner/repo",
+      new Set(["owner--alpha"]),
+      resolved
+    );
+    expect(updated.external?.["owner--alpha"]).toEqual({
+      source: "owner/repo",
+      sourceUrl: "https://github.com/owner/repo.git",
+      skillPath: "packs/alpha/SKILL.md",
+      installSkill: "alpha",
+    });
+  });
+
+  test("registration keeps the resolved name after installation changes active", () => {
+    const candidates = [{ name: "alpha", path: "packs/alpha/SKILL.md" }];
+    const resolved = resolveSelectedExternalSkills(
+      {},
+      "owner/repo",
+      new Set(["alpha"]),
+      candidates
+    );
+    place("active", "alpha", "---\nname: alpha\n---\n");
+    const [updated] = registerInstalledExternalSelection(
+      "owner/repo",
+      new Set(["alpha"]),
+      resolved
+    );
+    expect(Object.keys(updated.external ?? {})).toEqual(["alpha"]);
+  });
+
+  test("an alias named beta does not hide the upstream beta candidate", async () => {
+    const detail = await externalSourceDetailPayload(
+      { external: { beta: { source: "owner/repo", installSkill: "alpha" } } },
+      "owner/repo",
+      [{ name: "alpha" }, { name: "beta" }]
+    );
+    expect(detail.available.map((row) => row.name)).toEqual(["owner--beta"]);
+    const selected = resolveSelectedExternalSkills(
+      { external: { beta: { source: "owner/repo", installSkill: "alpha" } } },
+      "owner/repo",
+      new Set(detail.available.map((row) => row.name)),
+      [{ name: "alpha" }, { name: "beta" }]
+    );
+    expect(selected.map((row) => row.upstreamName)).toEqual(["beta"]);
+    expect(
+      resolveExternalCandidatesMapping(
+        { external: { beta: { source: "owner/repo", installSkill: "alpha" } } },
+        "owner/repo",
+        [{ name: "beta" }]
+      )[0]?.deployName
+    ).toBe("owner--beta");
+  });
+
+  test("a freshly renamed skill is current, but a body change is detected", async () => {
+    const upstream = dir("upstream", "alpha");
+    mkdirSync(upstream, { recursive: true });
+    writeFileSync(
+      join(upstream, "SKILL.md"),
+      '---\nname: "alpha"\ndescription: fixture\n---\nbody\n'
+    );
+    const [candidate] = discoverExternalSkillCandidates(dir("upstream"));
+    expect(candidate).toBeDefined();
+    if (!candidate) throw new Error("missing candidate");
+    place(
+      "active",
+      "owner--alpha",
+      "---\nname: owner--alpha\ndescription: fixture\n---\nbody\n"
+    );
+    expect(await skillHasRemoteUpdate("owner--alpha", candidate, "alpha")).toBe(
+      false
+    );
+    place(
+      "active",
+      "owner--alpha",
+      "---\nname: owner--alpha\ndescription: fixture\n---\nchanged body\n"
+    );
+    expect(await skillHasRemoteUpdate("owner--alpha", candidate, "alpha")).toBe(
+      true
+    );
+  });
+
+  test("update tasks carry the upstream name from the supplied lock", () => {
+    place("active", "owner--alpha", "fixture");
+    expect(
+      installedExternalUpdateTasks({
+        external: {
+          "owner--alpha": {
+            source: "owner/repo",
+            skillPath: "packs/alpha/SKILL.md",
+            installSkill: "alpha",
+          },
+        },
+      })
+    ).toEqual([
+      ["owner/repo", "owner--alpha", "packs/alpha/SKILL.md", "alpha"],
+    ]);
+  });
+});
+
+test("an unselected collision does not block a different import or preview", () => {
+  const current: Lock = {
+    external: {
+      alpha: { source: "first/repo" },
+      "owner--alpha": { source: "another/repo" },
+    },
+  };
+  const candidates = [{ name: "alpha" }, { name: "beta" }];
+  expect(
+    resolveSelectedExternalSkills(
+      current,
+      "owner/repo",
+      new Set(["beta"]),
+      candidates
+    ).map((row) => row.deployName)
+  ).toEqual(["beta"]);
+  expect(
+    externalPreviewPayload(current, "", "owner/repo", candidates).rows.map(
+      (row) => row.name
+    )
+  ).toEqual(["beta"]);
+});
+
+test("a blocked namespace does not shadow a valid upstream candidate", () => {
+  const current: Lock = {
+    custom: { skills: { alpha: { repoPath: "skills/alpha" } } },
+  };
+  const candidates = [{ name: "alpha" }, { name: "owner--alpha" }];
+  const preview = externalPreviewPayload(current, "", "owner/repo", candidates);
+  expect(preview.rows.map((row) => row.name)).toEqual(["owner--alpha"]);
+  expect(
+    resolveSelectedExternalSkills(
+      current,
+      "owner/repo",
+      new Set(["owner--alpha"]),
+      candidates
+    ).map((row) => row.upstreamName)
+  ).toEqual(["owner--alpha"]);
 });
