@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { SkillRow, Tristate } from "@shared/api-types";
 import { useListViewSearch } from "@/router-search";
+import { useT } from "@/settings/react";
 import { Button, pendingLabel } from "./ui";
 
 /**
@@ -56,19 +57,21 @@ function sortValue(row: SkillRow, key: SortKey): string | number {
 export function SearchField({
   value,
   onChange,
-  placeholder = "Filter skills…",
+  placeholder,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
+  const t = useT();
+  const label = placeholder ?? t("filter.placeholder");
   return (
     <input
       type="search"
-      aria-label={placeholder}
+      aria-label={label}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
+      placeholder={label}
       className="min-h-10 min-w-[240px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2 text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)]"
     />
   );
@@ -83,16 +86,17 @@ function SortHeader({
   sortAsc: boolean;
   onToggle: (key: SortKey) => void;
 }) {
+  const t = useT();
   const cols: {
     key: SortKey;
     label: string;
     className?: string;
     align?: "end";
   }[] = [
-    { key: "name", label: "Name" },
-    { key: "category", label: "Category", className: "max-md:hidden" },
-    { key: "source", label: "Source", className: "max-md:hidden" },
-    { key: "status", label: "Status", align: "end" },
+    { key: "name", label: t("sort.name") },
+    { key: "category", label: t("sort.category"), className: "max-md:hidden" },
+    { key: "source", label: t("sort.source"), className: "max-md:hidden" },
+    { key: "status", label: t("sort.status"), align: "end" },
   ];
 
   return (
@@ -143,6 +147,7 @@ export function TristateList({
   hasManagedActive?: boolean;
   busy?: boolean;
 }) {
+  const t = useT();
   const mainRows = rows ?? [];
   const archiveRows = archivedRows ?? [];
   const initial = useMemo(() => {
@@ -250,7 +255,7 @@ export function TristateList({
             disabled={!dirty || busy}
             onClick={() => onApply(states)}
           >
-            {pendingLabel(!!busy, "反映", "反映中…")}
+            {pendingLabel(!!busy, t("tristate.apply"), t("tristate.applying"))}
             {dirty ? (
               <span className="rounded-full bg-[oklch(100%_0_0/0.28)] px-1.5 py-px font-[family-name:var(--font-mono)] text-[9.5px] font-semibold [font-variant-numeric:tabular-nums]">
                 {dirtyNames.length}
@@ -261,16 +266,16 @@ export function TristateList({
             <Button
               disabled={busy || !hasManagedActive}
               onClick={() => {
-                if (
-                  confirm(
-                    "このリポジトリ管理下のアクティブなスキルをすべてオフにします（未管理のスキルはそのまま）。直前の構成は「直前に戻す」で復元できます。よろしいですか？"
-                  )
-                ) {
+                if (confirm(t("tristate.bulkOffConfirm"))) {
                   onBulkOff();
                 }
               }}
             >
-              {pendingLabel(!!busy, "すべてオフ", "処理中…")}
+              {pendingLabel(
+                !!busy,
+                t("tristate.bulkOff"),
+                t("common.processing")
+              )}
             </Button>
           ) : null}
         </div>
@@ -298,13 +303,13 @@ export function TristateList({
         </div>
       ) : (
         <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
-          一致するスキルがありません
+          {t("common.noMatches")}
         </div>
       )}
       {archiveRows.length ? (
         <details className="mt-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)]">
           <summary className="cursor-pointer px-3 py-2.5 text-sm text-[var(--color-ink-2)] transition-colors hover:text-[var(--color-ink)]">
-            Archived skills ({archiveRows.length})
+            {t("tristate.archived", { count: archiveRows.length })}
           </summary>
           <div className="divide-y divide-[var(--color-rule)] border-t border-[var(--color-rule)]">
             {archiveRows.filter(match).map((row) => (
@@ -335,11 +340,12 @@ function StatusToggle({
   canActivate?: boolean;
   onChange: (name: string, value: Tristate) => void;
 }) {
+  const t = useT();
   return (
     <div
       className="inline-flex h-10 w-48 justify-self-end rounded-full border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-0.5"
       role="group"
-      aria-label={`${name} status`}
+      aria-label={t("statusToggle.aria", { name })}
     >
       {(["off", "active", "archive"] as Tristate[]).map((opt) => {
         const selected = value === opt;
@@ -460,6 +466,7 @@ export function CheckboxList({
   extraActions?: ReactNode;
   busy?: boolean;
 }) {
+  const t = useT();
   const [selected, setSelected] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(rows.map((r) => [r.name, !!r.checked]))
   );
@@ -504,7 +511,7 @@ export function CheckboxList({
             })
           }
         >
-          すべて選択
+          {t("common.selectAll")}
         </Button>
         <Button
           disabled={busy || !someFilteredSelected}
@@ -516,7 +523,7 @@ export function CheckboxList({
             })
           }
         >
-          すべて解除
+          {t("common.clearAll")}
         </Button>
         {extraActions}
         <Button
@@ -524,7 +531,7 @@ export function CheckboxList({
           disabled={busy || skills.length === 0}
           onClick={() => onSubmit(skills)}
         >
-          {pendingLabel(!!busy, submitLabel, "処理中…")}
+          {pendingLabel(!!busy, submitLabel, t("common.processing"))}
         </Button>
       </div>
       {filtered.length > 0 ? (
@@ -568,7 +575,7 @@ export function CheckboxList({
         </div>
       ) : (
         <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
-          一致するスキルがありません
+          {t("common.noMatches")}
         </div>
       )}
     </div>
@@ -584,6 +591,7 @@ export function ExternalImportForm({
   onPreview: (source: string) => void;
   busy?: boolean;
 }) {
+  const t = useT();
   const [source, setSource] = useState("");
   return (
     <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]">
@@ -597,17 +605,17 @@ export function ExternalImportForm({
         <input type="hidden" name="deck" value={deck} />
         <input
           type="text"
-          aria-label="外部skillsの追加元"
+          aria-label={t("import.aria")}
           value={source}
           onChange={(e) => setSource(e.target.value)}
-          placeholder="owner/repo または GitHub URL…"
+          placeholder={t("import.placeholder")}
           required
           autoComplete="off"
           spellCheck={false}
           className="min-h-10 min-w-[280px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2 text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)]"
         />
         <Button type="submit" disabled={busy}>
-          {pendingLabel(!!busy, "候補を取得", "取得中…")}
+          {pendingLabel(!!busy, t("import.fetch"), t("import.fetching"))}
         </Button>
       </form>
     </div>

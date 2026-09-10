@@ -173,6 +173,7 @@ const en = {
 
   // custom updates panel
   "custom.newerSource": "Newer source ({count})",
+  "custom.newerSourceBadge": "Newer source",
   "custom.updateAll": "Update all with updates ({count})",
   "custom.updateOne": "Update",
   "custom.diffNote": "SKILL.md matches. Other files have changes.",
@@ -346,6 +347,7 @@ const ja: MessageCatalog = {
   "view.list": "リスト",
 
   "custom.newerSource": "正本が新しい ({count})",
+  "custom.newerSourceBadge": "正本が新しい",
   "custom.updateAll": "更新があるものをすべてupdate ({count})",
   "custom.updateOne": "個別update",
   "custom.diffNote": "SKILL.md は一致。他ファイルに差分があります。",
