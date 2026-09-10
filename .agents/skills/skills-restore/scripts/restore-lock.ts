@@ -11,8 +11,10 @@
  */
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { syncSkillMdName } from "../../../../app/backend/domain/skillMd";
 
 interface ExternalSkillMeta {
   source?: unknown;
@@ -57,10 +59,8 @@ function loadPlans(
       );
       continue;
     }
-    const installName =
-      typeof meta?.installSkill === "string" ? meta.installSkill : name;
     const list = bySource.get(source) ?? [];
-    list.push(installName);
+    list.push(name);
     bySource.set(source, list);
   }
 
@@ -75,94 +75,135 @@ function buildArgs(source: string, skills: string[]): string[] {
   return ["skills", "add", source, ...skillArgs, ...FLAGS];
 }
 
-function syncFrontmatterName(filePath: string, newName: string): boolean {
-  if (!fs.existsSync(filePath)) {
-    return false;
-  }
+function resolveActiveDir(): string {
+  return (
+    process.env.MY_SKILLS_ACTIVE_DIR ??
+    (process.env.HOME ? path.join(process.env.HOME, ".agents", "skills") : "")
+  );
+}
 
-  let content: string;
+function agentSkillDirs(): string[] {
+  const home = process.env.HOME ?? os.homedir();
+  return [
+    process.env.MY_SKILLS_CLAUDE_SKILLS_DIR ??
+      path.join(home, ".claude", "skills"),
+    process.env.MY_SKILLS_GEMINI_SKILLS_DIR ??
+      path.join(home, ".gemini", "config", "skills"),
+  ];
+}
+
+function unlinkAgentSkill(name: string): void {
+  for (const dir of agentSkillDirs()) {
+    const link = path.join(dir, name);
+    try {
+      if (fs.lstatSync(link).isSymbolicLink()) fs.unlinkSync(link);
+    } catch {
+      /* missing */
+    }
+  }
+}
+
+function linkAgentSkill(activeDir: string, name: string): void {
+  const target = path.join(activeDir, name);
+  if (!fs.existsSync(target)) return;
+  for (const dir of agentSkillDirs()) {
+    fs.mkdirSync(dir, { recursive: true });
+    const link = path.join(dir, name);
+    try {
+      if (!fs.lstatSync(link).isSymbolicLink()) continue;
+      fs.unlinkSync(link);
+    } catch {
+      /* missing */
+    }
+    fs.symlinkSync(path.relative(dir, target), link);
+  }
+}
+
+function moveDir(src: string, dst: string): void {
+  fs.renameSync(src, dst);
+}
+
+function pathPresent(target: string): boolean {
   try {
-    content = fs.readFileSync(filePath, "utf-8");
-  } catch {
-    return false;
-  }
-
-  const lines = content.split(/\r?\n/);
-  if (lines.length === 0 || lines[0]?.trim() !== "---") {
-    return false;
-  }
-
-  let inFrontmatter = false;
-  let replaced = false;
-  const newLines: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] as string;
-    if (i === 0 && line.trim() === "---") {
-      inFrontmatter = true;
-      newLines.push(line);
-      continue;
-    }
-    if (inFrontmatter && line.trim() === "---") {
-      if (!replaced) {
-        newLines.push(`name: ${newName}`);
-        replaced = true;
-      }
-      inFrontmatter = false;
-      newLines.push(line);
-      continue;
-    }
-    if (inFrontmatter && /^name\s*:\s*.*$/.test(line)) {
-      newLines.push(`name: ${newName}`);
-      replaced = true;
-      continue;
-    }
-    newLines.push(line);
-  }
-
-  const tmpPath = `${filePath}.tmp`;
-  try {
-    fs.writeFileSync(tmpPath, newLines.join("\n"));
-    fs.renameSync(tmpPath, filePath);
+    fs.lstatSync(target);
     return true;
   } catch {
     return false;
   }
 }
 
-function adjustAliasedSkills(lockPath: string): void {
+function withStashedUpstream(
+  activeDir: string,
+  installSkill: string,
+  fn: () => void
+): void {
+  const srcDir = path.join(activeDir, installSkill);
+  if (!pathPresent(srcDir)) {
+    fn();
+    return;
+  }
+  const stashDir = fs.mkdtempSync(path.join(activeDir, ".skill-loom-stash-"));
+  const stashPath = path.join(stashDir, installSkill);
+  moveDir(srcDir, stashPath);
+  try {
+    unlinkAgentSkill(installSkill);
+    fn();
+  } finally {
+    if (pathPresent(stashPath)) {
+      const restored = path.join(activeDir, installSkill);
+      if (pathPresent(restored)) {
+        fs.rmSync(restored, { recursive: true, force: true });
+      }
+      moveDir(stashPath, restored);
+      linkAgentSkill(activeDir, installSkill);
+    }
+    fs.rmSync(stashDir, { recursive: true, force: true });
+  }
+}
+
+function placeAliasedSkill(
+  activeDir: string,
+  deployName: string,
+  installSkill: string
+): void {
+  const srcDir = path.join(activeDir, installSkill);
+  const dstDir = path.join(activeDir, deployName);
+  if (!pathPresent(srcDir)) return;
+  unlinkAgentSkill(installSkill);
+  if (pathPresent(dstDir)) {
+    fs.rmSync(dstDir, { recursive: true, force: true });
+  }
+  moveDir(srcDir, dstDir);
+  syncSkillMdName(path.join(dstDir, "SKILL.md"), deployName);
+  linkAgentSkill(activeDir, deployName);
+}
+
+function aliasedJobs(
+  lockPath: string
+): Array<{ source: string; deployName: string; installSkill: string }> {
   let lock: { external?: Record<string, ExternalSkillMeta> };
   try {
     lock = JSON.parse(fs.readFileSync(lockPath, "utf-8")) as {
       external?: Record<string, ExternalSkillMeta>;
     };
   } catch {
-    return;
+    return [];
   }
-
-  const activeDir =
-    process.env.MY_SKILLS_ACTIVE_DIR ??
-    (process.env.HOME ? path.join(process.env.HOME, ".agents", "skills") : "");
-  if (!activeDir || !fs.existsSync(activeDir)) {
-    return;
-  }
-
+  const jobs: Array<{
+    source: string;
+    deployName: string;
+    installSkill: string;
+  }> = [];
   for (const [name, meta] of Object.entries(lock.external ?? {})) {
+    const source = meta?.source;
     const installSkill =
       typeof meta?.installSkill === "string" ? meta.installSkill : undefined;
+    if (typeof source !== "string" || source === "") continue;
     if (installSkill && installSkill !== name) {
-      const srcDir = path.join(activeDir, installSkill);
-      const dstDir = path.join(activeDir, name);
-      if (fs.existsSync(srcDir)) {
-        if (fs.existsSync(dstDir)) {
-          fs.rmSync(dstDir, { recursive: true, force: true });
-        }
-        fs.renameSync(srcDir, dstDir);
-        const skillMd = path.join(dstDir, "SKILL.md");
-        syncFrontmatterName(skillMd, name);
-      }
+      jobs.push({ source, deployName: name, installSkill });
     }
   }
+  return jobs;
 }
 
 function main(): void {
@@ -175,24 +216,52 @@ function main(): void {
   }
 
   const plans = loadPlans(lockPath);
+  const aliased = aliasedJobs(lockPath);
+  const aliasedKeys = new Set(
+    aliased.map((job) => `${job.source}\0${job.deployName}`)
+  );
+
   for (const plan of plans) {
-    const args = buildArgs(plan.source, plan.skills);
-    const display = ["npx", ...args].map(shellQuote).join(" ");
-    process.stdout.write(`${display}\n`);
-    if (!install) continue;
-
-    const result = Bun.spawnSync(["npx", ...args], {
-      env: process.env,
-      stdout: "inherit",
-      stderr: "inherit",
-    });
-    if ((result.exitCode ?? 1) !== 0) {
-      process.exit(result.exitCode ?? 1);
+    const standard = plan.skills.filter(
+      (skill) => !aliasedKeys.has(`${plan.source}\0${skill}`)
+    );
+    if (standard.length > 0) {
+      const args = buildArgs(plan.source, standard);
+      const display = ["npx", ...args].map(shellQuote).join(" ");
+      process.stdout.write(`${display}\n`);
+      if (install) {
+        const result = Bun.spawnSync(["npx", ...args], {
+          env: process.env,
+          stdout: "inherit",
+          stderr: "inherit",
+        });
+        if ((result.exitCode ?? 1) !== 0) {
+          process.exit(result.exitCode ?? 1);
+        }
+      }
     }
-  }
-
-  if (install) {
-    adjustAliasedSkills(lockPath);
+    for (const job of aliased.filter((row) => row.source === plan.source)) {
+      const args = buildArgs(job.source, [job.installSkill]);
+      const display = ["npx", ...args].map(shellQuote).join(" ");
+      process.stdout.write(`${display}\n`);
+      if (!install) continue;
+      const activeDir = resolveActiveDir();
+      if (!activeDir) continue;
+      let failed = 0;
+      withStashedUpstream(activeDir, job.installSkill, () => {
+        const result = Bun.spawnSync(["npx", ...args], {
+          env: process.env,
+          stdout: "inherit",
+          stderr: "inherit",
+        });
+        if ((result.exitCode ?? 1) !== 0) {
+          failed = result.exitCode ?? 1;
+          return;
+        }
+        placeAliasedSkill(activeDir, job.deployName, job.installSkill);
+      });
+      if (failed !== 0) process.exit(failed);
+    }
   }
 }
 

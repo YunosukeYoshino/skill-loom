@@ -371,6 +371,10 @@ JSON
   cat > "$global_lock_file" <<'JSON'
 {"skills":{"spec-driven-development":{"sourceUrl":"https://github.com/addyosmani/agent-skills.git","skillPath":"skills/spec-driven-development/SKILL.md"}}}
 JSON
+  local candidates_file="$tmp_dir/candidates.json"
+  cat > "$candidates_file" <<'JSON'
+[{"name":"spec-driven-development","path":"skills/spec-driven-development/SKILL.md"}]
+JSON
 
   cat > "$stub" <<'SH'
 #!/bin/bash
@@ -379,9 +383,13 @@ exit 0
 SH
   chmod +x "$stub"
 
+  mkdir -p "$tmp_dir/active" "$tmp_dir/archive"
   MY_SKILLS_ADD_SCRIPT="$stub" MY_SKILLS_ADD_ARGS_FILE="$args_file" \
     MY_SKILLS_LOCK_FILE="$lock_file" MY_SKILLS_IGNORE_FILE="$ignore_file" \
     MY_SKILLS_GLOBAL_LOCK_FILE="$global_lock_file" \
+    MY_SKILLS_EXTERNAL_CANDIDATES_FILE="$candidates_file" \
+    MY_SKILLS_ACTIVE_DIR="$tmp_dir/active" \
+    MY_SKILLS_ARCHIVE_DIR="$tmp_dir/archive" \
     ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2
@@ -428,6 +436,7 @@ test_external_install_posts_bulk_selection_to_one_skills_add_command() {
   local lock_file="$tmp_dir/skills.lock.json"
   local ignore_file="$tmp_dir/.skills-ignore.json"
   local global_lock_file="$tmp_dir/.skill-lock.json"
+  mkdir -p "$tmp_dir/active" "$tmp_dir/archive"
 
   cat > "$lock_file" <<'JSON'
 {"version":1,"custom":{"repo":"owner/catalog","skills":{}},"external":{},"vendor":{}}
@@ -437,6 +446,13 @@ JSON
 JSON
   cat > "$global_lock_file" <<'JSON'
 {"skills":{"alpha":{"sourceUrl":"https://github.com/owner-one/repo-one.git","skillPath":"skills/alpha/SKILL.md"},"beta":{"sourceUrl":"https://github.com/owner-one/repo-one.git","skillPath":"skills/beta/SKILL.md"}}}
+JSON
+  local candidates_file="$tmp_dir/candidates.json"
+  cat > "$candidates_file" <<'JSON'
+[
+  {"name":"alpha","path":"skills/alpha/SKILL.md"},
+  {"name":"beta","path":"skills/beta/SKILL.md"}
+]
 JSON
 
   cat > "$stub" <<'SH'
@@ -449,6 +465,9 @@ SH
   MY_SKILLS_ADD_SCRIPT="$stub" MY_SKILLS_ADD_ARGS_FILE="$args_file" \
     MY_SKILLS_LOCK_FILE="$lock_file" MY_SKILLS_IGNORE_FILE="$ignore_file" \
     MY_SKILLS_GLOBAL_LOCK_FILE="$global_lock_file" \
+    MY_SKILLS_EXTERNAL_CANDIDATES_FILE="$candidates_file" \
+    MY_SKILLS_ACTIVE_DIR="$tmp_dir/active" \
+    MY_SKILLS_ARCHIVE_DIR="$tmp_dir/archive" \
     ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)
   sleep 2

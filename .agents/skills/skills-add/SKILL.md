@@ -12,7 +12,8 @@ external Skill の取得から selected Catalog の Inventory Lock 更新・コ�
 - `$0` = GitHub URL または `owner/repo` 形式
 - `MY_SKILLS_CATALOG_DIR` = 更新対象 Catalog
 - `--skill <name>` = 特定のスキルのみインストール（省略時は repo 内全スキル）
-- `--as <alias>` = 展開名・エイリアスを指定（`--skill` 1件指定時のみ利用可能）
+- `--as <alias>` = 展開名・エイリアスを指定（`--skill` 1件指定時のみ利用可能。kebab-case、スラッシュ不可）
+- `--prefix` = 衝突がなくても `{owner}--{name}` で登録する
 - `--no-commit` = lock.json 更新のみ、コミットしない
 
 `$ARGUMENTS` が空の場合はユーザーに URL を質問する。
@@ -39,7 +40,7 @@ MY_SKILLS_CATALOG_DIR="$CATALOG_ROOT" \
 - インストール前後の差分で新規スキルを検出
 - GitHub API で各 SKILL.md の frontmatter `name` を突合して `skillPath` を解決
 - `.skills-ignore.json` に含まれるスキルはスキップ
-- 既存スキルとの同名衝突時は `--as <alias>` または自動名前空間（`owner--name`）を適用し、`SKILL.md` の frontmatter `name` も展開名と同期
+- 既存スキルとの同名衝突時は `--as <alias>` / `--prefix` / 自動名前空間（`owner--name`）を適用し、`SKILL.md` の frontmatter `name` も展開名と同期する。対話時は namespace / custom alias / Vendor fork / skip。同一 source の再 add は skip。エージェント symlink は展開名だけ残す
 - Catalog の `skills.lock.json` に追記（キーを展開名とし、上流スキル名は `installSkill` に記録）
 - デフォルトで Catalog repository にコミット（`--no-commit` でスキップ）
 

@@ -22,11 +22,13 @@ We adopt a **Flat Namespacing and Aliasing Model** with the following rules:
 
 1. **Identifier and Directory Format (Separator Flattening)**:
    - Namespaced skills use the format `{owner}--{skill-name}` (e.g. `vercel--next-best-practices`) or a user-defined alias.
+   - `/` cannot be used: agents discover `~/.agents/skills/{name}/SKILL.md` as a single-depth directory.
+   - A single `-` cannot be used: owner names and skill names are already kebab-case (`vercel-labs`, `next-best-practices`), so `vercel-labs-next-best-practices` cannot be split. `--` is the unambiguous flatten.
    - This keeps the directory structure at `~/.agents/skills/` single-depth and flat, preserving compatibility with agents and the `skills` CLI.
 
 2. **On-Conflict / Opt-in Application**:
    - By default, skills imported without conflict retain their concise upstream names.
-   - Namespacing is applied automatically or interactively when a name collision is detected (with Custom, Vendor, or existing External skills), or when explicitly specified via `--as <alias>` / `--prefix`.
+   - Namespacing is applied automatically or interactively when a name collision is detected (with Custom, Vendor, or existing External skills, including an already-active directory), or when explicitly specified via `--as <alias>` or `--prefix` (force `{owner}--{name}` even without a collision).
 
 3. **Inventory Lock Schema & Metadata**:
    - The key in `skills.lock.json` under `external` matches the Catalog / runtime name (e.g. `"vercel--next-best-practices"`).
@@ -35,6 +37,7 @@ We adopt a **Flat Namespacing and Aliasing Model** with the following rules:
 
 4. **Frontmatter Synchronization on Projection**:
    - When deploying or linking an aliased / namespaced skill into `~/.agents/skills/{name}`, the YAML frontmatter `name:` inside `SKILL.md` is synchronized with the deployed directory name so that agents resolve and invoke the skill unambiguously.
+   - The skills CLI always writes the upstream folder name. Deploy therefore stashes any pre-existing upstream directory, installs that one skill, moves the fresh install onto the deploy name, syncs frontmatter, then restores the stash so both skills remain on disk.
 
 5. **Conflict Resolution Flow**:
    - **Interactive mode (TTY)**: When a collision occurs during skill import, the CLI prompts the user with options:

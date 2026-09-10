@@ -34,8 +34,8 @@ import { parseInventoryLock } from "./inventory-lock-schema";
 
 export type CustomSkillMeta = { repoPath?: string; category?: string };
 /**
- * `installSkill` は skill 名と `skills add --skill` に渡す名前がずれる場合の逃げ道。
- * 書き手はおらず deck の install コマンド生成だけが読む。移行前も同じ扱い。
+ * lock のキーは展開名。`installSkill` はそれが上流名と違うときの
+ * `skills add --skill` に渡す名前。
  */
 export type ExternalSkillMeta = {
   source?: string;

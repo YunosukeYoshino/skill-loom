@@ -143,4 +143,133 @@ printf -- "---\\nname: alpha\\ndescription: test\\n---\\n" > "$HOME/.agents/skil
     expect(fs.existsSync(targetMd)).toBe(true);
     expect(fs.readFileSync(targetMd, "utf-8")).toContain("name: owner--alpha");
   });
+
+  test("--install 時に既存の上流名ディレクトリを残す", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "restore-coexist-"));
+    const lockFile = path.join(dir, "skills.lock.json");
+    fs.writeFileSync(
+      lockFile,
+      JSON.stringify({
+        external: {
+          "owner--alpha": {
+            source: "owner/repo",
+            installSkill: "alpha",
+          },
+        },
+      })
+    );
+
+    const home = path.join(dir, "home");
+    const activeDir = path.join(home, ".agents", "skills");
+    fs.mkdirSync(path.join(activeDir, "alpha"), { recursive: true });
+    fs.writeFileSync(
+      path.join(activeDir, "alpha", "SKILL.md"),
+      "---\nname: alpha\ndescription: original\n---\n"
+    );
+
+    const binDir = path.join(dir, "bin");
+    fs.mkdirSync(binDir);
+    const npxStub = path.join(binDir, "npx");
+    fs.writeFileSync(
+      npxStub,
+      `#!/usr/bin/env bash
+mkdir -p "$HOME/.agents/skills/alpha"
+printf -- "---\\nname: alpha\\ndescription: incoming\\n---\\n" > "$HOME/.agents/skills/alpha/SKILL.md"
+`
+    );
+    fs.chmodSync(npxStub, 0o755);
+
+    const res = Bun.spawnSync(
+      [process.execPath, RESTORE_LOCK, "--install", lockFile],
+      {
+        env: {
+          ...process.env,
+          MISE_YES: "1",
+          HOME: home,
+          PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        },
+      }
+    );
+    expect(res.exitCode).toBe(0);
+    expect(
+      fs.readFileSync(path.join(activeDir, "alpha", "SKILL.md"), "utf-8")
+    ).toContain("description: original");
+    expect(
+      fs.readFileSync(path.join(activeDir, "owner--alpha", "SKILL.md"), "utf-8")
+    ).toContain("name: owner--alpha");
+  });
+});
+
+describe("PR 6 restore regressions", () => {
+  test.each([false, true])(
+    "restore keeps canonical skills and agent links (preexisting=%s)",
+    (preexisting) => {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "restore-regression-")
+      );
+      const home = path.join(root, "home");
+      const active = path.join(home, ".agents/skills");
+      const claude = path.join(home, ".claude/skills");
+      const gemini = path.join(home, ".gemini/config/skills");
+      const bin = path.join(root, "bin");
+      for (const dir of [active, claude, gemini, bin])
+        fs.mkdirSync(dir, { recursive: true });
+      if (preexisting) {
+        fs.mkdirSync(path.join(home, ".agents/original"));
+        fs.symlinkSync("../original", path.join(active, "alpha"));
+        fs.writeFileSync(
+          path.join(active, "alpha/SKILL.md"),
+          "---\nname: alpha\n---\noriginal\n"
+        );
+        for (const agent of [claude, gemini])
+          fs.symlinkSync(path.join(active, "alpha"), path.join(agent, "alpha"));
+      }
+      const lockFile = path.join(root, "lock.json");
+      fs.writeFileSync(
+        lockFile,
+        JSON.stringify({
+          external: {
+            ...(!preexisting ? { alpha: { source: "owner/repo" } } : {}),
+            "owner--alpha": { source: "owner/repo", installSkill: "alpha" },
+          },
+        })
+      );
+      fs.writeFileSync(
+        path.join(bin, "npx"),
+        `#!/bin/bash
+set -eu
+mkdir -p "$HOME/.agents/skills/alpha"
+printf -- '---\\nname: alpha\\n---\\nincoming\\n' > "$HOME/.agents/skills/alpha/SKILL.md"
+for agent in "$HOME/.claude/skills" "$HOME/.gemini/config/skills"; do
+  ln -sf "$HOME/.agents/skills/alpha" "$agent/alpha"
+done
+`
+      );
+      fs.chmodSync(path.join(bin, "npx"), 0o755);
+      const result = Bun.spawnSync(
+        [process.execPath, RESTORE_LOCK, "--install", lockFile],
+        {
+          env: {
+            ...process.env,
+            HOME: home,
+            TMPDIR: path.join(root, "unavailable-tmp"),
+            MY_SKILLS_ACTIVE_DIR: active,
+            MY_SKILLS_CLAUDE_SKILLS_DIR: claude,
+            MY_SKILLS_GEMINI_SKILLS_DIR: gemini,
+            PATH: `${bin}:${process.env.PATH}`,
+          },
+        }
+      );
+      expect(result.exitCode).toBe(0);
+      for (const name of ["alpha", "owner--alpha"]) {
+        expect(fs.existsSync(path.join(active, name, "SKILL.md"))).toBe(true);
+        for (const agent of [claude, gemini])
+          expect(fs.existsSync(path.join(agent, name, "SKILL.md"))).toBe(true);
+      }
+      if (preexisting)
+        expect(
+          fs.readFileSync(path.join(active, "alpha/SKILL.md"), "utf8")
+        ).toContain("original");
+    }
+  );
 });

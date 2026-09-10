@@ -6,53 +6,8 @@
  *   bun sync-skill-name.ts <skill-md-path> <new-name>
  */
 
-import fs from "node:fs";
 import process from "node:process";
-
-function syncFrontmatterName(filePath: string, newName: string): boolean {
-  if (!fs.existsSync(filePath)) {
-    return false;
-  }
-
-  const content = fs.readFileSync(filePath, "utf-8");
-  const lines = content.split(/\r?\n/);
-  if (lines.length === 0 || lines[0]?.trim() !== "---") {
-    return false;
-  }
-
-  let inFrontmatter = false;
-  let replaced = false;
-  const newLines: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] as string;
-    if (i === 0 && line.trim() === "---") {
-      inFrontmatter = true;
-      newLines.push(line);
-      continue;
-    }
-    if (inFrontmatter && line.trim() === "---") {
-      if (!replaced) {
-        newLines.push(`name: ${newName}`);
-        replaced = true;
-      }
-      inFrontmatter = false;
-      newLines.push(line);
-      continue;
-    }
-    if (inFrontmatter && /^name\s*:\s*.*$/.test(line)) {
-      newLines.push(`name: ${newName}`);
-      replaced = true;
-      continue;
-    }
-    newLines.push(line);
-  }
-
-  const tmpPath = `${filePath}.tmp`;
-  fs.writeFileSync(tmpPath, newLines.join("\n"));
-  fs.renameSync(tmpPath, filePath);
-  return true;
-}
+import { syncSkillMdName } from "../../../../app/backend/domain/skillMd";
 
 function main(): void {
   const [filePath, newName] = process.argv.slice(2);
@@ -62,7 +17,7 @@ function main(): void {
   }
 
   try {
-    const success = syncFrontmatterName(filePath, newName);
+    const success = syncSkillMdName(filePath, newName);
     if (!success) {
       console.error(`Error: failed to sync frontmatter name in ${filePath}`);
       process.exit(1);

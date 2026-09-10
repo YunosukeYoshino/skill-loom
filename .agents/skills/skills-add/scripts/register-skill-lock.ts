@@ -23,7 +23,52 @@ type LockFile = LockObject & {
   external?: Record<string, ExternalEntry>;
 };
 
+function registerVendor(
+  lockPath: string,
+  skillName: string,
+  source: string
+): void {
+  updateInventoryLock(lockPath, (raw) => {
+    const lock = raw as LockFile & {
+      vendor?: Record<string, { source: string }>;
+    };
+    if (lock.vendor === undefined) {
+      lock.vendor = {};
+    } else if (
+      typeof lock.vendor !== "object" ||
+      lock.vendor === null ||
+      Array.isArray(lock.vendor)
+    ) {
+      throw new Error(
+        `Lock file vendor section must be an object: ${lockPath}`
+      );
+    }
+    lock.vendor[skillName] = { source };
+  });
+}
+
 function main(): void {
+  if (process.argv[2] === "--vendor") {
+    const lockPath = process.argv[3];
+    const skillName = process.argv[4];
+    const source = process.argv[5];
+    if (!lockPath || !skillName || !source) {
+      console.error(
+        "Error: register-skill-lock --vendor requires LOCK_FILE SKILL_NAME SOURCE"
+      );
+      process.exit(2);
+    }
+    try {
+      registerVendor(lockPath, skillName, source);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Error: ${message}`);
+      process.exit(1);
+    }
+    process.stdout.write("  -> Registered vendor in skills.lock.json\n");
+    return;
+  }
+
   const [lockPath, skillName, source, sourceUrl, skillPath, installSkill] =
     process.argv.slice(2);
   if (!lockPath || !skillName || !source || !sourceUrl || !skillPath) {

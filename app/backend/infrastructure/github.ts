@@ -38,6 +38,7 @@ export type ExternalCandidate = {
   description?: string;
   path?: string;
   contentHash?: string;
+  contentHashWithoutName?: string;
 };
 
 type TreeEntry = { path?: string; type?: string; sha?: string };
@@ -245,7 +246,8 @@ export function findCliSkillMdPaths(tree: TreeEntry[], subpath = ""): string[] {
 
 export async function fetchRemoteSkillContentHash(
   ownerRepo: string,
-  skillPath: string
+  skillPath: string,
+  ignoreName = false
 ): Promise<string> {
   const url = githubRawSkillUrl(ownerRepo, skillPath);
   const response = await fetch(url, {
@@ -253,7 +255,10 @@ export async function fetchRemoteSkillContentHash(
     signal: AbortSignal.timeout(remoteSkillFetchTimeout() * 1000),
   });
   if (!response.ok) throw new HttpError(response.status, url);
-  return sha256(new Uint8Array(await response.arrayBuffer()));
+  return skillContentHash(
+    new Uint8Array(await response.arrayBuffer()),
+    ignoreName
+  );
 }
 
 /**
@@ -303,9 +308,30 @@ export function sha256(data: Uint8Array): string {
   return new Bun.CryptoHasher("sha256").update(data).digest("hex");
 }
 
-export function skillFileHash(path: string): string {
+function skillContentHash(data: Uint8Array, ignoreName: boolean): string {
+  if (!ignoreName) return sha256(data);
+  const lines = new TextDecoder().decode(data).split(/\r?\n/);
+  const end = lines.findIndex(
+    (line, index) => index > 0 && line.trim() === "---"
+  );
+  if (lines[0]?.trim() === "---" && end > 0) {
+    return sha256(
+      Buffer.from(
+        lines
+          .filter(
+            (line, index) =>
+              !(index > 0 && index < end && /^name\s*:/.test(line))
+          )
+          .join("\n")
+      )
+    );
+  }
+  return sha256(data);
+}
+
+export function skillFileHash(path: string, ignoreName = false): string {
   try {
-    return sha256(readFileSync(path));
+    return skillContentHash(readFileSync(path), ignoreName);
   } catch {
     return "";
   }
@@ -422,6 +448,7 @@ export function discoverExternalSkillCandidates(
       description: frontmatterDescription(path),
       path: candidate.path as string,
       contentHash: skillFileHash(path),
+      contentHashWithoutName: skillFileHash(path, true),
     };
   });
 }
@@ -468,10 +495,11 @@ export function externalSkillCandidates(source: string): ExternalCandidate[] {
 /** ローカルに install 済みの SKILL.md の内容ハッシュ。active を先に見るのは Python と同じ。 */
 export function installedSkillContentHash(
   dirs: string[],
-  name: string
+  name: string,
+  ignoreName = false
 ): string {
   for (const base of dirs) {
-    const hash = skillFileHash(join(base, name, "SKILL.md"));
+    const hash = skillFileHash(join(base, name, "SKILL.md"), ignoreName);
     if (hash) return hash;
   }
   return "";

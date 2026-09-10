@@ -178,18 +178,10 @@ export async function externalSourceDetailPayload(
     )
   );
 
-  const candidateByName = new Map<string, ExternalCandidate>(
+  const candidateByUpstream = new Map<string, ExternalCandidate>(
     candidates.map((candidate) => [candidate.name, candidate])
   );
-  for (const [name, meta] of Object.entries(installed)) {
-    if (!candidateByName.has(name)) {
-      candidateByName.set(name, {
-        name,
-        description: skillDescription(lock, name),
-        path: meta.skillPath ?? "",
-      });
-    }
-  }
+  const matchedUpstreams = new Set<string>();
 
   const installedSkills: InstalledExternal[] = [];
   const availableRows: SkillRow[] = [];
@@ -201,30 +193,48 @@ export async function externalSourceDetailPayload(
     )
   );
 
-  for (const name of sortNames(candidateByName.keys())) {
-    const candidate = candidateByName.get(name) as ExternalCandidate;
-    // active でないものは更新確認しない。update しても projection に出ないため。
+  for (const name of sortNames(Object.keys(installed))) {
+    const meta = installed[name];
+    const upstreamName = meta?.installSkill ?? name;
+    matchedUpstreams.add(upstreamName);
+    const candidate = candidateByUpstream.get(upstreamName) ??
+      candidateByUpstream.get(name) ?? {
+        name: upstreamName,
+        description: skillDescription(lock, name),
+        path: meta?.skillPath ?? "",
+      };
     const hasUpdate =
-      activeExternal.has(name) && (await skillHasRemoteUpdate(name, candidate));
+      activeExternal.has(name) &&
+      (await skillHasRemoteUpdate(name, candidate, upstreamName));
     if (hasUpdate) updatableSkills.push(name);
 
-    if (name in installed) {
-      installedSkills.push({
-        name,
-        description: candidate.description ?? "",
-        path: candidate.path ?? "",
-        state: skillProjectionState(name, activeExternal, archivedExternal),
-        hasUpdate,
-        updateCommand: hasUpdate
-          ? shellCommandText(externalUpdateCommand(name))
-          : "",
-        managed: true,
-      });
-      continue;
-    }
-
-    availableRows.push({
+    installedSkills.push({
       name,
+      description: candidate.description ?? "",
+      path: candidate.path ?? "",
+      state: skillProjectionState(name, activeExternal, archivedExternal),
+      hasUpdate,
+      updateCommand: hasUpdate
+        ? shellCommandText(externalUpdateCommand(name))
+        : "",
+      managed: true,
+    });
+  }
+
+  const availableMapping = resolveExternalCandidatesMapping(
+    lock,
+    ownerRepo,
+    sortNames(candidateByUpstream.keys())
+      .filter((name) => !matchedUpstreams.has(name))
+      .map((name) => candidateByUpstream.get(name) as ExternalCandidate)
+  );
+  const conflicts = availableMapping.flatMap((row) =>
+    row.conflict ? [row.upstreamName] : []
+  );
+  for (const { candidate, deployName, conflict } of availableMapping) {
+    if (conflict) continue;
+    availableRows.push({
+      name: deployName,
       category: candidate.path || ownerRepo,
       description: candidate.description ?? "",
       source: "external",
@@ -236,7 +246,14 @@ export async function externalSourceDetailPayload(
   return {
     page: "external-source-detail",
     title: ownerRepo,
-    message,
+    message: [
+      message,
+      conflicts.length
+        ? `名前が重複しています。CLI で別名を指定してください: ${conflicts.join(", ")}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" / "),
     decks: deckNames(),
     source: ownerRepo,
     installed: installedSkills,
@@ -335,24 +352,36 @@ export function externalPreviewPayload(
   return {
     page: "external-preview",
     title: `外部skillsを取り込む - ${ownerRepo}`,
-    message,
+    message: [
+      message,
+      ...resolved
+        .filter((row) => row.conflict)
+        .map(
+          (row) =>
+            `名前が重複しています。CLI で別名を指定してください: ${row.upstreamName}`
+        ),
+    ]
+      .filter(Boolean)
+      .join(" / "),
     decks: deckNames(),
     deckName,
     source: ownerRepo,
-    rows: resolved.map(({ candidate, deployName, isColliding }) => ({
-      name: deployName,
-      category: isColliding
-        ? `[名前空間: ${deployName}] ${candidate.path ?? ownerRepo}`
-        : (candidate.path ?? ownerRepo),
-      description: candidate.description ?? "",
-      source: "external",
-      state: active.has(deployName)
-        ? "active"
-        : archived.has(deployName)
-          ? "archive"
-          : "missing",
-      checked: false,
-    })),
+    rows: resolved
+      .filter((row) => !row.conflict)
+      .map(({ candidate, deployName, isColliding }) => ({
+        name: deployName,
+        category: isColliding
+          ? `[名前空間: ${deployName}] ${candidate.path ?? ownerRepo}`
+          : (candidate.path ?? ownerRepo),
+        description: candidate.description ?? "",
+        source: "external",
+        state: active.has(deployName)
+          ? "active"
+          : archived.has(deployName)
+            ? "archive"
+            : "missing",
+        checked: false,
+      })),
   };
 }
 
