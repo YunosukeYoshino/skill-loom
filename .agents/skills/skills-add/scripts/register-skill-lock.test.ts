@@ -104,6 +104,39 @@ describe("register-skill-lock", () => {
     });
   });
 
+  test("installSkill を指定した場合は external 項目に記録する", () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "register-install-skill-")
+    );
+    const lockFile = path.join(dir, "skills.lock.json");
+    fs.writeFileSync(
+      lockFile,
+      JSON.stringify({ version: 1, custom: { skills: {} }, external: {} })
+    );
+
+    const out = runRegister([
+      lockFile,
+      "owner--alpha",
+      "owner/repo",
+      "https://github.com/owner/repo.git",
+      "skills/alpha/SKILL.md",
+      "alpha",
+    ]);
+    expect(out.exitCode).toBe(0);
+
+    const lock = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    const external = lock["external"] as Record<string, unknown>;
+    expect(external["owner--alpha"]).toEqual({
+      source: "owner/repo",
+      sourceUrl: "https://github.com/owner/repo.git",
+      skillPath: "skills/alpha/SKILL.md",
+      installSkill: "alpha",
+    });
+  });
+
   test("external が配列の lock は schema error で exit 1 にする", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "register-arr-"));
     const lockFile = path.join(dir, "skills.lock.json");

@@ -582,6 +582,9 @@ JSON
   cat > "$tmp_dir/.skill-lock.json" <<'JSON'
 {"skills":{"alpha":{"sourceUrl":"https://github.com/owner-one/repo-one.git","skillPath":"skills/alpha/SKILL.md"}}}
 JSON
+  cat > "$tmp_dir/candidates.json" <<'JSON'
+[{"name":"alpha","path":"skills/alpha/SKILL.md"}]
+JSON
 
   # install を掴んだまま離さないスタブ。これで「書き込み実行中」を決定論的に作る。
   cat > "$stub" <<'SH'
@@ -594,6 +597,7 @@ SH
   MY_SKILLS_ADD_SCRIPT="$stub" MY_SKILLS_ADD_ARGS_FILE="$tmp_dir/args.txt" \
     MY_SKILLS_LOCK_FILE="$lock_file" MY_SKILLS_IGNORE_FILE="$tmp_dir/.skills-ignore.json" \
     MY_SKILLS_GLOBAL_LOCK_FILE="$tmp_dir/.skill-lock.json" \
+    MY_SKILLS_EXTERNAL_CANDIDATES_FILE="$tmp_dir/candidates.json" \
     MY_SKILLS_ACTIVE_DIR="$active_dir" MY_SKILLS_ARCHIVE_DIR="$tmp_dir/archive" \
     ./skill-loom ui --port "$port" > /dev/null 2>&1 &
   UI_PIDS+=($!)

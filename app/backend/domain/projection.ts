@@ -17,12 +17,15 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
+  rmdirSync,
   readFileSync,
   renameSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import {
   activeDir,
@@ -57,6 +60,9 @@ import {
   validatePresetName,
   writePresetFile,
 } from "./presets";
+import { syncSkillMdName } from "./skillMd";
+
+export { syncSkillMdName } from "./skillMd";
 
 /** Python の `Path.exists()`。symlink を辿り、壊れた symlink では false。 */
 function exists(path: string): boolean {
@@ -171,16 +177,19 @@ export function installCommands(missing: Set<string>, lock: Lock): string[][] {
   const bySource = new Map<string, string[]>();
 
   for (const name of sortNames(missing)) {
-    const source = external[name]?.source;
+    const meta = external[name];
+    const source = meta?.source;
     if (!source) continue;
+    const installName = meta?.installSkill ?? name;
     const names = bySource.get(source);
-    if (names) names.push(name);
-    else bySource.set(source, [name]);
+    if (names) names.push(installName);
+    else bySource.set(source, [installName]);
   }
 
   return sortNames(bySource.keys()).map((source) => {
     const cmd = [skillsAddBin(), "skills", "add", source];
-    for (const name of bySource.get(source) ?? []) cmd.push("--skill", name);
+    const skills = sortNames(new Set(bySource.get(source) ?? []));
+    for (const name of skills) cmd.push("--skill", name);
     cmd.push("-g");
     for (const agent of GLOBAL_INSTALL_AGENTS) cmd.push("-a", agent);
     cmd.push("-y");
@@ -191,7 +200,11 @@ export function installCommands(missing: Set<string>, lock: Lock): string[][] {
 export class ProjectionInstallError extends Error {}
 
 export function runSkillsCli(cmd: string[]): void {
-  const result = Bun.spawnSync(cmd, { stdout: "inherit", stderr: "inherit" });
+  const result = Bun.spawnSync(cmd, {
+    env: process.env,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
   if (result.exitCode === 0) return;
 
   // bunx が無い環境向けの逃げ道。Python 側と同じ条件でだけ npx に落とす。
@@ -199,6 +212,7 @@ export function runSkillsCli(cmd: string[]): void {
     const fallback = ["npx", ...cmd.slice(1)];
     console.error(`+ ${fallback.join(" ")}  # bunx failed, retrying with npx`);
     const retry = Bun.spawnSync(fallback, {
+      env: process.env,
       stdout: "inherit",
       stderr: "inherit",
     });
@@ -256,6 +270,52 @@ function movePath(src: string, dst: string): void {
   }
 }
 
+function isAliasedExternal(
+  name: string,
+  meta: { installSkill?: string } | undefined
+): meta is { installSkill: string } {
+  return Boolean(meta?.installSkill && meta.installSkill !== name);
+}
+
+/**
+ * skills CLI は常に上流名のフォルダへ書く。先にその名前を退避し、
+ * 新規 install を展開名へ移してから元のフォルダを戻す。
+ */
+function withStashedUpstream(installSkill: string, fn: () => void): void {
+  const srcDir = join(activeDir(), installSkill);
+  if (!exists(srcDir) && !isSymlink(srcDir)) {
+    fn();
+    return;
+  }
+
+  const stashRoot = mkdtempSync(join(tmpdir(), "skill-loom-stash-"));
+  const stashDir = join(stashRoot, installSkill);
+  movePath(srcDir, stashDir);
+  try {
+    unlinkAgentSkillDirs(installSkill);
+    fn();
+  } finally {
+    if (exists(stashDir) || isSymlink(stashDir)) {
+      const restored = join(activeDir(), installSkill);
+      if (exists(restored) || isSymlink(restored)) trashPath(restored);
+      movePath(stashDir, restored);
+      linkAgentSkillDirs(installSkill);
+    }
+    rmdirSync(stashRoot);
+  }
+}
+
+function placeAliasedSkill(deployName: string, installSkill: string): void {
+  const srcDir = join(activeDir(), installSkill);
+  const dstDir = join(activeDir(), deployName);
+  if (!exists(srcDir) && !isSymlink(srcDir)) return;
+  if (exists(dstDir) || isSymlink(dstDir)) trashPath(dstDir);
+  unlinkAgentSkillDirs(installSkill);
+  movePath(srcDir, dstDir);
+  syncSkillMdName(join(dstDir, "SKILL.md"), deployName);
+  linkAgentSkillDirs(deployName);
+}
+
 /**
  * projection を書き換える。CLI lock を更新できなかったときだけ警告文を返す。
  *
@@ -300,10 +360,30 @@ export function applyDeck(
   const externalInstall = new Set(
     [...install].filter((name) => external.has(name))
   );
-  for (const cmd of installCommands(externalInstall, lock)) {
+  const lockExt = lock.external ?? {};
+  const aliased = sortNames(externalInstall).filter((name) =>
+    isAliasedExternal(name, lockExt[name])
+  );
+  const standard = new Set(
+    [...externalInstall].filter((name) => !aliased.includes(name))
+  );
+
+  for (const cmd of installCommands(standard, lock)) {
     console.log(`+ ${cmd.join(" ")}`);
     runSkillsCli(cmd);
   }
+
+  for (const name of aliased) {
+    const installSkill = lockExt[name]?.installSkill as string;
+    for (const cmd of installCommands(new Set([name]), lock)) {
+      console.log(`+ ${cmd.join(" ")}`);
+      withStashedUpstream(installSkill, () => {
+        runSkillsCli(cmd);
+        placeAliasedSkill(name, installSkill);
+      });
+    }
+  }
+
   linkAgentSkillDirsMany(
     [...externalInstall].filter((name) => exists(join(activeDir(), name)))
   );

@@ -12,18 +12,68 @@
 import process from "node:process";
 import { updateInventoryLock, type LockObject } from "./update-inventory-lock";
 
-type ExternalEntry = { source: string; sourceUrl: string; skillPath: string };
+type ExternalEntry = {
+  source: string;
+  sourceUrl: string;
+  skillPath: string;
+  installSkill?: string;
+};
 
 type LockFile = LockObject & {
   external?: Record<string, ExternalEntry>;
 };
 
+function registerVendor(
+  lockPath: string,
+  skillName: string,
+  source: string
+): void {
+  updateInventoryLock(lockPath, (raw) => {
+    const lock = raw as LockFile & {
+      vendor?: Record<string, { source: string }>;
+    };
+    if (lock.vendor === undefined) {
+      lock.vendor = {};
+    } else if (
+      typeof lock.vendor !== "object" ||
+      lock.vendor === null ||
+      Array.isArray(lock.vendor)
+    ) {
+      throw new Error(
+        `Lock file vendor section must be an object: ${lockPath}`
+      );
+    }
+    lock.vendor[skillName] = { source };
+  });
+}
+
 function main(): void {
-  const [lockPath, skillName, source, sourceUrl, skillPath] =
+  if (process.argv[2] === "--vendor") {
+    const lockPath = process.argv[3];
+    const skillName = process.argv[4];
+    const source = process.argv[5];
+    if (!lockPath || !skillName || !source) {
+      console.error(
+        "Error: register-skill-lock --vendor requires LOCK_FILE SKILL_NAME SOURCE"
+      );
+      process.exit(2);
+    }
+    try {
+      registerVendor(lockPath, skillName, source);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Error: ${message}`);
+      process.exit(1);
+    }
+    process.stdout.write("  -> Registered vendor in skills.lock.json\n");
+    return;
+  }
+
+  const [lockPath, skillName, source, sourceUrl, skillPath, installSkill] =
     process.argv.slice(2);
   if (!lockPath || !skillName || !source || !sourceUrl || !skillPath) {
     console.error(
-      "Error: register-skill-lock requires LOCK_FILE SKILL_NAME SOURCE SOURCE_URL SKILL_PATH"
+      "Error: register-skill-lock requires LOCK_FILE SKILL_NAME SOURCE SOURCE_URL SKILL_PATH [INSTALL_SKILL]"
     );
     process.exit(2);
   }
@@ -42,7 +92,11 @@ function main(): void {
           `Lock file external section must be an object: ${lockPath}`
         );
       }
-      lock.external[skillName] = { source, sourceUrl, skillPath };
+      const entry: ExternalEntry = { source, sourceUrl, skillPath };
+      if (installSkill) {
+        entry.installSkill = installSkill;
+      }
+      lock.external[skillName] = entry;
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
