@@ -31,26 +31,29 @@ const toLocale = (v: unknown): UiLocale | undefined =>
 const toViewMode = (v: unknown): ExternalViewMode | undefined =>
   v === "grid" || v === "list" ? v : undefined;
 
+function readItem(storage: SettingsStorage, key: string): string | null {
+  try {
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 export function loadSettings(storage: SettingsStorage): UiSettings {
   let parsed: Record<string, unknown> = {};
-  try {
-    const raw = storage.getItem(SETTINGS_STORAGE_KEY);
-    if (raw) {
+  const raw = readItem(storage, SETTINGS_STORAGE_KEY);
+  if (raw) {
+    try {
       const json: unknown = JSON.parse(raw);
       if (json && typeof json === "object" && !Array.isArray(json)) {
         parsed = json as Record<string, unknown>;
       }
+    } catch {
+      /* 壊れた blob は無視して既定値へ */
     }
-  } catch {
-    /* 壊れた blob は無視して既定値へ */
   }
 
-  let legacy: string | null = null;
-  try {
-    legacy = storage.getItem(LEGACY_VIEW_MODE_KEY);
-  } catch {
-    /* ignore */
-  }
+  const legacy = readItem(storage, LEGACY_VIEW_MODE_KEY);
 
   const settings: UiSettings = {
     locale: toLocale(parsed.locale) ?? DEFAULT_SETTINGS.locale,
@@ -467,13 +470,13 @@ export function translate(
   params?: MessageParams,
   catalogs: Record<UiLocale, MessageCatalog> = MESSAGES
 ): string {
-  const hit = catalogs[locale]?.[key] ?? catalogs.en[key];
-  if (isDev() && catalogs[locale]?.[key] === undefined) {
+  const localized = catalogs[locale]?.[key];
+  if (isDev() && localized === undefined) {
     console.warn(
       `[skill-loom] missing translation: locale="${locale}" key="${key}"`
     );
   }
-  const template = hit ?? key;
+  const template = localized ?? catalogs.en[key] ?? key;
   if (!params) return template;
   return template.replace(/\{(\w+)\}/g, (match, name: string) =>
     name in params ? String(params[name]) : match

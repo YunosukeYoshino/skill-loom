@@ -48,8 +48,6 @@ function useOgp(source: string) {
   });
 }
 
-type ViewMode = ExternalViewMode;
-
 function SegmentedControl<T extends string>({
   value,
   options,
@@ -181,8 +179,8 @@ function ViewModeToggle({
   value,
   onChange,
 }: {
-  value: ViewMode;
-  onChange: (mode: ViewMode) => void;
+  value: ExternalViewMode;
+  onChange: (mode: ExternalViewMode) => void;
 }) {
   const t = useT();
   return (
@@ -204,7 +202,7 @@ function OgpPreview({
   variant = "list",
 }: {
   source: string;
-  variant?: ViewMode;
+  variant?: ExternalViewMode;
 }) {
   const q = useOgp(source);
 
@@ -1232,7 +1230,7 @@ export function ExternalSourcesPage() {
   const { settings, update } = useUiSettings();
   // URL ?view= を優先 (リロード・戻る/進む・共有リンク)、なければ Settings の既定値
   const viewMode = resolveExternalView(urlView, settings);
-  const setViewMode = (mode: ViewMode) => {
+  const setViewMode = (mode: ExternalViewMode) => {
     setUrlSearch({ view: mode });
     update({ externalViewMode: mode });
   };
