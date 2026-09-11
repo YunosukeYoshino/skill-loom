@@ -13,11 +13,14 @@ import {
   ExternalSourcesPage,
   GlobalPage,
   ProjectDeckPage,
+  SettingsPage,
 } from "@/pages";
 import { PageError } from "@/components/ui";
+import { useT } from "@/settings/react";
 import { validateListViewSearch } from "./router-search";
 
 function navCurrentFromPath(pathname: string): string {
+  if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/drafts")) return "drafts";
   if (pathname.startsWith("/external-sources")) return "external-sources";
   if (pathname.startsWith("/project-decks/")) {
@@ -27,22 +30,24 @@ function navCurrentFromPath(pathname: string): string {
 }
 
 function RouteError({ error }: { error: Error }) {
+  const t = useT();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   return (
     <PageError
       current={navCurrentFromPath(pathname)}
-      title="Something went wrong"
-      message={error.message || "予期しないエラーが発生しました。"}
+      title={t("error.routeTitle")}
+      message={error.message || t("error.fallback")}
     />
   );
 }
 
 function RouteNotFound() {
+  const t = useT();
   return (
     <PageError
       current="global"
-      title="Not Found"
-      message="指定されたページが見つかりませんでした。"
+      title={t("error.notFound")}
+      message={t("error.notFoundMessage")}
     />
   );
 }
@@ -118,6 +123,12 @@ const externalPreviewRoute = createRoute({
   },
 });
 
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  component: SettingsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   globalRoute,
@@ -126,6 +137,7 @@ const routeTree = rootRoute.addChildren([
   draftsRoute,
   projectDeckRoute,
   externalPreviewRoute,
+  settingsRoute,
 ]);
 
 export const router = createRouter({

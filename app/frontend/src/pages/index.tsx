@@ -19,6 +19,11 @@ import {
   useLoomFilter,
 } from "@/components/lists";
 import { useListViewSearch } from "@/router-search";
+import { useT, useUiSettings } from "@/settings/react";
+import {
+  resolveExternalView,
+  type ExternalViewMode,
+} from "@/settings/settings";
 import {
   ActionStatus,
   BusyRegion,
@@ -43,142 +48,152 @@ function useOgp(source: string) {
   });
 }
 
-type ViewMode = "grid" | "list";
-
-const VIEW_MODE_STORAGE_KEY = "external-sources-view-mode";
-
-function readViewMode(): ViewMode {
-  try {
-    const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
-    if (stored === "grid" || stored === "list") return stored;
-  } catch {
-    /* ignore */
-  }
-  return "grid";
+function SegmentedControl<T extends string>({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+  className = "",
+}: {
+  value: T;
+  options: { value: T; label: string; icon?: ReactNode }[];
+  onChange: (value: T) => void;
+  ariaLabel: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`flex rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-1 ${className}`}
+      role="group"
+      aria-label={ariaLabel}
+    >
+      {options.map((opt) => {
+        const active = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(opt.value)}
+            className={
+              active
+                ? "inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--color-ink)] shadow-[0_1px_2px_oklch(20%_0.02_260/0.12)] transition-[transform,background,color,box-shadow] duration-100 ease-out active:scale-[0.96]"
+                : "inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink-2)] transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--surface)] hover:text-[var(--color-ink)] active:scale-[0.96]"
+            }
+          >
+            {opt.icon}
+            <span>{opt.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
+
+const gridIcon = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 14 14"
+    fill="none"
+    aria-hidden="true"
+  >
+    <rect
+      x="1"
+      y="1"
+      width="4.5"
+      height="4.5"
+      rx="1"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+    <rect
+      x="8.5"
+      y="1"
+      width="4.5"
+      height="4.5"
+      rx="1"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+    <rect
+      x="1"
+      y="8.5"
+      width="4.5"
+      height="4.5"
+      rx="1"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+    <rect
+      x="8.5"
+      y="8.5"
+      width="4.5"
+      height="4.5"
+      rx="1"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+  </svg>
+);
+
+const listIcon = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 14 14"
+    fill="none"
+    aria-hidden="true"
+  >
+    <rect
+      x="1"
+      y="2"
+      width="12"
+      height="2.5"
+      rx="1"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+    <rect
+      x="1"
+      y="6.75"
+      width="12"
+      height="2.5"
+      rx="1"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+    <rect
+      x="1"
+      y="11.5"
+      width="12"
+      height="2.5"
+      rx="1"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+  </svg>
+);
 
 function ViewModeToggle({
   value,
   onChange,
 }: {
-  value: ViewMode;
-  onChange: (mode: ViewMode) => void;
+  value: ExternalViewMode;
+  onChange: (mode: ExternalViewMode) => void;
 }) {
-  const item = (mode: ViewMode, label: string, icon: ReactNode) => {
-    const active = value === mode;
-    return (
-      <button
-        type="button"
-        aria-pressed={active}
-        aria-label={label}
-        title={label}
-        onClick={() => onChange(mode)}
-        className={
-          active
-            ? "inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--color-ink)] shadow-[0_1px_2px_oklch(20%_0.02_260/0.12)] transition-[transform,background,color,box-shadow] duration-100 ease-out active:scale-[0.96]"
-            : "inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink-2)] transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--surface)] hover:text-[var(--color-ink)] active:scale-[0.96]"
-        }
-      >
-        {icon}
-        <span>{label}</span>
-      </button>
-    );
-  };
-
+  const t = useT();
   return (
-    <div
-      className="ml-auto flex rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-1"
-      role="group"
-      aria-label="表示モード"
-    >
-      {item(
-        "grid",
-        "グリッド",
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 14 14"
-          fill="none"
-          aria-hidden="true"
-        >
-          <rect
-            x="1"
-            y="1"
-            width="4.5"
-            height="4.5"
-            rx="1"
-            stroke="currentColor"
-            strokeWidth="1.2"
-          />
-          <rect
-            x="8.5"
-            y="1"
-            width="4.5"
-            height="4.5"
-            rx="1"
-            stroke="currentColor"
-            strokeWidth="1.2"
-          />
-          <rect
-            x="1"
-            y="8.5"
-            width="4.5"
-            height="4.5"
-            rx="1"
-            stroke="currentColor"
-            strokeWidth="1.2"
-          />
-          <rect
-            x="8.5"
-            y="8.5"
-            width="4.5"
-            height="4.5"
-            rx="1"
-            stroke="currentColor"
-            strokeWidth="1.2"
-          />
-        </svg>
-      )}
-      {item(
-        "list",
-        "リスト",
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 14 14"
-          fill="none"
-          aria-hidden="true"
-        >
-          <rect
-            x="1"
-            y="2"
-            width="12"
-            height="2.5"
-            rx="1"
-            stroke="currentColor"
-            strokeWidth="1.2"
-          />
-          <rect
-            x="1"
-            y="6.75"
-            width="12"
-            height="2.5"
-            rx="1"
-            stroke="currentColor"
-            strokeWidth="1.2"
-          />
-          <rect
-            x="1"
-            y="11.5"
-            width="12"
-            height="2.5"
-            rx="1"
-            stroke="currentColor"
-            strokeWidth="1.2"
-          />
-        </svg>
-      )}
-    </div>
+    <SegmentedControl
+      className="ml-auto"
+      ariaLabel={t("view.aria")}
+      value={value}
+      onChange={onChange}
+      options={[
+        { value: "grid", label: t("view.grid"), icon: gridIcon },
+        { value: "list", label: t("view.list"), icon: listIcon },
+      ]}
+    />
   );
 }
 
@@ -187,7 +202,7 @@ function OgpPreview({
   variant = "list",
 }: {
   source: string;
-  variant?: ViewMode;
+  variant?: ExternalViewMode;
 }) {
   const q = useOgp(source);
 
@@ -305,19 +320,20 @@ function CustomUpdatesPanel({
   onUpdateOne: (name: string) => void;
   onUpdateAll: () => void;
 }) {
+  const t = useT();
   if (!items.length) return null;
   return (
     <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <h2 className="m-0 text-sm font-semibold [font-variant-numeric:tabular-nums]">
-          正本が新しい ({items.length})
+          {t("custom.newerSource", { count: items.length })}
         </h2>
         <Button variant="primary" disabled={busy} onClick={onUpdateAll}>
           <span className="[font-variant-numeric:tabular-nums]">
             {pendingLabel(
               !!busy,
-              `更新があるものをすべてupdate (${items.length})`,
-              "更新中…"
+              t("custom.updateAll", { count: items.length }),
+              t("common.updating")
             )}
           </span>
         </Button>
@@ -334,7 +350,7 @@ function CustomUpdatesPanel({
                   {item.name}
                 </code>
                 <span className="rounded px-1.5 py-0.5 text-[11px] bg-[var(--color-warn-soft)] text-[var(--color-warn-text)]">
-                  正本が新しい
+                  {t("custom.newerSourceBadge")}
                 </span>
                 <span className="font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink-2)]">
                   {item.state} · {item.repoPath}
@@ -344,7 +360,11 @@ function CustomUpdatesPanel({
             <div className="mt-3 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <Button disabled={busy} onClick={() => onUpdateOne(item.name)}>
-                  {pendingLabel(!!busy, "個別update", "更新中…")}
+                  {pendingLabel(
+                    !!busy,
+                    t("custom.updateOne"),
+                    t("common.updating")
+                  )}
                 </Button>
               </div>
               {item.skillDiff ? (
@@ -353,7 +373,7 @@ function CustomUpdatesPanel({
                 </pre>
               ) : (
                 <p className="m-0 text-xs text-[var(--color-ink-2)]">
-                  SKILL.md は一致。他ファイルに差分があります。
+                  {t("custom.diffNote")}
                 </p>
               )}
               {item.otherChangedFiles.length ? (
@@ -370,6 +390,7 @@ function CustomUpdatesPanel({
 }
 
 function PresetPreviewPanel({ preview }: { preview: PresetPreview }) {
+  const t = useT();
   const delta = preview.preview || {
     active: [],
     off: [],
@@ -377,18 +398,23 @@ function PresetPreviewPanel({ preview }: { preview: PresetPreview }) {
     unresolved: [],
   };
   const rows = [
-    { label: "active になる", items: delta.active || [] },
-    { label: "off になる", items: delta.off || [] },
-    { label: "install される", items: delta.install || [] },
+    { label: t("preset.becomeActive"), items: delta.active || [] },
+    { label: t("preset.becomeOff"), items: delta.off || [] },
+    { label: t("preset.willInstall"), items: delta.install || [] },
     {
-      label: preview.name === "_last" ? "復元スキップ" : "unresolved",
+      label:
+        preview.name === "_last"
+          ? t("preset.restoreSkip")
+          : t("preset.unresolved"),
       items: delta.unresolved || [],
     },
   ].filter((row) => row.items.length > 0);
 
   if (!rows.length) {
     return (
-      <p className="m-0 text-sm text-[var(--color-ink-2)]">変更はありません</p>
+      <p className="m-0 text-sm text-[var(--color-ink-2)]">
+        {t("preset.noChanges")}
+      </p>
     );
   }
 
@@ -435,6 +461,7 @@ function PresetsPanel({
   onDelete: (name: string) => void;
   onCancelPreview: () => void;
 }) {
+  const t = useT();
   const [selected, setSelected] = useState(presets[0]?.name || "");
   const [newPresetName, setNewPresetName] = useState("");
   const [savingAsNew, setSavingAsNew] = useState(false);
@@ -497,9 +524,9 @@ function PresetsPanel({
       <div
         className={`flex flex-wrap items-center gap-2${savingAsNew ? " mb-3" : ""}`}
       >
-        <h2 className="m-0 text-sm font-semibold">プリセット</h2>
+        <h2 className="m-0 text-sm font-semibold">{t("preset.title")}</h2>
         <select
-          aria-label="プリセットを選択"
+          aria-label={t("preset.selectAria")}
           value={selected}
           onChange={(e) => setSelected(e.target.value)}
           disabled={busy || !presets.length || !!preview}
@@ -512,7 +539,7 @@ function PresetsPanel({
               </option>
             ))
           ) : (
-            <option value="">保存済みプリセットなし</option>
+            <option value="">{t("preset.none")}</option>
           )}
         </select>
         <Button
@@ -520,7 +547,7 @@ function PresetsPanel({
           disabled={!canUseSelected}
           onClick={() => onApplyRequest(selected)}
         >
-          {pendingLabel(!!busy, "適用", "処理中…")}
+          {pendingLabel(!!busy, t("common.apply"), t("common.processing"))}
         </Button>
         <div className="relative" ref={saveMenuRef}>
           <Button
@@ -529,7 +556,7 @@ function PresetsPanel({
             aria-haspopup="menu"
             onClick={() => setSaveMenuOpen((open) => !open)}
           >
-            保存
+            {t("common.save")}
             <span
               className="ml-1 text-[10px] leading-none text-[var(--color-ink-2)]"
               aria-hidden
@@ -552,7 +579,7 @@ function PresetsPanel({
                   onOverwriteSave(selected);
                 }}
               >
-                上書き保存
+                {t("preset.overwrite")}
               </button>
               <button
                 type="button"
@@ -561,26 +588,30 @@ function PresetsPanel({
                 disabled={busy || !!preview}
                 onClick={openSaveAsNew}
               >
-                別名で保存…
+                {t("preset.saveAs")}
               </button>
             </div>
           ) : null}
         </div>
         {hasPrevious ? (
           <Button disabled={busy || !!preview} onClick={onRestoreRequest}>
-            {pendingLabel(!!busy, "直前に戻す", "処理中…")}
+            {pendingLabel(
+              !!busy,
+              t("preset.restoreLast"),
+              t("common.processing")
+            )}
           </Button>
         ) : null}
         <button
           type="button"
           disabled={!canUseSelected}
           onClick={() => {
-            if (confirm(`プリセット “${selected}” を削除しますか？`))
+            if (confirm(t("preset.deleteConfirm", { name: selected })))
               onDelete(selected);
           }}
           className="ml-auto min-h-10 cursor-pointer rounded-[var(--radius-sm)] px-2 py-1.5 text-sm text-[var(--color-ink-2)] transition-[transform,color,background] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {pendingLabel(!!busy, "削除", "処理中…")}
+          {pendingLabel(!!busy, t("common.delete"), t("common.processing"))}
         </button>
       </div>
       {savingAsNew ? (
@@ -589,7 +620,7 @@ function PresetsPanel({
             htmlFor="new-preset-name"
             className="text-sm text-[var(--color-ink-2)]"
           >
-            新しいプリセット名
+            {t("preset.newName")}
           </label>
           <input
             id="new-preset-name"
@@ -604,7 +635,7 @@ function PresetsPanel({
             disabled={busy || !!preview}
             autoComplete="off"
             spellCheck={false}
-            placeholder="例: 開発・執筆 などの名前…"
+            placeholder={t("preset.newPlaceholder")}
             className="min-h-10 min-w-[200px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
           />
           <Button
@@ -612,10 +643,10 @@ function PresetsPanel({
             disabled={busy || !newPresetName.trim() || !!preview}
             onClick={saveAsNew}
           >
-            {pendingLabel(!!busy, "保存", "処理中…")}
+            {pendingLabel(!!busy, t("common.save"), t("common.processing"))}
           </Button>
           <Button disabled={busy} onClick={closeSaveAsNew}>
-            キャンセル
+            {t("common.cancel")}
           </Button>
         </div>
       ) : null}
@@ -623,9 +654,8 @@ function PresetsPanel({
         <div className="rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-3">
           <p className="m-0 mb-2 text-sm font-semibold">
             {preview.name === "_last"
-              ? "直前の active 構成"
-              : `プリセット "${preview.name}"`}{" "}
-            を適用
+              ? t("preset.applyLast")
+              : t("preset.applyNamed", { name: preview.name })}
           </p>
           <PresetPreviewPanel preview={preview} />
           <div className="mt-3 flex flex-wrap gap-2">
@@ -636,10 +666,10 @@ function PresetsPanel({
                 preview.name === "_last" ? onRestoreConfirm : onApplyConfirm
               }
             >
-              {pendingLabel(!!busy, "実行", "処理中…")}
+              {pendingLabel(!!busy, t("common.run"), t("common.processing"))}
             </Button>
             <Button disabled={busy} onClick={onCancelPreview}>
-              キャンセル
+              {t("common.cancel")}
             </Button>
           </div>
         </div>
@@ -649,6 +679,7 @@ function PresetsPanel({
 }
 
 export function GlobalPage({ catalog }: { catalog: boolean }) {
+  const t = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const q = useQuery({
@@ -801,10 +832,12 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
   return (
     <WorkbenchShell
       title={catalog ? "Catalog" : "Global"}
-      overline={catalog ? "Catalog · 追加候補" : "Projection · tristate"}
+      overline={
+        catalog ? t("global.catalogOverline") : t("global.projectionOverline")
+      }
       sub={
         catalog
-          ? "外部スキルの追加"
+          ? t("global.catalogSub")
           : `${data.rows?.length ?? 0} skills${
               data.counts ? ` · active ${data.counts.active}` : ""
             }`
@@ -872,17 +905,17 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
       <ActionStatus
         text={
           customCheckBusy
-            ? "正本の更新を確認しています…"
+            ? t("status.checkSource")
             : customUpdateBusy
-              ? "スキルを更新しています…"
+              ? t("status.updatingSkills")
               : bulkOff.isPending
-                ? "アクティブなスキルをすべてオフにしています…"
+                ? t("status.bulkOff")
                 : apply.isPending
-                  ? "変更を反映しています…"
+                  ? t("status.applying")
                   : externalPreview.isPending
-                    ? "外部スキルの候補を取得しています…"
+                    ? t("status.fetchCandidates")
                     : presetBusy
-                      ? "プリセット操作を実行しています…"
+                      ? t("status.preset")
                       : undefined
         }
       />
@@ -892,7 +925,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
             to="/global"
             className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
           >
-            globalに戻る
+            {t("global.backToGlobal")}
           </Link>
         ) : (
           <>
@@ -901,13 +934,17 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
               search={{ catalog: true }}
               className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
             >
-              skillsを追加
+              {t("global.addSkills")}
             </Link>
             <Button
               disabled={customBusy || listBusy}
               onClick={() => checkCustom.mutate()}
             >
-              {pendingLabel(customCheckBusy, "更新を確認", "確認中…")}
+              {pendingLabel(
+                customCheckBusy,
+                t("global.checkUpdates"),
+                t("common.checking")
+              )}
             </Button>
           </>
         )}
@@ -938,6 +975,7 @@ export function ExternalPreviewPage({
   source: string;
   deck: string;
 }) {
+  const t = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const cached = qc.getQueryData(["external-preview", deck, source]);
@@ -982,8 +1020,8 @@ export function ExternalPreviewPage({
 
   if (!source)
     return (
-      <WorkbenchShell title="外部スキル" current="global">
-        <p className="m-0">source がありません</p>
+      <WorkbenchShell title={t("preview.title")} current="global">
+        <p className="m-0">{t("preview.noSource")}</p>
       </WorkbenchShell>
     );
   if (q.isPending) return <PageLoading variant="list" />;
@@ -1001,7 +1039,7 @@ export function ExternalPreviewPage({
   return (
     <WorkbenchShell
       title={data.title}
-      overline="Catalog · 外部プレビュー"
+      overline={t("preview.overline")}
       current={deck ? `project:${deck}` : "global"}
       decks={data.decks}
       searchable
@@ -1012,7 +1050,7 @@ export function ExternalPreviewPage({
         }
       />
       <ActionStatus
-        text={previewBusy ? "選択したスキルを追加しています…" : undefined}
+        text={previewBusy ? t("status.addingSelected") : undefined}
       />
       <div className="mb-3 flex flex-wrap gap-2">
         {deck ? (
@@ -1022,7 +1060,7 @@ export function ExternalPreviewPage({
             search={{ catalog: true }}
             className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
           >
-            catalogに戻る
+            {t("preview.backToCatalog")}
           </Link>
         ) : (
           <Link
@@ -1030,7 +1068,7 @@ export function ExternalPreviewPage({
             search={{ catalog: true }}
             className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
           >
-            globalに戻る
+            {t("global.backToGlobal")}
           </Link>
         )}
       </div>
@@ -1041,18 +1079,18 @@ export function ExternalPreviewPage({
           deck
             ? [
                 {
-                  label: "deckにだけ追加",
+                  label: t("preview.addDeckOnly"),
                   onClick: (skills) => addDeck.mutate(skills),
                 },
                 {
-                  label: "installして追加",
+                  label: t("preview.installAdd"),
                   primary: true,
                   onClick: (skills) => install.mutate(skills),
                 },
               ]
             : [
                 {
-                  label: "installしてglobalに追加",
+                  label: t("preview.installGlobal"),
                   primary: true,
                   onClick: (skills) => install.mutate(skills),
                 },
@@ -1078,6 +1116,7 @@ function SelectableSkills({
   busy?: boolean;
   presetChecked?: boolean;
 }) {
+  const t = useT();
   const [selected, setSelected] = useState<string[]>([]);
   const [filter, setFilter] = useLoomFilter();
 
@@ -1116,7 +1155,7 @@ function SelectableSkills({
             )
           }
         >
-          すべて選択
+          {t("common.selectAll")}
         </Button>
         <Button
           disabled={busy || !someFilteredSelected}
@@ -1125,7 +1164,7 @@ function SelectableSkills({
             setSelected((prev) => prev.filter((name) => !remove.has(name)));
           }}
         >
-          すべて解除
+          {t("common.clearAll")}
         </Button>
         {actions.map((action) => (
           <Button
@@ -1134,7 +1173,7 @@ function SelectableSkills({
             disabled={busy || selected.length === 0}
             onClick={() => action.onClick(selected)}
           >
-            {pendingLabel(!!busy, action.label, "処理中…")}
+            {pendingLabel(!!busy, action.label, t("common.processing"))}
           </Button>
         ))}
       </div>
@@ -1164,7 +1203,7 @@ function SelectableSkills({
                   </code>
                   {row.category?.startsWith("[名前空間:") && (
                     <span className="rounded bg-[var(--color-warn-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-warn-text)]">
-                      衝突回避
+                      {t("list.collisionBadge")}
                     </span>
                   )}
                 </div>
@@ -1177,7 +1216,7 @@ function SelectableSkills({
         </div>
       ) : (
         <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
-          一致するスキルがありません
+          {t("common.noMatches")}
         </div>
       )}
     </div>
@@ -1185,18 +1224,15 @@ function SelectableSkills({
 }
 
 export function ExternalSourcesPage() {
+  const t = useT();
   const qc = useQueryClient();
   const [{ view: urlView }, setUrlSearch] = useListViewSearch();
-  const [viewMode, setViewModeState] = useState<ViewMode>(
-    urlView ?? readViewMode()
-  );
-  // URL ?view= を優先して復元 (リロード・戻る/進む・共有リンク)
-  useEffect(() => {
-    if (urlView) setViewModeState(urlView);
-  }, [urlView]);
-  const setViewMode = (mode: ViewMode) => {
-    setViewModeState(mode);
+  const { settings, update } = useUiSettings();
+  // URL ?view= を優先 (リロード・戻る/進む・共有リンク)、なければ Settings の既定値
+  const viewMode = resolveExternalView(urlView, settings);
+  const setViewMode = (mode: ExternalViewMode) => {
     setUrlSearch({ view: mode });
+    update({ externalViewMode: mode });
   };
   const q = useQuery({
     queryKey: ["external-sources"],
@@ -1210,14 +1246,6 @@ export function ExternalSourcesPage() {
     mutationFn: () => api.updateAll(),
     onSuccess: (data) => qc.setQueryData(["external-sources"], data),
   });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
-    } catch {
-      /* ignore */
-    }
-  }, [viewMode]);
 
   if (q.isPending) return <PageLoading variant="cards" />;
   if (q.isError) {
@@ -1234,7 +1262,7 @@ export function ExternalSourcesPage() {
   return (
     <WorkbenchShell
       title={data.title}
-      overline="Catalog · external sources"
+      overline={t("sources.overline")}
       current="external-sources"
       decks={data.decks}
     >
@@ -1248,15 +1276,19 @@ export function ExternalSourcesPage() {
       <ActionStatus
         text={
           checkAll.isPending
-            ? "外部ソースの更新を確認しています…"
+            ? t("status.checkSources")
             : updateAll.isPending
-              ? "更新があるスキルを一括更新しています…"
+              ? t("status.updateSources")
               : undefined
         }
       />
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
         <Button onClick={() => checkAll.mutate()} disabled={sourcesBusy}>
-          {pendingLabel(checkAll.isPending, "すべて更新を確認", "確認中…")}
+          {pendingLabel(
+            checkAll.isPending,
+            t("sources.checkAll"),
+            t("common.checking")
+          )}
         </Button>
         {data.totalUpdatable > 0 ? (
           <Button
@@ -1267,8 +1299,8 @@ export function ExternalSourcesPage() {
             <span className="[font-variant-numeric:tabular-nums]">
               {pendingLabel(
                 updateAll.isPending,
-                `更新があるものをすべてupdate (${data.totalUpdatable})`,
-                "更新中…"
+                t("sources.updateAll", { count: data.totalUpdatable }),
+                t("common.updating")
               )}
             </span>
           </Button>
@@ -1278,8 +1310,7 @@ export function ExternalSourcesPage() {
       <BusyRegion busy={sourcesBusy}>
         {data.sources.length === 0 ? (
           <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
-            外部ソースがありません。「skillsを追加」から owner/repo
-            を追加できます。
+            {t("sources.empty")}
           </div>
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
@@ -1320,6 +1351,7 @@ export function ExternalSourcesPage() {
 }
 
 export function ExternalSourceDetailPage({ source }: { source: string }) {
+  const t = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const q = useQuery({
@@ -1459,15 +1491,15 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       <ActionStatus
         text={
           updateAll.isPending
-            ? "このソースを一括更新しています…"
+            ? t("status.updateSource")
             : updateOne.isPending
-              ? "スキルを更新しています…"
+              ? t("status.updateSkill")
               : remove.isPending
-                ? "管理から外しています…"
+                ? t("status.removing")
                 : install.isPending
-                  ? "スキルをインストールしています…"
+                  ? t("status.installing")
                   : applyGlobal.isPending
-                    ? "global のオン/オフを反映しています…"
+                    ? t("status.applyingGlobal")
                     : undefined
         }
       />
@@ -1477,7 +1509,7 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
           to="/external-sources"
           className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
         >
-          sourcesに戻る
+          {t("detail.back")}
         </Link>
         {data.updatable.length ? (
           <Button
@@ -1488,8 +1520,8 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             <span className="[font-variant-numeric:tabular-nums]">
               {pendingLabel(
                 updateAll.isPending,
-                `このsourceをすべてupdate (${data.updatable.length})`,
-                "更新中…"
+                t("detail.updateAll", { count: data.updatable.length }),
+                t("common.updating")
               )}
             </span>
           </Button>
@@ -1504,7 +1536,7 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             disabled={detailBusy}
             onChange={(e) => setAllGlobal(e.target.checked)}
           />
-          <span className="font-medium">すべて global オン</span>
+          <span className="font-medium">{t("detail.allGlobalOn")}</span>
           <span className="text-[var(--color-ink-2)] [font-variant-numeric:tabular-nums]">
             ({activeCount}/{installed.length})
           </span>
@@ -1537,14 +1569,18 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             {skill.hasUpdate ? (
               <div className="mb-2">
                 <span className="text-xs text-[var(--color-warn)]">
-                  更新あり
+                  {t("detail.hasUpdate")}
                 </span>
                 <div className="mt-2">
                   <Button
                     disabled={detailBusy}
                     onClick={() => updateOne.mutate(skill.name)}
                   >
-                    {pendingLabel(updateOne.isPending, "個別update", "更新中…")}
+                    {pendingLabel(
+                      updateOne.isPending,
+                      t("detail.updateOne"),
+                      t("common.updating")
+                    )}
                   </Button>
                 </div>
               </div>
@@ -1552,16 +1588,16 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             <Button
               disabled={detailBusy}
               onClick={() => {
-                if (
-                  confirm(
-                    "管理から外しますか？ global remove、skills.lock.json、project-decks に反映します。"
-                  )
-                ) {
+                if (confirm(t("detail.removeConfirm"))) {
                   remove.mutate(skill.name);
                 }
               }}
             >
-              {pendingLabel(remove.isPending, "管理から外す", "処理中…")}
+              {pendingLabel(
+                remove.isPending,
+                t("detail.remove"),
+                t("common.processing")
+              )}
             </Button>
           </div>
         ))}
@@ -1569,11 +1605,11 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       {data.available.length ? (
         <>
           <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink-2)]">
-            Available to install
+            {t("detail.available")}
           </h2>
           <CheckboxList
             rows={data.available}
-            submitLabel="選択してinstall"
+            submitLabel={t("detail.installSelected")}
             busy={install.isPending}
             onSubmit={(skills) => install.mutate(skills)}
           />
@@ -1584,6 +1620,7 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
 }
 
 export function DraftsPage() {
+  const t = useT();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["drafts"], queryFn: () => api.drafts() });
   const run = useMutation({
@@ -1603,24 +1640,19 @@ export function DraftsPage() {
   return (
     <WorkbenchShell
       title={data.title}
-      overline="Catalog · drafts"
+      overline={t("drafts.overline")}
       current="drafts"
       decks={data.decks}
       searchable
     >
       <Message text={data.message || errMessage(run.error)} />
-      <ActionStatus
-        text={run.isPending ? "draft操作を実行しています…" : undefined}
-      />
+      <ActionStatus text={run.isPending ? t("status.draftOp") : undefined} />
       <div className="mb-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
-        draft解除で正式配置とlock登録を行います。global追加は ~/.agents/skills
-        にも反映します。
+        {t("drafts.help")}
       </div>
       {data.confirmSelected.length ? (
         <div className="mb-3 rounded-[var(--radius-lg)] border border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-3">
-          <p className="m-0 mb-2 text-sm">
-            選択したdraftは既に正式登録済み、または正式配置先が存在します。上書きする場合だけ続行してください。
-          </p>
+          <p className="m-0 mb-2 text-sm">{t("drafts.confirmOverwrite")}</p>
           <div className="flex flex-wrap gap-2">
             <Button
               disabled={run.isPending}
@@ -1631,7 +1663,11 @@ export function DraftsPage() {
                 })
               }
             >
-              {pendingLabel(run.isPending, "上書きしてdraft解除", "処理中…")}
+              {pendingLabel(
+                run.isPending,
+                t("drafts.promoteForce"),
+                t("common.processing")
+              )}
             </Button>
             <Button
               variant="primary"
@@ -1643,7 +1679,11 @@ export function DraftsPage() {
                 })
               }
             >
-              {pendingLabel(run.isPending, "上書きしてglobalに追加", "処理中…")}
+              {pendingLabel(
+                run.isPending,
+                t("drafts.installForce"),
+                t("common.processing")
+              )}
             </Button>
           </div>
         </div>
@@ -1653,11 +1693,11 @@ export function DraftsPage() {
         busy={run.isPending}
         actions={[
           {
-            label: "draft解除",
+            label: t("drafts.promote"),
             onClick: (skills) => run.mutate({ action: "promote", skills }),
           },
           {
-            label: "draft解除してglobalに追加",
+            label: t("drafts.install"),
             primary: true,
             onClick: (skills) => run.mutate({ action: "install", skills }),
           },
@@ -1674,6 +1714,7 @@ export function ProjectDeckPage({
   deckName: string;
   catalog: boolean;
 }) {
+  const t = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
@@ -1723,9 +1764,9 @@ export function ProjectDeckPage({
       <ActionStatus
         text={
           action.isPending
-            ? "deckの変更を反映しています…"
+            ? t("status.deckApply")
             : preview.isPending
-              ? "外部スキルの候補を取得しています…"
+              ? t("status.fetchCandidates")
               : undefined
         }
       />
@@ -1746,7 +1787,7 @@ export function ProjectDeckPage({
                 .catch(() => undefined);
             }}
           >
-            {copied ? "コピーしました" : "copy"}
+            {copied ? t("deck.copied") : t("deck.copy")}
           </Button>
         </div>
       ) : null}
@@ -1757,7 +1798,7 @@ export function ProjectDeckPage({
             params={{ deckName }}
             className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
           >
-            deckだけ表示
+            {t("deck.showOnly")}
           </Link>
         ) : (
           <Link
@@ -1766,7 +1807,7 @@ export function ProjectDeckPage({
             search={{ catalog: true }}
             className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
           >
-            skillsを追加
+            {t("global.addSkills")}
           </Link>
         )}
       </div>
@@ -1785,24 +1826,74 @@ export function ProjectDeckPage({
           catalog
             ? [
                 {
-                  label: "deckを保存",
+                  label: t("deck.save"),
                   primary: true,
                   onClick: (skills) => action.mutate({ act: "save", skills }),
                 },
               ]
             : [
                 {
-                  label: "このdeckを適用",
+                  label: t("deck.apply"),
                   onClick: (skills) => action.mutate({ act: "apply", skills }),
                 },
                 {
-                  label: "globalに追加",
+                  label: t("deck.addGlobal"),
                   primary: true,
                   onClick: (skills) => action.mutate({ act: "merge", skills }),
                 },
               ]
         }
       />
+    </WorkbenchShell>
+  );
+}
+
+export function SettingsPage() {
+  const t = useT();
+  const { settings, update } = useUiSettings();
+  return (
+    <WorkbenchShell
+      title={t("settings.title")}
+      overline={t("settings.overline")}
+      sub={t("settings.sub")}
+      current="settings"
+    >
+      <div className="grid max-w-[640px] gap-4">
+        <section className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-4 shadow-[var(--shadow-lift)]">
+          <h2 className="m-0 mb-1 text-sm font-semibold text-[var(--color-ink)]">
+            {t("settings.language")}
+          </h2>
+          <p className="m-0 mb-3 text-xs text-[var(--color-ink-2)]">
+            {t("settings.languageHelp")}
+          </p>
+          <SegmentedControl
+            ariaLabel={t("settings.language")}
+            value={settings.locale}
+            onChange={(locale) => update({ locale })}
+            options={[
+              { value: "en", label: "English" },
+              { value: "ja", label: "日本語" },
+            ]}
+          />
+        </section>
+        <section className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-4 shadow-[var(--shadow-lift)]">
+          <h2 className="m-0 mb-1 text-sm font-semibold text-[var(--color-ink)]">
+            {t("settings.viewDefault")}
+          </h2>
+          <p className="m-0 mb-3 text-xs text-[var(--color-ink-2)]">
+            {t("settings.viewHelp")}
+          </p>
+          <SegmentedControl
+            ariaLabel={t("settings.viewDefault")}
+            value={settings.externalViewMode}
+            onChange={(externalViewMode) => update({ externalViewMode })}
+            options={[
+              { value: "grid", label: t("view.grid"), icon: gridIcon },
+              { value: "list", label: t("view.list"), icon: listIcon },
+            ]}
+          />
+        </section>
+      </div>
     </WorkbenchShell>
   );
 }

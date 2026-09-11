@@ -10,6 +10,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { api, ApiError } from "@/api/client";
 import type { Counts } from "@shared/api-types";
 import { useListViewSearch } from "@/router-search";
+import { useT } from "@/settings/react";
 
 /* ======================================================================
  * Workbench shell — A案「ワークベンチ」構造。
@@ -54,6 +55,7 @@ export function LoomMark({ size = 19 }: { size?: number }) {
  * useListViewSearch 経由で URL (?q=) にも反映され、リロードで復元される。
  */
 function TopSearch() {
+  const t = useT();
   const [urlSearch, setUrlSearch] = useListViewSearch();
   const [value, setValue] = useState(urlSearch.q ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -106,7 +108,7 @@ function TopSearch() {
       <input
         ref={inputRef}
         type="search"
-        aria-label="スキルを検索"
+        aria-label={t("search.aria")}
         value={value}
         onChange={(e) => dispatch(e.target.value)}
         onKeyDown={(e) => {
@@ -115,7 +117,7 @@ function TopSearch() {
             e.currentTarget.blur();
           }
         }}
-        placeholder="スキルを検索…"
+        placeholder={t("search.placeholder")}
         className="w-full min-w-0 bg-transparent font-[family-name:inherit] tracking-inherit text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-2)] placeholder:opacity-75"
       />
       <kbd className="shrink-0 rounded-[5px] border border-[var(--color-rule)] border-b-2 bg-[var(--surface)] px-1.5 py-px font-[family-name:var(--font-mono)] text-[9.5px] text-[var(--color-ink-2)]">
@@ -169,6 +171,7 @@ function Topbar({
 
 /** Projection の織りバー — Inventory から織り込まれた active/off/archive の糸 */
 function ProjectionCard({ counts }: { counts: Counts }) {
+  const t = useT();
   const total = Math.max(counts.total, 1);
   return (
     <div className="m-3 mt-3 border-t border-[var(--color-rule)] px-3 pt-3 pb-2.5">
@@ -199,7 +202,7 @@ function ProjectionCard({ counts }: { counts: Counts }) {
         />
       </div>
       <p className="m-0 mt-1.5 text-[10.5px] leading-snug text-[var(--color-ink-2)]">
-        Catalog {counts.total} から織り込まれた実行中の subset
+        {t("projection.caption", { total: counts.total })}
       </p>
     </div>
   );
@@ -214,12 +217,17 @@ function SideNav({
   decks: string[];
   counts?: Counts | null;
 }) {
+  const t = useT();
   const [creating, setCreating] = useState(false);
   const deckList = decks ?? [];
   const items: { to: string; label: string; id: string }[] = [
-    { to: "/global", label: "Global", id: "global" },
-    { to: "/external-sources", label: "External", id: "external-sources" },
-    { to: "/drafts", label: "Drafts", id: "drafts" },
+    { to: "/global", label: t("nav.global"), id: "global" },
+    {
+      to: "/external-sources",
+      label: t("nav.external"),
+      id: "external-sources",
+    },
+    { to: "/drafts", label: t("nav.drafts"), id: "drafts" },
   ];
   const linkClass = (active: boolean) =>
     `relative flex min-h-10 items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-[7px] text-sm font-medium transition-[background,color,padding-left] duration-100 ease-out ${
@@ -234,7 +242,7 @@ function SideNav({
     <div className="rounded-[var(--radius-lg)] border border-[var(--color-chrome-border)] bg-[var(--color-chrome)] p-2 shadow-[var(--shadow-lift)] backdrop-blur-[20px] backdrop-saturate-180 lg:sticky lg:top-[70px]">
       <nav
         className="flex flex-col gap-0.5 max-lg:flex-row max-lg:flex-wrap"
-        aria-label="セクション"
+        aria-label={t("nav.aria")}
       >
         {items.map((item) => (
           <Link
@@ -252,7 +260,7 @@ function SideNav({
           </Link>
         ))}
         <div className="pt-1 pb-0.5 pl-2.5 font-[family-name:var(--font-mono)] text-[9.5px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase max-lg:w-full max-lg:pt-3">
-          Decks
+          {t("nav.decks")}
         </div>
         {deckList.map((d) => {
           const active = current === `project:${d}`;
@@ -288,11 +296,44 @@ function SideNav({
           onClick={() => setCreating((open) => !open)}
           className="flex min-h-10 cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-[7px] text-left text-sm font-medium text-[var(--color-ink-2)] transition-[background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] max-lg:flex-1 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <span className="max-lg:mx-auto">+ Deck</span>
+          <span className="max-lg:mx-auto">{t("nav.newDeck")}</span>
         </button>
       </nav>
       {creating ? <CreateDeckForm onClose={() => setCreating(false)} /> : null}
       {counts ? <ProjectionCard counts={counts} /> : null}
+      <div className="m-3 mt-1 border-t border-[var(--color-rule)] pt-2">
+        <Link to="/settings" className={linkClass(current === "settings")}>
+          {current === "settings" ? (
+            <i
+              aria-hidden
+              className="absolute top-[20%] bottom-[20%] left-[3px] w-0.5 rounded-full bg-[var(--color-accent)]"
+            />
+          ) : null}
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 14 14"
+            fill="none"
+            aria-hidden="true"
+            className="shrink-0 opacity-60"
+          >
+            <circle
+              cx="7"
+              cy="7"
+              r="2.1"
+              stroke="currentColor"
+              strokeWidth="1.2"
+            />
+            <path
+              d="M7 1.6v1.7M7 10.7v1.7M1.6 7h1.7M10.7 7h1.7M3.2 3.2l1.2 1.2M9.6 9.6l1.2 1.2M10.8 3.2L9.6 4.4M4.4 9.6l-1.2 1.2"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+            />
+          </svg>
+          <span className="max-lg:mx-auto">{t("nav.settings")}</span>
+        </Link>
+      </div>
     </div>
   );
 }
@@ -324,13 +365,14 @@ export function WorkbenchShell({
   searchable,
   children,
 }: WorkbenchShellProps) {
+  const t = useT();
   return (
     <div className="min-h-screen">
       <a
         href="#stage"
         className="sr-only rounded-[var(--radius-sm)] bg-[var(--color-accent)] px-3 py-2 text-[var(--color-accent-ink)] focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50"
       >
-        本文へスキップ
+        {t("common.skipToContent")}
       </a>
       <Topbar counts={counts} searchable={searchable} />
       <div className="relative z-[1] mx-auto grid w-full max-w-[1480px] items-start gap-4 px-4 pt-4 pb-11 [grid-template-columns:minmax(0,1fr)] md:px-6 lg:[grid-template-columns:236px_minmax(0,1fr)] xl:[grid-template-columns:236px_minmax(0,1fr)_318px]">
@@ -380,6 +422,7 @@ type CreateDeckFormProps = {
  * SideNav（汎用 UI の置き場）から切り離して持つ。
  */
 export function CreateDeckForm({ onClose }: CreateDeckFormProps) {
+  const t = useT();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [name, setName] = useState("");
@@ -432,7 +475,7 @@ export function CreateDeckForm({ onClose }: CreateDeckFormProps) {
         htmlFor="new-deck-name"
         className="text-sm text-[var(--color-ink-2)]"
       >
-        新しい Deck 名
+        {t("deckForm.label")}
       </label>
       <input
         id="new-deck-name"
@@ -445,7 +488,7 @@ export function CreateDeckForm({ onClose }: CreateDeckFormProps) {
           if (e.key === "Escape") close();
         }}
         disabled={create.isPending}
-        placeholder="例: frontend などの deck 名…"
+        placeholder={t("deckForm.placeholder")}
         autoComplete="off"
         spellCheck={false}
         className="min-w-[160px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-1.5 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -455,10 +498,14 @@ export function CreateDeckForm({ onClose }: CreateDeckFormProps) {
         disabled={create.isPending || !name.trim()}
         onClick={submit}
       >
-        {pendingLabel(create.isPending, "作成", "作成中…")}
+        {pendingLabel(
+          create.isPending,
+          t("common.create"),
+          t("common.creating")
+        )}
       </Button>
       <Button disabled={create.isPending} onClick={close}>
-        キャンセル
+        {t("common.cancel")}
       </Button>
       {error ? (
         <p className="m-0 basis-full text-sm text-[var(--color-ink)] [text-wrap:pretty]">
@@ -654,15 +701,16 @@ export type PageLoadingVariant = "list" | "cards" | "detail";
 
 export function PageLoading({
   variant = "list",
-  label = "読み込み中…",
+  label,
 }: {
   variant?: PageLoadingVariant;
   label?: string;
 }) {
+  const t = useT();
   return (
     <LoadingShell>
       <p className="sr-only" role="status" aria-live="polite">
-        {label}
+        {label ?? t("common.loading")}
       </p>
       {variant === "cards" ? <LoadingCardGrid /> : null}
       {variant === "list" ? <LoadingListRows /> : null}
@@ -673,7 +721,7 @@ export function PageLoading({
 
 export function PageError({
   current,
-  title = "読み込みに失敗しました",
+  title,
   message,
   decks = [],
 }: {
@@ -682,14 +730,15 @@ export function PageError({
   message: string;
   decks?: string[];
 }) {
+  const t = useT();
   return (
-    <WorkbenchShell title={title} current={current} decks={decks}>
+    <WorkbenchShell
+      title={title ?? t("error.title")}
+      current={current}
+      decks={decks}
+    >
       <Message text={message} />
-      <p className="m-0 text-sm text-[var(--color-ink-2)]">
-        ナビから別の画面へ移動するか、ページを再読み込みしてください。開発時は
-        Vite の内部ポートではなく、起動ログの公開 URL（Skill Loom
-        UI）を開いているか確認してください。
-      </p>
+      <p className="m-0 text-sm text-[var(--color-ink-2)]">{t("error.hint")}</p>
     </WorkbenchShell>
   );
 }
