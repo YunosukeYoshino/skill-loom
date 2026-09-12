@@ -30,7 +30,7 @@ Verify: the skill names the user gave are part of the tracked Inventory.
 ```
 
 - `active`: restores from Archive, or installs managed skills that are Off (External via the skills CLI, Custom from the Catalog repo).
-- `archive`: moves the files to `~/.agents/skills-archive` and removes the agent-facing symlinks.
+- `archive`: moves the files to `~/.agents/skills-archive`, removes the agent-facing symlinks, and drops the skill from the skills CLI lock so a later `skills update` won't resurrect it.
 - `off`: trashes the Projection copies and drops the skill from the skills CLI lock.
 
 Verify: rerun `status`; the counts moved. For `active`, `~/.claude/skills/<name>` resolves into the Active directory.
