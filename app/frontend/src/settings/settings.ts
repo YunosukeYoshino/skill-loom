@@ -217,6 +217,7 @@ const en = {
   "status.applyingGlobal": "Applying global on/off…",
   "status.draftOp": "Running draft operation…",
   "status.deckApply": "Applying deck changes…",
+  "status.restoreAll": "Restoring all tracked skills…",
 
   // global page
   "global.catalogOverline": "Catalog · candidates",
@@ -225,6 +226,8 @@ const en = {
   "global.backToGlobal": "Back to global",
   "global.addSkills": "Add skills",
   "global.checkUpdates": "Check for updates",
+  "global.restoreAll": "Restore all",
+  "global.restoreAllConfirm": "Restore all tracked skills?",
 
   // external preview page
   "preview.title": "External skills",
@@ -389,6 +392,7 @@ const ja: MessageCatalog = {
   "status.applyingGlobal": "global のオン/オフを反映しています…",
   "status.draftOp": "draft操作を実行しています…",
   "status.deckApply": "deckの変更を反映しています…",
+  "status.restoreAll": "すべてのスキルを復元しています…",
 
   "global.catalogOverline": "Catalog · 追加候補",
   "global.projectionOverline": "Projection · tristate",
@@ -396,6 +400,8 @@ const ja: MessageCatalog = {
   "global.backToGlobal": "globalに戻る",
   "global.addSkills": "skillsを追加",
   "global.checkUpdates": "更新を確認",
+  "global.restoreAll": "すべて復元",
+  "global.restoreAllConfirm": "トラック中のスキルをすべて復元しますか?",
 
   "preview.title": "外部スキル",
   "preview.noSource": "source がありません",

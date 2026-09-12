@@ -699,3 +699,63 @@ export function installProjectDeck(
   applyDeck(new Set(), restore, install, lock);
   return { unresolved: new Set(), restore, install, alreadyActive };
 }
+
+// ---- restore all（CLI の `all` と Web UI で共有）----
+
+export type RestoreAllPlan = {
+  target: Set<string>;
+  extra: Set<string>;
+  restore: Set<string>;
+  install: Set<string>;
+  unmanagedMissing: Set<string>;
+};
+
+/**
+ * `all` の計画。target は tracked 全件、extra は archive 行き（off にはしない）。
+ * target ⊆ managed なので unresolved は起き得ない。install から外れる
+ * ignore 対象は `unmanagedMissing` として報告だけする。
+ */
+export function planRestoreAll(lock: Lock): RestoreAllPlan {
+  const target = trackedSkills(lock);
+  const active = visibleInstalledNames(lock, activeDir());
+  const archived = visibleInstalledNames(lock, archiveDir());
+  const unmanaged = ignoredSkills();
+  const extra = new Set([...active].filter((name) => !target.has(name)));
+  const restore = new Set(
+    [...target].filter((name) => archived.has(name) && !active.has(name))
+  );
+  const install = new Set(
+    [...target].filter(
+      (name) => !active.has(name) && !archived.has(name) && !unmanaged.has(name)
+    )
+  );
+  const unmanagedMissing = new Set(
+    [...target].filter(
+      (name) => unmanaged.has(name) && !active.has(name) && !archived.has(name)
+    )
+  );
+  return { target, extra, restore, install, unmanagedMissing };
+}
+
+/** planRestoreAll の結果を CLI/UI 共通のサマリ文字列にする。 */
+export function formatRestoreAllPreview(plan: RestoreAllPlan): string {
+  const parts: string[] = [];
+  const { extra, restore, install, unmanagedMissing } = plan;
+  if (extra.size > 0)
+    parts.push(
+      `archive になる (${extra.size}): ${sortNames(extra).join(", ")}`
+    );
+  if (restore.size > 0)
+    parts.push(
+      `restore される (${restore.size}): ${sortNames(restore).join(", ")}`
+    );
+  if (install.size > 0)
+    parts.push(
+      `install される (${install.size}): ${sortNames(install).join(", ")}`
+    );
+  if (unmanagedMissing.size > 0)
+    parts.push(
+      `unmanaged missing (${unmanagedMissing.size}): ${sortNames(unmanagedMissing).join(", ")}`
+    );
+  return parts.length > 0 ? parts.join("\n") : "変更はありません";
+}

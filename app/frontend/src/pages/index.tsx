@@ -705,6 +705,18 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
       applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
   });
 
+  const restoreAll = useMutation({
+    mutationFn: async () => {
+      const preview = await api.restoreAll(false);
+      if (!confirm(preview.message || t("global.restoreAllConfirm")))
+        return preview;
+      return api.restoreAll(true);
+    },
+    onSuccess: (data) => qc.setQueryData(["global", false], data),
+    onError: (err) =>
+      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+  });
+
   const checkCustom = useMutation({
     mutationFn: () => api.checkCustomUpdates(),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
@@ -827,7 +839,8 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
     presetRestoreConfirm.isPending ||
     presetSave.isPending ||
     presetDelete.isPending;
-  const listBusy = apply.isPending || bulkOff.isPending || presetBusy;
+  const listBusy =
+    apply.isPending || bulkOff.isPending || restoreAll.isPending || presetBusy;
 
   return (
     <WorkbenchShell
@@ -890,6 +903,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
           data.message ||
           errMessage(apply.error) ||
           errMessage(bulkOff.error) ||
+          errMessage(restoreAll.error) ||
           errMessage(externalPreview.error) ||
           errMessage(checkCustom.error) ||
           errMessage(updateCustomOne.error) ||
@@ -910,13 +924,15 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
               ? t("status.updatingSkills")
               : bulkOff.isPending
                 ? t("status.bulkOff")
-                : apply.isPending
-                  ? t("status.applying")
-                  : externalPreview.isPending
-                    ? t("status.fetchCandidates")
-                    : presetBusy
-                      ? t("status.preset")
-                      : undefined
+                : restoreAll.isPending
+                  ? t("status.restoreAll")
+                  : apply.isPending
+                    ? t("status.applying")
+                    : externalPreview.isPending
+                      ? t("status.fetchCandidates")
+                      : presetBusy
+                        ? t("status.preset")
+                        : undefined
         }
       />
       <div className="mb-3 flex flex-wrap gap-2">
@@ -944,6 +960,16 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
                 customCheckBusy,
                 t("global.checkUpdates"),
                 t("common.checking")
+              )}
+            </Button>
+            <Button
+              disabled={customBusy || listBusy}
+              onClick={() => restoreAll.mutate()}
+            >
+              {pendingLabel(
+                restoreAll.isPending,
+                t("global.restoreAll"),
+                t("common.processing")
               )}
             </Button>
           </>

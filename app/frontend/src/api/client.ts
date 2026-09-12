@@ -81,6 +81,12 @@ export const api = {
       body: JSON.stringify({}),
     }),
 
+  restoreAll: (confirm = false) =>
+    request<GlobalPayload>("/api/all", {
+      method: "POST",
+      body: JSON.stringify({ confirm }),
+    }),
+
   previewPreset: (name: string) =>
     request<GlobalPayload>(`/api/presets/${encodeURIComponent(name)}/preview`),
 

@@ -71,7 +71,9 @@ import {
   applyProjectDeckSelection,
   applyNamedPreset,
   bulkOffActive,
+  formatRestoreAllPreview,
   installCustomFromRepo,
+  planRestoreAll,
   restorePreviousPreset,
 } from "./domain/projection";
 import {
@@ -466,6 +468,40 @@ app.post("/api/bulk-off", () => {
 
   const message = `すべてオフにしました (${removed.size}): ${sortNames(removed).join(", ")}`;
   return jsonResponse(globalPayload(loadLock(), message), 200);
+});
+
+/**
+ * `all` と同じ全件復元。confirm が無い間はサマリを message で返すだけで、
+ * projection は動かさない（presets/apply と同じ preview→confirm 形）。
+ */
+app.post("/api/all", async (c) => {
+  const body = await readJson(c.req.raw);
+  const lock = loadLock();
+  const plan = planRestoreAll(lock);
+  if (!bodyFlag(body, "confirm")) {
+    return jsonResponse(
+      { ...globalPayload(lock, ""), message: formatRestoreAllPreview(plan) },
+      200
+    );
+  }
+  const base = globalPayload(lock, "");
+  if (!tryAcquireApply()) return errorResponse(APPLY_BUSY_MESSAGE, 409, base);
+
+  try {
+    applyDeck(plan.extra, plan.restore, plan.install, lock);
+  } catch (error) {
+    return errorResponse(
+      `Apply failed: ${errorText(error)}`,
+      500,
+      globalPayload(loadLock(), "")
+    );
+  } finally {
+    releaseApply();
+  }
+  return jsonResponse(
+    globalPayload(loadLock(), formatRestoreAllPreview(plan)),
+    200
+  );
 });
 
 // ---- preset（#69 で移植）----
