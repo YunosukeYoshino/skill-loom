@@ -347,6 +347,53 @@ test_management_cli_deck_apply_uses_the_confirmed_plan() {
     || fail "test_management_cli_deck_apply_uses_the_confirmed_plan: rc=$rc output=$out"
 }
 
+test_management_cli_skill_switches_tristate() {
+  echo "Running test_management_cli_skill_switches_tristate..."
+  local tmp_dir rc out
+  tmp_dir=$(mktemp -d)
+  TMP_DIRS+=("$tmp_dir")
+  setup_management_cli_fixture "$tmp_dir"
+  mkdir -p "$tmp_dir/active/alpha" "$tmp_dir/archive/beta"
+  printf -- '---\nname: alpha\n---\n' > "$tmp_dir/active/alpha/SKILL.md"
+  printf -- '---\nname: beta\n---\n' > "$tmp_dir/archive/beta/SKILL.md"
+  ln -s "$tmp_dir/active/alpha" "$tmp_dir/claude-skills/alpha"
+
+  rc=$(run_management_cli "$tmp_dir" skill archive alpha --yes)
+  out=$(< "$tmp_dir/cli-stdout.txt")
+  [ "$rc" = "0" ] && assert_contains "$out" "Set archive: alpha" \
+    && [ -d "$tmp_dir/archive/alpha" ] && [ ! -e "$tmp_dir/active/alpha" ] \
+    && [ ! -L "$tmp_dir/claude-skills/alpha" ] \
+    && assert_contains "$(< "$tmp_dir/presets/_last.json")" '"alpha"' \
+    && pass "test_management_cli_skill_switches_tristate: archive moves and backs up" \
+    || fail "test_management_cli_skill_switches_tristate: archive rc=$rc output=$out"
+
+  rc=$(run_management_cli "$tmp_dir" skill active alpha beta --yes)
+  out=$(< "$tmp_dir/cli-stdout.txt")
+  [ "$rc" = "0" ] && assert_contains "$out" "Set active: alpha, beta" \
+    && [ -d "$tmp_dir/active/alpha" ] && [ -d "$tmp_dir/active/beta" ] \
+    && pass "test_management_cli_skill_switches_tristate: restore takes many names" \
+    || fail "test_management_cli_skill_switches_tristate: restore rc=$rc output=$out"
+
+  rc=$(run_management_cli "$tmp_dir" skill active ghost --yes)
+  out=$(< "$tmp_dir/cli-stderr.txt")
+  [ "$rc" = "2" ] && assert_contains "$out" "Unresolved: ghost" \
+    && pass "test_management_cli_skill_switches_tristate: unresolved aborts" \
+    || fail "test_management_cli_skill_switches_tristate: unresolved rc=$rc stderr=$out"
+
+  rc=$(run_management_cli "$tmp_dir" skill archive alpha)
+  out=$(< "$tmp_dir/cli-stdout.txt")
+  [ "$rc" = "1" ] && assert_contains "$out" "Aborted." \
+    && [ -d "$tmp_dir/active/alpha" ] \
+    && pass "test_management_cli_skill_switches_tristate: aborts without -y" \
+    || fail "test_management_cli_skill_switches_tristate: confirm rc=$rc output=$out"
+
+  rc=$(run_management_cli "$tmp_dir" skill bogus alpha --yes)
+  out=$(< "$tmp_dir/cli-stderr.txt")
+  [ "$rc" = "2" ] && assert_contains "$out" "invalid choice" \
+    && pass "test_management_cli_skill_switches_tristate: invalid state rejected" \
+    || fail "test_management_cli_skill_switches_tristate: state rc=$rc stderr=$out"
+}
+
 test_management_cli_catalog_commit_result_is_visible() {
   echo "Running test_management_cli_catalog_commit_result_is_visible..."
   local tmp_dir rc out
@@ -375,4 +422,5 @@ register_cases \
   test_management_cli_deck_save_rejects_catalog_escape \
   test_management_cli_deck_apply_unions_core_and_archives_extras \
   test_management_cli_deck_apply_uses_the_confirmed_plan \
+  test_management_cli_skill_switches_tristate \
   test_management_cli_catalog_commit_result_is_visible

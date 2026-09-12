@@ -23,6 +23,7 @@ import { draftRows, promoteDrafts } from "./domain/drafts";
 import {
   ignoredSkills,
   loadLock,
+  type Selection,
   sortNames,
   trackedSkills,
   visibleInstalledNames,
@@ -34,6 +35,7 @@ import {
   externalSourceSummary,
 } from "./domain/external";
 import {
+  backupActiveToLast,
   computePresetApplyPlan,
   formatPresetApplyPreview,
   deletePreset,
@@ -53,6 +55,7 @@ import {
   planProjectDeckSelection,
   restorePreviousPreset,
 } from "./domain/projection";
+import { computeTristateApplyDelta, TRISTATE_VALUES } from "./domain/tristate";
 import {
   externalSkillCandidates,
   normalizeGithubSource,
@@ -547,6 +550,73 @@ function cmdInstallDeck(name: string): number {
   return 0;
 }
 
+/**
+ * `skill`。名前を挙げた skill を active / archive / off のどれかへ移す。
+ *
+ * UI の Apply と同じ computeTristateApplyDelta → applyDeck の経路を通す。
+ * unresolved が 1 つでもあれば書き込む前に 2 で抜ける（install-deck と同じ方針）。
+ */
+function cmdSkill(argv: string[]): number {
+  const { yes, names: args } = parseYesArgs(argv);
+  const [desired, ...names] = args;
+  if (desired === undefined || !TRISTATE_VALUES.has(desired)) {
+    console.error(
+      "usage: skill-loom skill [-h] [-y] {active,archive,off} names [names ...]"
+    );
+    console.error(
+      desired === undefined
+        ? "skill-loom skill: error: the following arguments are required: state, names"
+        : `skill-loom skill: error: argument state: invalid choice: '${desired}' (choose from active,archive,off)`
+    );
+    return 2;
+  }
+  if (names.length === 0) {
+    console.error(
+      "usage: skill-loom skill [-h] [-y] {active,archive,off} names [names ...]"
+    );
+    console.error(
+      "skill-loom skill: error: the following arguments are required: names"
+    );
+    return 2;
+  }
+
+  const lock = loadLock();
+  const state = desired as Selection;
+  const states: Record<string, Selection> = {};
+  for (const name of names) states[name] = state;
+  const delta = computeTristateApplyDelta(states, lock);
+  if (delta.unresolved.size > 0) {
+    console.error(`Unresolved: ${sortNames(delta.unresolved).join(", ")}`);
+    return 2;
+  }
+
+  const changed = sortNames(
+    new Set([
+      ...delta.extra,
+      ...delta.restore,
+      ...delta.install,
+      ...delta.remove,
+    ])
+  );
+  if (changed.length === 0) {
+    console.log("No changes.");
+    return 0;
+  }
+  if (!confirmedAction(`Set ${state}`, changed, yes)) return 1;
+
+  backupActiveToLast(lock);
+  const warning = applyDeck(
+    delta.extra,
+    delta.restore,
+    delta.install,
+    lock,
+    delta.remove
+  );
+  if (warning) console.error(warning);
+  console.log(`Set ${state}: ${changed.join(", ")}`);
+  return 0;
+}
+
 // ---- preset ----
 
 /** 例外を `str(exc)` 相当の 1 行にする。 */
@@ -751,16 +821,16 @@ const [command, ...rest] = Bun.argv.slice(2);
 
 /** `argparse` が出す usage 行。no-args / unknown command で共通して使う。 */
 const USAGE =
-  "usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck} ...";
+  "usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill} ...";
 
 /**
  * `argparse` の `--help`。1 文字まで移行前と合わせるので、画面の端で折れる幅も含めて
  * 固定文字列にしている（`link-agents` の説明が 80 桁で折れるのも再現）。
  */
-const HELP = `usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck} ...
+const HELP = `usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill} ...
 
 positional arguments:
-  {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck}
+  {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill}
     list                List project decks
     status              Show active/archive state
     all                 Preview or restore all tracked skills
@@ -773,6 +843,7 @@ positional arguments:
     custom              Check and update Custom Skills
     draft               List, promote, or install Draft Skills
     deck                Show, save, merge, or apply Project Decks
+    skill               Set named skills to active, archive, or off
 
 options:
   -h, --help            show this help message and exit
@@ -838,11 +909,14 @@ switch (command) {
   case "deck":
     process.exit(cmdDeck(rest));
     break;
+  case "skill":
+    process.exit(cmdSkill(rest));
+    break;
   default:
     // argparse の invalid choice。stdout ではなく stderr へ。
     console.error(USAGE);
     console.error(
-      `skill-loom: error: argument command: invalid choice: '${command}' (choose from list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck)`
+      `skill-loom: error: argument command: invalid choice: '${command}' (choose from list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill)`
     );
     process.exit(2);
 }

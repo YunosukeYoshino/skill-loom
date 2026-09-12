@@ -20,6 +20,7 @@ const MANAGEMENT_SKILLS = [
   "check-vendor-updates",
   "vendor-fork",
   "skill-deck-manager",
+  "skills-state",
 ];
 
 const SKILLS_RESTORE = path.join(
