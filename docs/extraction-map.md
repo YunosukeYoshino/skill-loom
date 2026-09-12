@@ -1,5 +1,7 @@
 # Engine and Catalog extraction map
 
+> Extraction complete; retained as the publication boundary record.
+
 This document records the publication boundary for the initial Skill Loom extraction.
 
 ## Engine-owned allowlist
