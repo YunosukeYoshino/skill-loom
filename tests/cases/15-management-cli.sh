@@ -392,6 +392,27 @@ test_management_cli_skill_switches_tristate() {
   [ "$rc" = "2" ] && assert_contains "$out" "invalid choice" \
     && pass "test_management_cli_skill_switches_tristate: invalid state rejected" \
     || fail "test_management_cli_skill_switches_tristate: state rc=$rc stderr=$out"
+
+  rc=$(run_management_cli "$tmp_dir" skill off beta --yes)
+  out=$(< "$tmp_dir/cli-stdout.txt")
+  [ "$rc" = "0" ] && assert_contains "$out" "Set off: beta" \
+    && [ ! -e "$tmp_dir/active/beta" ] && [ ! -e "$tmp_dir/archive/beta" ] \
+    && ls "$TEST_SANDBOX/trash"/*/beta/SKILL.md > /dev/null 2>&1 \
+    && pass "test_management_cli_skill_switches_tristate: off trashes the copy" \
+    || fail "test_management_cli_skill_switches_tristate: off rc=$rc output=$out"
+
+  rc=$(run_management_cli "$tmp_dir" skill off ghost --yes)
+  out=$(< "$tmp_dir/cli-stderr.txt")
+  [ "$rc" = "2" ] && assert_contains "$out" "Unresolved: ghost" \
+    && pass "test_management_cli_skill_switches_tristate: off of unknown aborts" \
+    || fail "test_management_cli_skill_switches_tristate: off unknown rc=$rc stderr=$out"
+
+  printf '{"ignore":["ignored-skill"]}\n' > "$tmp_dir/.skills-ignore.json"
+  rc=$(run_management_cli "$tmp_dir" skill active ignored-skill --yes)
+  out=$(< "$tmp_dir/cli-stderr.txt")
+  [ "$rc" = "2" ] && assert_contains "$out" "Unresolved: ignored-skill" \
+    && pass "test_management_cli_skill_switches_tristate: ignored name aborts" \
+    || fail "test_management_cli_skill_switches_tristate: ignored rc=$rc stderr=$out"
 }
 
 test_management_cli_catalog_commit_result_is_visible() {

@@ -557,12 +557,12 @@ function cmdInstallDeck(name: string): number {
  * unresolved が 1 つでもあれば書き込む前に 2 で抜ける（install-deck と同じ方針）。
  */
 function cmdSkill(argv: string[]): number {
+  const usage =
+    "usage: skill-loom skill [-h] [-y] {active,archive,off} names [names ...]";
   const { yes, names: args } = parseYesArgs(argv);
   const [desired, ...names] = args;
   if (desired === undefined || !TRISTATE_VALUES.has(desired)) {
-    console.error(
-      "usage: skill-loom skill [-h] [-y] {active,archive,off} names [names ...]"
-    );
+    console.error(usage);
     console.error(
       desired === undefined
         ? "skill-loom skill: error: the following arguments are required: state, names"
@@ -571,9 +571,7 @@ function cmdSkill(argv: string[]): number {
     return 2;
   }
   if (names.length === 0) {
-    console.error(
-      "usage: skill-loom skill [-h] [-y] {active,archive,off} names [names ...]"
-    );
+    console.error(usage);
     console.error(
       "skill-loom skill: error: the following arguments are required: names"
     );
@@ -585,8 +583,27 @@ function cmdSkill(argv: string[]): number {
   const states: Record<string, Selection> = {};
   for (const name of names) states[name] = state;
   const delta = computeTristateApplyDelta(states, lock);
-  if (delta.unresolved.size > 0) {
-    console.error(`Unresolved: ${sortNames(delta.unresolved).join(", ")}`);
+
+  // 名前を挙げて動かすコマンドでは「変化なし」を黙って成功にしない。
+  // UI の delta が no-op として許す 2 種（off への未知名、install 経路の無い
+  // ignored な active/archive 指定）もここで unresolved に畳み込む。
+  const active = visibleInstalledNames(lock, activeDir());
+  const archived = visibleInstalledNames(lock, archiveDir());
+  const managed = trackedSkills(lock);
+  const known = new Set([
+    ...managed,
+    ...ignoredSkills(),
+    ...active,
+    ...archived,
+  ]);
+  const blocked = names.filter((name) =>
+    state === "off"
+      ? !known.has(name)
+      : !managed.has(name) && !active.has(name) && !archived.has(name)
+  );
+  const unresolved = sortNames(new Set([...blocked, ...delta.unresolved]));
+  if (unresolved.length > 0) {
+    console.error(`Unresolved: ${unresolved.join(", ")}`);
     return 2;
   }
 
@@ -605,14 +622,20 @@ function cmdSkill(argv: string[]): number {
   if (!confirmedAction(`Set ${state}`, changed, yes)) return 1;
 
   backupActiveToLast(lock);
-  const warning = applyDeck(
-    delta.extra,
-    delta.restore,
-    delta.install,
-    lock,
-    delta.remove
-  );
-  if (warning) console.error(warning);
+  try {
+    // 戻り値の warning は日本語。CLI は英語出力の規約なので、失敗の事実だけ出す。
+    const warning = applyDeck(
+      delta.extra,
+      delta.restore,
+      delta.install,
+      lock,
+      delta.remove
+    );
+    if (warning) console.error("warning: could not update the skills CLI lock");
+  } catch (error) {
+    console.error(errorText(error));
+    return 2;
+  }
   console.log(`Set ${state}: ${changed.join(", ")}`);
   return 0;
 }
