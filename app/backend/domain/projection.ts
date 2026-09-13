@@ -43,6 +43,7 @@ import { loadDeck } from "./decks";
 import { ValueError } from "./errors";
 import {
   type Lock,
+  difference,
   ignoredSkills,
   managedActiveSkills,
   sortNames,
@@ -703,7 +704,6 @@ export function installProjectDeck(
 // ---- restore all（CLI の `all` と Web UI で共有）----
 
 export type RestoreAllPlan = {
-  target: Set<string>;
   extra: Set<string>;
   restore: Set<string>;
   install: Set<string>;
@@ -720,21 +720,19 @@ export function planRestoreAll(lock: Lock): RestoreAllPlan {
   const active = visibleInstalledNames(lock, activeDir());
   const archived = visibleInstalledNames(lock, archiveDir());
   const unmanaged = ignoredSkills();
-  const extra = new Set([...active].filter((name) => !target.has(name)));
-  const restore = new Set(
-    [...target].filter((name) => archived.has(name) && !active.has(name))
-  );
-  const install = new Set(
-    [...target].filter(
-      (name) => !active.has(name) && !archived.has(name) && !unmanaged.has(name)
-    )
-  );
-  const unmanagedMissing = new Set(
-    [...target].filter(
-      (name) => unmanaged.has(name) && !active.has(name) && !archived.has(name)
-    )
-  );
-  return { target, extra, restore, install, unmanagedMissing };
+  return {
+    extra: difference(active, target),
+    restore: difference(
+      new Set([...target].filter((name) => archived.has(name))),
+      active
+    ),
+    install: difference(target, active, archived, unmanaged),
+    unmanagedMissing: difference(
+      new Set([...target].filter((name) => unmanaged.has(name))),
+      active,
+      archived
+    ),
+  };
 }
 
 /** planRestoreAll の結果を CLI/UI 共通のサマリ文字列にする。 */

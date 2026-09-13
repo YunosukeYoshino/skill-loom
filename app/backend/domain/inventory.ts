@@ -120,7 +120,10 @@ function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf-8"));
 }
 
-function difference(base: Set<string>, ...others: Set<string>[]): Set<string> {
+export function difference(
+  base: Set<string>,
+  ...others: Set<string>[]
+): Set<string> {
   const out = new Set(base);
   for (const other of others) for (const name of other) out.delete(name);
   return out;
