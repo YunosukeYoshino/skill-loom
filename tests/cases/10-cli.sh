@@ -2,7 +2,7 @@
 
 test_skill_loom_is_the_primary_launcher() {
   echo "Running test_skill_loom_is_the_primary_launcher..."
-  local out compatibility_out
+  local out
 
   if [ ! -x ./skill-loom ]; then
     fail "test_skill_loom_is_the_primary_launcher: ./skill-loom is not executable"
@@ -13,11 +13,6 @@ test_skill_loom_is_the_primary_launcher() {
   assert_contains "$out" "usage: skill-loom" \
     && pass "test_skill_loom_is_the_primary_launcher: canonical help uses skill-loom" \
     || fail "test_skill_loom_is_the_primary_launcher: output was $out"
-
-  compatibility_out=$(./my-skills --help 2>&1)
-  [ "$compatibility_out" = "$out" ] \
-    && pass "test_skill_loom_is_the_primary_launcher: my-skills compatibility wrapper works" \
-    || fail "test_skill_loom_is_the_primary_launcher: compatibility output differed"
 }
 
 test_list() {

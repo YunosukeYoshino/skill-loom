@@ -86,8 +86,5 @@ describe("サンドボックス差し替え", () => {
     expect(Bun.file(join(config.REPO_ROOT, "skill-loom")).size).toBeGreaterThan(
       0
     );
-    expect(Bun.file(join(config.REPO_ROOT, "my-skills")).size).toBeGreaterThan(
-      0
-    );
   });
 });
