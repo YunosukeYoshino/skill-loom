@@ -17,3 +17,4 @@ Skill Loom is a local management engine for an Agent Skills portfolio. It keeps 
 - **Core Deck**: the Catalog baseline automatically unioned when a Project Deck is applied.
 - **Project Deck**: a Catalog recipe for a codebase or work area.
 - **Active / Archive / Off**: available now / retained for later / absent from the Projection.
+- **Preset**: a named snapshot of the Active set. `_last` is the automatic pre-change snapshot used by restore.

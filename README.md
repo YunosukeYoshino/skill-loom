@@ -104,6 +104,8 @@ Management command families expose the same Catalog domain operations to shell w
 ./skill-loom deck apply NAME --yes
 ./skill-loom deck merge NAME --yes
 
+./skill-loom skill {active,archive,off} SKILL... --yes
+
 ./skill-loom preset list
 ./skill-loom preset save NAME
 ./skill-loom preset apply NAME --yes
