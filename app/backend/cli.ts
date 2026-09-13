@@ -51,6 +51,7 @@ import {
   installProjectDeck,
   linkAgentSkillDirsMany,
   planProjectDeckSelection,
+  planRestoreAll,
   restorePreviousPreset,
 } from "./domain/projection";
 import {
@@ -428,83 +429,42 @@ function cmdDeck(argv: string[]): number {
   return 2;
 }
 
-/** `print_plan` の移植。`--apply` で使うため計算した各集合も返す。 */
-function printPlan(
-  target: Set<string>,
-  lock: ReturnType<typeof loadLock>
-): {
-  unresolved: boolean;
-  extra: Set<string>;
-  restore: Set<string>;
-  install: Set<string>;
-  known: Set<string>;
-} {
+/**
+ * `all`。tracked skill を全件 active へ揃える。
+ *
+ * `--apply` が無ければ dry-run。`--apply` があれば `apply_deck(extra, restore, install)`
+ * と同じ projection を走らせる。計画は Web UI の /api/all と同じ `planRestoreAll`。
+ */
+function cmdAll(argv: string[]): number {
+  const lock = loadLock();
+  const plan = planRestoreAll(lock);
   const active = visibleInstalledNames(lock, activeDir());
   const archived = visibleInstalledNames(lock, archiveDir());
-  const managed = trackedSkills(lock);
-  const unmanaged = ignoredSkills();
-  const known = new Set([...managed, ...unmanaged]);
-
-  const unresolved = difference(target, known, active, archived);
-  const extra = difference(active, target);
-  const restore = difference(
-    new Set([...target].filter((n) => archived.has(n))),
-    active
-  );
-  const install = difference(target, active, archived, unmanaged);
-  const unmanagedMissing = difference(
-    new Set([...target].filter((n) => unmanaged.has(n))),
-    active,
-    archived
-  );
 
   console.log(`active:   ${active.size}`);
-  console.log(`target:   ${target.size}`);
+  console.log(`target:   ${plan.target.size}`);
   console.log(`archive:  ${archived.size}`);
   console.log("");
-
-  if (unresolved.size > 0) {
-    console.log("unresolved target skills:");
-    for (const name of sortNames(unresolved)) console.log(`  ${name}`);
-    console.log("");
-  }
 
   const section = (label: string, names: Set<string>): void => {
     console.log(`${label} ${names.size}`);
     for (const name of sortNames(names)) console.log(`  ${name}`);
   };
 
-  section("move to archive:", extra);
+  section("move to archive:", plan.extra);
   console.log("");
-  section("restore from archive:", restore);
+  section("restore from archive:", plan.restore);
   console.log("");
-  section("install missing:", install);
+  section("install missing:", plan.install);
   console.log("");
-  section("unmanaged missing:", unmanagedMissing);
+  section("unmanaged missing:", plan.unmanagedMissing);
 
-  return { unresolved: unresolved.size > 0, extra, restore, install, known };
-}
-
-/**
- * `all`。tracked skill を全件 active へ揃える。
- *
- * `--apply` が無ければ dry-run。`--apply` があれば `apply_deck(extra, restore, install & known)`
- * と同じ projection を走らせる。`install & known` は「管理対象に限る」の念押し（移行前どおり）。
- */
-function cmdAll(argv: string[]): number {
-  const lock = loadLock();
-  const plan = printPlan(trackedSkills(lock), lock);
-  if (plan.unresolved) return 2;
-  const apply = argv.includes("--apply");
-  if (!apply) {
+  if (!argv.includes("--apply")) {
     console.log("");
     console.log("dry-run only; add --apply to restore all tracked skills");
     return 0;
   }
-  const installKnown = new Set(
-    [...plan.install].filter((name) => plan.known.has(name))
-  );
-  applyDeck(plan.extra, plan.restore, installKnown, lock);
+  applyDeck(plan.extra, plan.restore, plan.install, lock);
   return 0;
 }
 
