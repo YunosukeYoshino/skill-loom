@@ -484,8 +484,8 @@ app.post("/api/all", async (c) => {
       200
     );
   }
-  const base = globalPayload(lock, "");
-  if (!tryAcquireApply()) return errorResponse(APPLY_BUSY_MESSAGE, 409, base);
+  if (!tryAcquireApply())
+    return errorResponse(APPLY_BUSY_MESSAGE, 409, globalPayload(lock, ""));
 
   try {
     applyDeck(plan.extra, plan.restore, plan.install, lock);

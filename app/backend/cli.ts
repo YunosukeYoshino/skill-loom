@@ -21,6 +21,7 @@ import { activeDir, archiveDir, lockFile } from "./domain/config";
 import { collectCustomUpdatable, updateCustomFromRepo } from "./domain/custom";
 import { draftRows, promoteDrafts } from "./domain/drafts";
 import {
+  difference,
   ignoredSkills,
   loadLock,
   type Selection,
@@ -75,12 +76,6 @@ function padLeft(value: string, width: number): string {
   return value.length >= width
     ? value
     : " ".repeat(width - value.length) + value;
-}
-
-function difference(base: Set<string>, ...others: Set<string>[]): Set<string> {
-  const out = new Set(base);
-  for (const other of others) for (const name of other) out.delete(name);
-  return out;
 }
 
 function cmdList(): number {
@@ -445,7 +440,7 @@ function cmdAll(argv: string[]): number {
   const archived = visibleInstalledNames(lock, archiveDir());
 
   console.log(`active:   ${active.size}`);
-  console.log(`target:   ${plan.target.size}`);
+  console.log(`target:   ${trackedSkills(lock).size}`);
   console.log(`archive:  ${archived.size}`);
   console.log("");
 
@@ -540,8 +535,7 @@ function cmdSkill(argv: string[]): number {
 
   const lock = loadLock();
   const state = desired as Selection;
-  const states: Record<string, Selection> = {};
-  for (const name of names) states[name] = state;
+  const states = Object.fromEntries(names.map((name) => [name, state]));
   const delta = computeTristateApplyDelta(states, lock);
 
   // 名前を挙げて動かすコマンドでは「変化なし」を黙って成功にしない。
