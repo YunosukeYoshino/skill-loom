@@ -271,7 +271,7 @@ test_preset_preview_returns_plan() {
       && pass "test_preset_preview_returns_plan: echoes preset metadata" \
       || fail "test_preset_preview_returns_plan: preset metadata wrong"
 
-    assert_contains "$json" '"preview":{"active":[],"off":["beta"],"install":[],"unresolved":[]}' \
+    assert_contains "$json" '"preview":{"active":[],"archive":[],"off":["beta"],"install":[],"unresolved":[]}' \
       && pass "test_preset_preview_returns_plan: beta shown as off" \
       || fail "test_preset_preview_returns_plan: plan wrong"
 

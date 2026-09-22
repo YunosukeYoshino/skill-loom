@@ -70,6 +70,7 @@ import {
   applyDeck,
   applyProjectDeckSelection,
   applyNamedPreset,
+  applyRestoreAllPlan,
   bulkOffActive,
   formatRestoreAllPreview,
   installCustomFromRepo,
@@ -473,6 +474,7 @@ app.post("/api/bulk-off", () => {
 /**
  * `all` と同じ全件復元。confirm が無い間はサマリを message で返すだけで、
  * projection は動かさない（presets/apply と同じ preview→confirm 形）。
+ * 適用時の直前の状態は `_last` preset に退避される。
  */
 app.post("/api/all", async (c) => {
   const body = await readJson(c.req.raw);
@@ -488,7 +490,7 @@ app.post("/api/all", async (c) => {
     return errorResponse(APPLY_BUSY_MESSAGE, 409, globalPayload(lock, ""));
 
   try {
-    applyDeck(plan.extra, plan.restore, plan.install, lock);
+    applyRestoreAllPlan(plan, lock);
   } catch (error) {
     return errorResponse(
       `Apply failed: ${errorText(error)}`,

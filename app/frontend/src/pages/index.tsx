@@ -393,12 +393,14 @@ function PresetPreviewPanel({ preview }: { preview: PresetPreview }) {
   const t = useT();
   const delta = preview.preview || {
     active: [],
+    archive: [],
     off: [],
     install: [],
     unresolved: [],
   };
   const rows = [
     { label: t("preset.becomeActive"), items: delta.active || [] },
+    { label: t("preset.becomeArchive"), items: delta.archive || [] },
     { label: t("preset.becomeOff"), items: delta.off || [] },
     { label: t("preset.willInstall"), items: delta.install || [] },
     {
