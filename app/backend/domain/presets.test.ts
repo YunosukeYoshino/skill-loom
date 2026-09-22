@@ -22,6 +22,7 @@ import { AlreadyExistsError, NotFoundError, ValueError } from "./errors";
 import type { Lock } from "./inventory";
 import {
   computePresetApplyPlan,
+  computeSnapshotPlan,
   deletePreset,
   formatPresetApplyPreview,
   listUserPresets,
@@ -232,6 +233,50 @@ describe("computePresetApplyPlan", () => {
   });
 });
 
+describe("computeSnapshotPlan", () => {
+  test("直前の projection をそのまま組み立て直す計画になる", () => {
+    // snapshot 時点は active=[keep,ghost] / archive=[drop]、
+    // 現在は active=[keep,drop] / archive=[ghost]（restore-all 直後の形）。
+    place("active", "keep", "drop");
+    place("archive", "ghost");
+
+    const plan = computeSnapshotPlan(
+      new Set(["keep", "ghost"]),
+      new Set(["drop"]),
+      lock
+    );
+
+    expect(sorted(plan.restore)).toEqual(["ghost"]);
+    expect(sorted(plan.extra)).toEqual(["drop"]);
+    expect(sorted(plan.remove)).toEqual([]);
+    expect(sorted(plan.install)).toEqual([]);
+    expect(sorted(plan.unresolved)).toEqual([]);
+    expect(sorted(plan.becomeActive)).toEqual(["ghost"]);
+  });
+
+  test("スナップショットに無い管理下の active は off、未追跡と archive は残す", () => {
+    place("active", "keep", "ghost-untracked");
+    place("archive", "archived");
+
+    const plan = computeSnapshotPlan(new Set(), new Set(), lock);
+
+    expect(sorted(plan.remove)).toEqual(["keep"]);
+    expect(sorted(plan.extra)).toEqual([]);
+  });
+
+  test("archive に戻すべき管理下が消えていれば install してから archive へ", () => {
+    const plan = computeSnapshotPlan(new Set(), new Set(["keep"]), lock);
+
+    expect(sorted(plan.install)).toEqual(["keep"]);
+    expect(sorted(plan.extra)).toEqual(["keep"]);
+  });
+
+  test("ディスクにも lock にも無いものは unresolved（呼び出し側がスキップ扱いにする）", () => {
+    const plan = computeSnapshotPlan(new Set(["vanished"]), new Set(), lock);
+    expect(sorted(plan.unresolved)).toEqual(["vanished"]);
+  });
+});
+
 describe("preview", () => {
   test("plan は active / off / install / unresolved に並べ替えられる", () => {
     place("active", "drop");
@@ -244,6 +289,7 @@ describe("preview", () => {
     );
     expect(preview).toEqual({
       active: ["ghost", "keep"],
+      archive: [],
       off: ["drop"],
       install: ["ghost"],
       unresolved: ["ghost"],

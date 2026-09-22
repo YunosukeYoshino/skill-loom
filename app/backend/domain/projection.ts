@@ -53,11 +53,12 @@ import {
 import {
   backupActiveToLast,
   computePresetApplyPlan,
+  computeSnapshotPlan,
   loadPreset,
   NO_PREVIOUS_STATE_MESSAGE,
   presetLastExists,
   type PresetPlan,
-  presetNowIso,
+  snapshotProjection,
   validatePresetName,
   writePresetFile,
 } from "./presets";
@@ -416,7 +417,7 @@ export function applyPresetPlan(plan: PresetPlan, lock: Lock): string {
   const install = new Set(
     [...plan.install].filter((name) => tracked.has(name))
   );
-  return applyDeck(new Set(), plan.restore, install, lock, plan.remove);
+  return applyDeck(plan.extra, plan.restore, install, lock, plan.remove);
 }
 
 export type ProjectionIntent = {
@@ -462,7 +463,12 @@ export function applyProjectionPlan(
   plan: ProjectionPlan,
   lock: Lock
 ): ProjectionOutcome {
-  const changed = new Set([...plan.remove, ...plan.restore, ...plan.install]);
+  const changed = new Set([
+    ...plan.remove,
+    ...plan.restore,
+    ...plan.install,
+    ...plan.extra,
+  ]);
   if (plan.unresolved.size > 0) {
     return {
       applied: false,
@@ -548,20 +554,15 @@ export function applyNamedPreset(
 export function restorePreviousPreset(lock: Lock): PresetPlan {
   if (!presetLastExists()) throw new ValueError(NO_PREVIOUS_STATE_MESSAGE);
   const last = loadPreset(PRESET_LAST_NAME);
-  const lastSkills = new Set(last.skills ?? []);
-  // 書き換える前の active を控えておく。これが次の `_last` になる。
-  const current = visibleInstalledNames(lock, activeDir());
-
-  const plan = applyPresetTarget(lastSkills, lock, {
-    backup: false,
-    touchArchive: false,
-    skipUnresolved: true,
-  });
-  writePresetFile({
-    name: PRESET_LAST_NAME,
-    skills: sortNames(current),
-    updatedAt: presetNowIso(),
-  });
+  const plan = computeSnapshotPlan(
+    new Set(last.skills ?? []),
+    new Set(last.archive ?? []),
+    lock
+  );
+  // 適用が通ったら、戻す前の状態が次の `_last`（もう一度押すと元に戻る）。
+  const current = snapshotProjection(lock);
+  applyPresetPlan(plan, lock);
+  writePresetFile(current);
   return plan;
 }
 

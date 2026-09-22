@@ -17,7 +17,12 @@ import {
   saveProjectDeckSelection,
   UnknownDeckError,
 } from "./domain/decks";
-import { activeDir, archiveDir, lockFile } from "./domain/config";
+import {
+  activeDir,
+  archiveDir,
+  lockFile,
+  PRESET_LAST_NAME,
+} from "./domain/config";
 import { collectCustomUpdatable, updateCustomFromRepo } from "./domain/custom";
 import { draftRows, promoteDrafts } from "./domain/drafts";
 import {
@@ -38,12 +43,13 @@ import {
 import {
   backupActiveToLast,
   computePresetApplyPlan,
+  computeSnapshotPlan,
   formatPresetApplyPreview,
   deletePreset,
   hasPreviousPreset,
   listUserPresets,
+  loadPreset,
   previewNamedPreset,
-  previewRestorePrevious,
   savePresetFromActive,
 } from "./domain/presets";
 import {
@@ -700,16 +706,19 @@ function cmdPresetRestore(args: PresetArgs): number {
     return 2;
   }
 
-  let preview: ReturnType<typeof previewRestorePrevious>;
+  // preview と同じ条件（_last のスナップショットへ戻す）で計画してから見せる。
+  let plan: ReturnType<typeof computeSnapshotPlan>;
   try {
-    preview = previewRestorePrevious(lock);
+    const last = loadPreset(PRESET_LAST_NAME);
+    plan = computeSnapshotPlan(
+      new Set(last.skills ?? []),
+      new Set(last.archive ?? []),
+      lock
+    );
   } catch (error) {
     console.error(errorText(error));
     return 2;
   }
-
-  // preview と同じ条件（archive は触らない）で計画し直してから見せる。
-  const plan = computePresetApplyPlan(new Set(preview.skills), lock, false);
   console.log(formatPresetApplyPreview(plan));
   if (plan.unresolved.size > 0)
     console.error(`skip unresolved: ${sortNames(plan.unresolved).join(", ")}`);

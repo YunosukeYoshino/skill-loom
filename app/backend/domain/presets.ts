@@ -26,7 +26,6 @@ import {
   ignoredSkills,
   installedNames,
   type Lock,
-  managedActiveSkills,
   sortNames,
   trackedSkills,
   visibleInstalledNames,
@@ -42,6 +41,8 @@ export type PresetSummary = {
 export type PresetData = {
   name: string;
   skills: string[];
+  /** `_last` 専用。その時点の archive。無ければ「archive は記録していない古い形式」。 */
+  archive?: string[];
   updatedAt?: string;
   description?: string;
 };
@@ -52,6 +53,8 @@ export type PresetPlan = {
   install: Set<string>;
   unresolved: Set<string>;
   becomeActive: Set<string>;
+  /** active → archive への移動。snapshot 復元でのみ非空になり得る。 */
+  extra: Set<string>;
 };
 
 export type PresetPreview = {
@@ -60,6 +63,7 @@ export type PresetPreview = {
   skills: string[];
   preview: {
     active: string[];
+    archive: string[];
     off: string[];
     install: string[];
     unresolved: string[];
@@ -216,15 +220,25 @@ export function writePresetFile(data: PresetData): void {
 }
 
 /**
- * bulk-off の直前に現状を `_last` へ退避する。これが無いと「すべてオフ」から戻せない。
- * 未追跡の skill は Off にすると復元できないので、管理下の active だけを記録する。
+ * その時点の projection（active 全件 + archive）を `_last` スナップショットとして組み立てる。
+ * `skills` には未追跡の active も入れる。archive からの移動で戻せるので、管理下に
+ * 絞ると「未追跡の active が archive に置き去り」になる。
+ */
+export function snapshotProjection(lock: Lock): PresetData {
+  return {
+    name: PRESET_LAST_NAME,
+    skills: sortNames(visibleInstalledNames(lock, activeDir())),
+    archive: sortNames(visibleInstalledNames(lock, archiveDir())),
+    updatedAt: presetNowIso(),
+  };
+}
+
+/**
+ * 状態を大きく変える操作の直前に現状を `_last` へ退避する。
+ * これが無いと「すべてオフ」や restore-all から戻せない。
  */
 export function backupActiveToLast(lock: Lock): void {
-  writePresetFile({
-    name: PRESET_LAST_NAME,
-    skills: sortNames(managedActiveSkills(lock)),
-    updatedAt: presetNowIso(),
-  });
+  writePresetFile(snapshotProjection(lock));
 }
 
 /**
@@ -297,12 +311,54 @@ export function computePresetApplyPlan(
     install: difference(target, diskActive, diskArchive, unmanaged),
     unresolved: difference(target, known),
     becomeActive: difference(target, diskActive),
+    extra: new Set(),
+  };
+}
+
+/**
+ * `_last` スナップショットをその時点の projection へ戻すための計画。
+ *
+ * `targetActive` はスナップショット時点の active 全件（未追跡を含む）、
+ * `targetArchive` はスナップショット時点の archive。preset 適用と違って
+ * 「active を減らす」のは off ではなく「archive に戻す」なので `extra` を使う。
+ *
+ * 対象外の扱いは restore の原則どおり:
+ * - スナップショットに無い未追跡の active は残す（消すと再取得できない）。
+ * - スナップショットに無い archive は触らない（archive を掃除しない）。
+ * - スナップショットに無い管理下の active は off（その時点では存在しなかった）。
+ */
+export function computeSnapshotPlan(
+  targetActive: Set<string>,
+  targetArchive: Set<string>,
+  lock: Lock
+): PresetPlan {
+  const diskActive = installedNames(activeDir());
+  const diskArchive = installedNames(archiveDir());
+  const managed = trackedSkills(lock);
+  const ignored = ignoredSkills();
+  const wanted = union(targetActive, targetArchive);
+
+  // archive 行きの管理下 skill がディスクから消えていれば、install してから archive へ戻す。
+  const install = difference(
+    union(targetActive, intersection(targetArchive, managed)),
+    diskActive,
+    diskArchive,
+    ignored
+  );
+  return {
+    remove: difference(intersection(diskActive, managed), wanted),
+    restore: difference(intersection(targetActive, diskArchive), diskActive),
+    install,
+    unresolved: difference(wanted, managed, ignored, diskActive, diskArchive),
+    becomeActive: difference(targetActive, diskActive),
+    extra: intersection(targetArchive, union(diskActive, install)),
   };
 }
 
 export function presetPlanPreview(plan: PresetPlan): PresetPreview["preview"] {
   return {
     active: sortNames(plan.becomeActive),
+    archive: sortNames(plan.extra),
     off: sortNames(plan.remove),
     install: sortNames(plan.install),
     unresolved: sortNames(plan.unresolved),
@@ -315,6 +371,10 @@ export function formatPresetApplyPreview(plan: PresetPlan): string {
   if (preview.active.length > 0)
     parts.push(
       `active になる (${preview.active.length}): ${preview.active.join(", ")}`
+    );
+  if (preview.archive.length > 0)
+    parts.push(
+      `archive になる (${preview.archive.length}): ${preview.archive.join(", ")}`
     );
   if (preview.off.length > 0)
     parts.push(`off になる (${preview.off.length}): ${preview.off.join(", ")}`);
@@ -362,7 +422,7 @@ export function previewRestorePrevious(lock: Lock): PresetPreview {
   if (!presetLastExists()) throw new ValueError(NO_PREVIOUS_STATE_MESSAGE);
   const last = loadPreset(PRESET_LAST_NAME);
   const skills = new Set(last.skills ?? []);
-  const plan = computePresetApplyPlan(skills, lock, false);
+  const plan = computeSnapshotPlan(skills, new Set(last.archive ?? []), lock);
   return {
     name: PRESET_LAST_NAME,
     description: "",

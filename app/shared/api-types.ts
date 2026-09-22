@@ -63,6 +63,7 @@ export type PresetPreview = {
   skills: string[];
   preview: {
     active: string[];
+    archive: string[];
     off: string[];
     install: string[];
     unresolved: string[];
