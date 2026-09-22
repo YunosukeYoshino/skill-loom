@@ -778,6 +778,19 @@ test_restore_previous_reverts_restore_all_to_snapshot() {
     assert_contains "$(cat "$tmp_dir/presets/_last.json")" '"beta"' \
       && pass "test_restore_previous_reverts_restore_all_to_snapshot: restore point swapped" \
       || fail "test_restore_previous_reverts_restore_all_to_snapshot: _last not swapped"
+
+    # 2 回目で restore-all 後の状態へトグル復帰。extra で CLI lock から外れた
+    # beta のエントリは archive に預かってあるので、そのまま書き戻される。
+    code=$(post_json "$tmp_dir" "$port" "/api/presets/restore" '{"confirm":true}')
+    [ "$code" = "200" ] \
+      && [ -d "$tmp_dir/active/beta" ] && [ -L "$tmp_dir/claude-skills/beta" ] \
+      && [ -f "$tmp_dir/archive/ghost/SKILL.md" ] \
+      && pass "test_restore_previous_reverts_restore_all_to_snapshot: toggles back" \
+      || fail "test_restore_previous_reverts_restore_all_to_snapshot: toggle failed (code $code)"
+
+    assert_contains "$(cat "$tmp_dir/.skill-lock.json")" '"beta"' \
+      && pass "test_restore_previous_reverts_restore_all_to_snapshot: CLI lock entry restored" \
+      || fail "test_restore_previous_reverts_restore_all_to_snapshot: beta not back in the CLI lock"
   else
     fail "test_restore_previous_reverts_restore_all_to_snapshot: server did not start"
   fi

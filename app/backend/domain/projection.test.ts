@@ -590,6 +590,13 @@ describe("planRestoreAll / applyRestoreAllPlan", () => {
   test("Restore は restore-all の直前の projection へ丸ごと戻る", () => {
     install("active", "alpha", "ghost");
     install("archive", "beta");
+    writeCliLock({
+      alpha: {
+        source: "owner/repo-a",
+        installedAt: "2026-03-01T00:00:00.000Z",
+      },
+      beta: { source: "owner/repo-b", installedAt: "2026-04-01T00:00:00.000Z" },
+    });
 
     applyRestoreAllPlan(planRestoreAll(customOnly), customOnly);
     restorePreviousPreset(customOnly);
@@ -601,6 +608,17 @@ describe("planRestoreAll / applyRestoreAllPlan", () => {
     expect(linked("ghost")).toBe(true);
     expect(existsSync(dir("archive", "beta"))).toBe(true);
     expect(linked("beta")).toBe(false);
+
+    // もう一度 Restore で元に戻る。extra で CLI lock から落ちた beta の
+    // エントリは archive に預かってあるので、そのまま書き戻される。
+    restorePreviousPreset(customOnly);
+    expect(existsSync(dir("active", "beta"))).toBe(true);
+    expect(linked("beta")).toBe(true);
+    expect(existsSync(dir("archive", "ghost"))).toBe(true);
+    expect(readCliLock().skills.beta).toEqual({
+      source: "owner/repo-b",
+      installedAt: "2026-04-01T00:00:00.000Z",
+    });
   });
 
   test("backup=false なら _last を書かない", () => {
