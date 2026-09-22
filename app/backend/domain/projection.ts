@@ -42,6 +42,7 @@ import { resolveCatalogPath } from "./catalogPaths";
 import { loadDeck } from "./decks";
 import { ValueError } from "./errors";
 import {
+  type GlobalLockEntry,
   type Lock,
   difference,
   ignoredSkills,
@@ -53,11 +54,12 @@ import {
 import {
   backupActiveToLast,
   computePresetApplyPlan,
+  computeSnapshotPlan,
   loadPreset,
   NO_PREVIOUS_STATE_MESSAGE,
   presetLastExists,
   type PresetPlan,
-  presetNowIso,
+  snapshotProjection,
   validatePresetName,
   writePresetFile,
 } from "./presets";
@@ -162,6 +164,122 @@ export function deregisterFromCliLock(names: Set<string>): string {
   for (const name of dropped) delete entries[name];
 
   // tmp へ書いてから rename。途中で落ちても CLI lock が壊れた状態で残らない。
+  const tmp = `${lockPath}.tmp`;
+  try {
+    writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`);
+    renameSync(tmp, lockPath);
+  } catch (error) {
+    return `CLI lock を更新できませんでした（書き込み失敗: ${error instanceof Error ? error.message : String(error)}）: ${lockPath}`;
+  }
+  return "";
+}
+
+// ---- CLI lock エントリの預かり（archive 行き ⇄ 戻り）----
+
+/** archive 直下のエントリ預かり所。skill 名のディレクトリだけが Projection 扱いなので見えない。 */
+function cliLockStashFile(): string {
+  return join(archiveDir(), ".cli-lock-stash.json");
+}
+
+function readCliLockStash(): Record<string, GlobalLockEntry> {
+  const path = cliLockStashFile();
+  if (!exists(path)) return {};
+  try {
+    const data = JSON.parse(readFileSync(path, "utf8"));
+    if (!data || typeof data !== "object" || Array.isArray(data)) return {};
+    return data as Record<string, GlobalLockEntry>;
+  } catch {
+    return {};
+  }
+}
+
+function writeCliLockStash(stash: Record<string, GlobalLockEntry>): void {
+  const path = cliLockStashFile();
+  if (Object.keys(stash).length === 0) {
+    if (exists(path)) unlinkSync(path);
+    return;
+  }
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(stash, null, 2)}\n`);
+  renameSync(tmp, path);
+}
+
+/**
+ * extra で archive へ送る前に CLI lock のエントリを預かる。active へ戻るとき
+ * `installedAt` や `skillFolderHash` までそのまま戻せるように。
+ */
+function stashCliLockEntries(names: Set<string>): void {
+  const lockPath = globalLockFile();
+  if (names.size === 0 || !exists(lockPath)) return;
+  let skills: unknown;
+  try {
+    skills = (
+      JSON.parse(readFileSync(lockPath, "utf8")) as { skills?: unknown }
+    )?.skills;
+  } catch {
+    return;
+  }
+  if (!skills || typeof skills !== "object" || Array.isArray(skills)) return;
+  const entries = skills as Record<string, GlobalLockEntry>;
+  const stash = readCliLockStash();
+  let moved = 0;
+  for (const name of names) {
+    if (name in entries) {
+      stash[name] = entries[name];
+      moved += 1;
+    }
+  }
+  if (moved > 0) writeCliLockStash(stash);
+}
+
+/** names の預かり分を取り出して返す。stash からは外す（戻らない remove にも使える）。 */
+function popCliLockStash(names: Set<string>): Record<string, GlobalLockEntry> {
+  const stash = readCliLockStash();
+  const popped: Record<string, GlobalLockEntry> = {};
+  let dirty = false;
+  for (const name of names) {
+    if (name in stash) {
+      popped[name] = stash[name];
+      delete stash[name];
+      dirty = true;
+    }
+  }
+  if (dirty) writeCliLockStash(stash);
+  return popped;
+}
+
+/** 預かったエントリを CLI lock へ書き戻す。deregisterFromCliLock の逆。 */
+function restoreCliLockEntries(
+  entries: Record<string, GlobalLockEntry>
+): string {
+  const lockPath = globalLockFile();
+  if (Object.keys(entries).length === 0 || !exists(lockPath)) return "";
+
+  let data: unknown;
+  try {
+    data = JSON.parse(readFileSync(lockPath, "utf8"));
+  } catch {
+    return `CLI lock を更新できませんでした（読めない形式）: ${lockPath}`;
+  }
+
+  const skills = (data as { skills?: unknown } | null)?.skills;
+  if (
+    !data ||
+    typeof data !== "object" ||
+    Array.isArray(data) ||
+    !skills ||
+    typeof skills !== "object" ||
+    Array.isArray(skills)
+  ) {
+    return `CLI lock を更新できませんでした（想定外の構造）: ${lockPath}`;
+  }
+
+  const current = skills as Record<string, unknown>;
+  for (const [name, entry] of Object.entries(entries)) {
+    // 既にエントリがあればその方が新しい（別経路で入り直した）。預かり分は上書きしない。
+    if (!(name in current)) current[name] = entry;
+  }
+
   const tmp = `${lockPath}.tmp`;
   try {
     writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`);
@@ -402,7 +520,14 @@ export function applyDeck(
 
   // archive 直行の skill は上の install で symlink を張られている。張り直しではなく外す。
   unlinkAgentSkillDirsMany([...extra].filter((name) => install.has(name)));
-  return deregisterFromCliLock(deregistered);
+
+  // archive 行きのエントリは預かってから CLI lock を落とす。戻るときは預かった分を書き戻す。
+  stashCliLockEntries(extra);
+  const unstashed = popCliLockStash(restore);
+  popCliLockStash(remove);
+  return [deregisterFromCliLock(deregistered), restoreCliLockEntries(unstashed)]
+    .filter((warning) => warning)
+    .join("\n");
 }
 
 /**
@@ -416,7 +541,7 @@ export function applyPresetPlan(plan: PresetPlan, lock: Lock): string {
   const install = new Set(
     [...plan.install].filter((name) => tracked.has(name))
   );
-  return applyDeck(new Set(), plan.restore, install, lock, plan.remove);
+  return applyDeck(plan.extra, plan.restore, install, lock, plan.remove);
 }
 
 export type ProjectionIntent = {
@@ -462,7 +587,12 @@ export function applyProjectionPlan(
   plan: ProjectionPlan,
   lock: Lock
 ): ProjectionOutcome {
-  const changed = new Set([...plan.remove, ...plan.restore, ...plan.install]);
+  const changed = new Set([
+    ...plan.remove,
+    ...plan.restore,
+    ...plan.install,
+    ...plan.extra,
+  ]);
   if (plan.unresolved.size > 0) {
     return {
       applied: false,
@@ -548,20 +678,15 @@ export function applyNamedPreset(
 export function restorePreviousPreset(lock: Lock): PresetPlan {
   if (!presetLastExists()) throw new ValueError(NO_PREVIOUS_STATE_MESSAGE);
   const last = loadPreset(PRESET_LAST_NAME);
-  const lastSkills = new Set(last.skills ?? []);
-  // 書き換える前の active を控えておく。これが次の `_last` になる。
-  const current = visibleInstalledNames(lock, activeDir());
-
-  const plan = applyPresetTarget(lastSkills, lock, {
-    backup: false,
-    touchArchive: false,
-    skipUnresolved: true,
-  });
-  writePresetFile({
-    name: PRESET_LAST_NAME,
-    skills: sortNames(current),
-    updatedAt: presetNowIso(),
-  });
+  const plan = computeSnapshotPlan(
+    new Set(last.skills ?? []),
+    new Set(last.archive ?? []),
+    lock
+  );
+  // 適用が通ったら、戻す前の状態が次の `_last`（もう一度押すと元に戻る）。
+  const current = snapshotProjection(lock);
+  applyPresetPlan(plan, lock);
+  writePresetFile(current);
   return plan;
 }
 

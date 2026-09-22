@@ -431,8 +431,10 @@ describe("bulkOffActive", () => {
     expect(existsSync(dir("archive", "beta"))).toBe(true);
     expect(existsSync(dir("active", "alpha"))).toBe(false);
 
+    // _last は active 全件（未追跡の ghost も含む）と archive を記録する。
     const last = JSON.parse(readFileSync(dir("presets", "_last.json"), "utf8"));
-    expect(last.skills).toEqual(["alpha"]);
+    expect(last.skills).toEqual(["alpha", "ghost"]);
+    expect(last.archive).toEqual(["beta"]);
     expect(last.updatedAt).toMatch(
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/
     );
@@ -456,9 +458,9 @@ describe("applyPresetTarget / restorePreviousPreset", () => {
     expect(existsSync(dir("archive", "beta"))).toBe(false);
     expect(linked("beta")).toBe(false);
 
-    expect(
-      JSON.parse(readFileSync(dir("presets", "_last.json"), "utf8")).skills
-    ).toEqual(["alpha", "beta"]);
+    const last = JSON.parse(readFileSync(dir("presets", "_last.json"), "utf8"));
+    expect(last.skills).toEqual(["alpha", "beta"]);
+    expect(last.archive).toEqual([]);
   });
 
   test("unresolved があれば 1 バイトも書かずに投げる", () => {
@@ -508,9 +510,11 @@ describe("applyPresetTarget / restorePreviousPreset", () => {
     restorePreviousPreset(lock);
 
     expect(existsSync(dir("active", "alpha"))).toBe(false);
-    expect(
-      JSON.parse(readFileSync(dir("presets", "_last.json"), "utf8")).skills
-    ).toEqual(["alpha"]);
+    const swapped = JSON.parse(
+      readFileSync(dir("presets", "_last.json"), "utf8")
+    );
+    expect(swapped.skills).toEqual(["alpha"]);
+    expect(swapped.archive).toEqual([]);
   });
 
   test("Restore は解決できない skill を飛ばして残りを戻す", () => {
@@ -577,9 +581,44 @@ describe("planRestoreAll / applyRestoreAllPlan", () => {
     expect(existsSync(dir("archive", "ghost", "SKILL.md"))).toBe(true);
 
     // restore-all も bulk-off と同じく preset restore で巻き戻せる。
-    expect(
-      JSON.parse(readFileSync(dir("presets", "_last.json"), "utf8")).skills
-    ).toEqual(["alpha"]);
+    // _last には未追跡の active と archive も記録する（完全復元のため）。
+    const last = JSON.parse(readFileSync(dir("presets", "_last.json"), "utf8"));
+    expect(last.skills).toEqual(["alpha", "ghost"]);
+    expect(last.archive).toEqual(["beta"]);
+  });
+
+  test("Restore は restore-all の直前の projection へ丸ごと戻る", () => {
+    install("active", "alpha", "ghost");
+    install("archive", "beta");
+    writeCliLock({
+      alpha: {
+        source: "owner/repo-a",
+        installedAt: "2026-03-01T00:00:00.000Z",
+      },
+      beta: { source: "owner/repo-b", installedAt: "2026-04-01T00:00:00.000Z" },
+    });
+
+    applyRestoreAllPlan(planRestoreAll(customOnly), customOnly);
+    restorePreviousPreset(customOnly);
+
+    // 未追跡だった ghost は archive から active へ戻り、
+    // restore-all で active 化した beta は off ではなく archive へ戻る。
+    expect(existsSync(dir("active", "alpha"))).toBe(true);
+    expect(existsSync(dir("active", "ghost"))).toBe(true);
+    expect(linked("ghost")).toBe(true);
+    expect(existsSync(dir("archive", "beta"))).toBe(true);
+    expect(linked("beta")).toBe(false);
+
+    // もう一度 Restore で元に戻る。extra で CLI lock から落ちた beta の
+    // エントリは archive に預かってあるので、そのまま書き戻される。
+    restorePreviousPreset(customOnly);
+    expect(existsSync(dir("active", "beta"))).toBe(true);
+    expect(linked("beta")).toBe(true);
+    expect(existsSync(dir("archive", "ghost"))).toBe(true);
+    expect(readCliLock().skills.beta).toEqual({
+      source: "owner/repo-b",
+      installedAt: "2026-04-01T00:00:00.000Z",
+    });
   });
 
   test("backup=false なら _last を書かない", () => {
