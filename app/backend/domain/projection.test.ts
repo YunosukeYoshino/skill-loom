@@ -33,12 +33,14 @@ import {
   applyDeck,
   applyProjectionPlan,
   applyPresetTarget,
+  applyRestoreAllPlan,
   bulkOffActive,
   deregisterFromCliLock,
   installCommands,
   installCustomFromRepo,
   installProjectDeck,
   planProjection,
+  planRestoreAll,
   restorePreviousPreset,
   syncSkillMdName,
 } from "./projection";
@@ -532,6 +534,61 @@ describe("applyPresetTarget / restorePreviousPreset", () => {
     expect(() => restorePreviousPreset(lock)).toThrow(
       "No previous state saved"
     );
+  });
+});
+
+describe("planRestoreAll / applyRestoreAllPlan", () => {
+  const customOnly: Lock = {
+    custom: {
+      repo: "owner/catalog",
+      skills: { alpha: { repoPath: "a" }, beta: { repoPath: "b" } },
+    },
+  };
+
+  test("tracked は archive から戻し、tracked でない active は archive へ送る", () => {
+    install("active", "alpha", "ghost");
+    install("archive", "beta");
+
+    const plan = planRestoreAll(customOnly);
+
+    expect([...plan.extra]).toEqual(["ghost"]);
+    expect([...plan.restore]).toEqual(["beta"]);
+    expect([...plan.install]).toEqual([]);
+  });
+
+  test("ignore した skill は target から外れるので install に出てこない", () => {
+    writeFileSync(dir("ignore.json"), JSON.stringify({ ignore: ["beta"] }));
+
+    const plan = planRestoreAll(lock);
+
+    expect([...plan.install].sort()).toEqual(["alpha", "ext"]);
+  });
+
+  test("管理下の active を _last に退避してから projection を動かす", () => {
+    install("active", "alpha", "ghost");
+    install("archive", "beta");
+
+    applyRestoreAllPlan(planRestoreAll(customOnly), customOnly);
+
+    expect(existsSync(dir("active", "beta"))).toBe(true);
+    expect(linked("beta")).toBe(true);
+    // extra は off ではなく archive 行き。実体は残る。
+    expect(existsSync(dir("active", "ghost"))).toBe(false);
+    expect(existsSync(dir("archive", "ghost", "SKILL.md"))).toBe(true);
+
+    // restore-all も bulk-off と同じく preset restore で巻き戻せる。
+    expect(
+      JSON.parse(readFileSync(dir("presets", "_last.json"), "utf8")).skills
+    ).toEqual(["alpha"]);
+  });
+
+  test("backup=false なら _last を書かない", () => {
+    install("active", "alpha");
+    install("archive", "beta");
+
+    applyRestoreAllPlan(planRestoreAll(customOnly), customOnly, false);
+
+    expect(existsSync(dir("presets", "_last.json"))).toBe(false);
   });
 });
 

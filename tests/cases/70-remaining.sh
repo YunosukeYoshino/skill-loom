@@ -655,6 +655,86 @@ JSON
   fi
 }
 
+# restore-all の題材。alpha は active のまま、beta は archive、ghost は未追跡の active。
+# plan は extra={ghost} / restore={beta} / install={} になる。
+setup_restore_all_fixture() {
+  local tmp_dir="$1"
+  setup_projection_fixture "$tmp_dir"
+  rm "$tmp_dir/claude-skills/beta" "$tmp_dir/gemini-skills/beta"
+  mv "$tmp_dir/active/beta" "$tmp_dir/archive/beta"
+  mkdir "$tmp_dir/active/ghost"
+  printf -- '---\nname: ghost\ndescription: ghost fixture\n---\n' \
+    > "$tmp_dir/active/ghost/SKILL.md"
+}
+
+test_all_preview_does_not_touch_projection() {
+  echo "Running test_all_preview_does_not_touch_projection..."
+  local port=18918
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  TMP_DIRS+=("$tmp_dir")
+  setup_restore_all_fixture "$tmp_dir"
+  start_remaining_ui "$tmp_dir" "$port"
+
+  if wait_for_port "$port"; then
+    local code body
+    code=$(post_json "$tmp_dir" "$port" "/api/all" '{}')
+    body=$(cat "$tmp_dir/response.json")
+
+    [ "$code" = "200" ] \
+      && pass "test_all_preview_does_not_touch_projection: returns 200" \
+      || fail "test_all_preview_does_not_touch_projection: expected 200, got $code"
+
+    assert_contains "$body" 'archive になる (1): ghost' \
+      && assert_contains "$body" 'restore される (1): beta' \
+      && pass "test_all_preview_does_not_touch_projection: previews both sides" \
+      || fail "test_all_preview_does_not_touch_projection: preview was $body"
+
+    # confirm が無い間は 1 バイトも動かさない。
+    [ -d "$tmp_dir/active/ghost" ] && [ -d "$tmp_dir/archive/beta" ] \
+      && [ ! -e "$tmp_dir/presets/_last.json" ] \
+      && pass "test_all_preview_does_not_touch_projection: nothing moved" \
+      || fail "test_all_preview_does_not_touch_projection: projection changed without confirm"
+  else
+    fail "test_all_preview_does_not_touch_projection: server did not start"
+  fi
+}
+
+test_all_confirm_restores_all_and_backs_up_to_last() {
+  echo "Running test_all_confirm_restores_all_and_backs_up_to_last..."
+  local port=18919
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  TMP_DIRS+=("$tmp_dir")
+  setup_restore_all_fixture "$tmp_dir"
+  start_remaining_ui "$tmp_dir" "$port"
+
+  if wait_for_port "$port"; then
+    local code
+    code=$(post_json "$tmp_dir" "$port" "/api/all" '{"confirm":true}')
+
+    [ "$code" = "200" ] \
+      && pass "test_all_confirm_restores_all_and_backs_up_to_last: returns 200" \
+      || fail "test_all_confirm_restores_all_and_backs_up_to_last: expected 200, got $code"
+
+    [ -d "$tmp_dir/active/beta" ] && [ -L "$tmp_dir/claude-skills/beta" ] \
+      && pass "test_all_confirm_restores_all_and_backs_up_to_last: archived skill is active again" \
+      || fail "test_all_confirm_restores_all_and_backs_up_to_last: beta not restored"
+
+    # 未追跡の active は off ではなく archive 行き。実体は残す。
+    [ ! -e "$tmp_dir/active/ghost" ] && [ -f "$tmp_dir/archive/ghost/SKILL.md" ] \
+      && pass "test_all_confirm_restores_all_and_backs_up_to_last: untracked active moved to archive" \
+      || fail "test_all_confirm_restores_all_and_backs_up_to_last: ghost not archived"
+
+    # bulk-off や preset apply と同じく、適用前の active を _last へ退避する。
+    assert_contains "$(cat "$tmp_dir/presets/_last.json" 2>/dev/null || true)" '"alpha"' \
+      && pass "test_all_confirm_restores_all_and_backs_up_to_last: backs up to _last preset" \
+      || fail "test_all_confirm_restores_all_and_backs_up_to_last: _last preset not written"
+  else
+    fail "test_all_confirm_restores_all_and_backs_up_to_last: server did not start"
+  fi
+}
+
 test_ogp_rejects_unparsable_source() {
   echo "Running test_ogp_rejects_unparsable_source..."
   local port=18915
@@ -699,4 +779,6 @@ register_cases \
   test_external_preview_reports_candidate_lookup_failure \
   test_external_add_to_deck_registers_without_installing \
   test_external_add_to_deck_rejects_bad_requests \
+  test_all_preview_does_not_touch_projection \
+  test_all_confirm_restores_all_and_backs_up_to_last \
   test_ogp_rejects_unparsable_source

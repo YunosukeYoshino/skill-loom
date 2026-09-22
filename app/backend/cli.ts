@@ -50,6 +50,7 @@ import {
   applyDeck,
   applyProjectDeckPlan,
   applyNamedPreset,
+  applyRestoreAllPlan,
   installCustomFromRepo,
   installProjectDeck,
   linkAgentSkillDirsMany,
@@ -430,8 +431,8 @@ function cmdDeck(argv: string[]): number {
 /**
  * `all`。tracked skill を全件 active へ揃える。
  *
- * `--apply` が無ければ dry-run。`--apply` があれば `apply_deck(extra, restore, install)`
- * と同じ projection を走らせる。計画は Web UI の /api/all と同じ `planRestoreAll`。
+ * `--apply` が無ければ dry-run。`--apply` があれば直前の active を `_last` へ退避してから
+ * projection を走らせる。計画も適用も Web UI の /api/all と同じ関数を通る。
  */
 function cmdAll(argv: string[]): number {
   const lock = loadLock();
@@ -454,15 +455,13 @@ function cmdAll(argv: string[]): number {
   section("restore from archive:", plan.restore);
   console.log("");
   section("install missing:", plan.install);
-  console.log("");
-  section("unmanaged missing:", plan.unmanagedMissing);
 
   if (!argv.includes("--apply")) {
     console.log("");
     console.log("dry-run only; add --apply to restore all tracked skills");
     return 0;
   }
-  applyDeck(plan.extra, plan.restore, plan.install, lock);
+  applyRestoreAllPlan(plan, lock);
   return 0;
 }
 

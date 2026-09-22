@@ -707,38 +707,43 @@ export type RestoreAllPlan = {
   extra: Set<string>;
   restore: Set<string>;
   install: Set<string>;
-  unmanagedMissing: Set<string>;
 };
 
 /**
  * `all` の計画。target は tracked 全件、extra は archive 行き（off にはしない）。
- * target ⊆ managed なので unresolved は起き得ない。install から外れる
- * ignore 対象は `unmanagedMissing` として報告だけする。
+ * target は ignore を差し引いた集合なので、unresolved も未管理の取りこぼしも起き得ない。
  */
 export function planRestoreAll(lock: Lock): RestoreAllPlan {
   const target = trackedSkills(lock);
   const active = visibleInstalledNames(lock, activeDir());
   const archived = visibleInstalledNames(lock, archiveDir());
-  const unmanaged = ignoredSkills();
   return {
     extra: difference(active, target),
     restore: difference(
       new Set([...target].filter((name) => archived.has(name))),
       active
     ),
-    install: difference(target, active, archived, unmanaged),
-    unmanagedMissing: difference(
-      new Set([...target].filter((name) => unmanaged.has(name))),
-      active,
-      archived
-    ),
+    install: difference(target, active, archived),
   };
+}
+
+/**
+ * restore all の適用。CLI の `all --apply` と Web UI の /api/all が同じ順序
+ * （`_last` へ退避 → projection）を通るように、ここへ寄せる。
+ */
+export function applyRestoreAllPlan(
+  plan: RestoreAllPlan,
+  lock: Lock,
+  backup = true
+): void {
+  if (backup) backupActiveToLast(lock);
+  applyDeck(plan.extra, plan.restore, plan.install, lock);
 }
 
 /** planRestoreAll の結果を CLI/UI 共通のサマリ文字列にする。 */
 export function formatRestoreAllPreview(plan: RestoreAllPlan): string {
   const parts: string[] = [];
-  const { extra, restore, install, unmanagedMissing } = plan;
+  const { extra, restore, install } = plan;
   if (extra.size > 0)
     parts.push(
       `archive になる (${extra.size}): ${sortNames(extra).join(", ")}`
@@ -750,10 +755,6 @@ export function formatRestoreAllPreview(plan: RestoreAllPlan): string {
   if (install.size > 0)
     parts.push(
       `install される (${install.size}): ${sortNames(install).join(", ")}`
-    );
-  if (unmanagedMissing.size > 0)
-    parts.push(
-      `unmanaged missing (${unmanagedMissing.size}): ${sortNames(unmanagedMissing).join(", ")}`
     );
   return parts.length > 0 ? parts.join("\n") : "変更はありません";
 }
