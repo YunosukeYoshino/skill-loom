@@ -41,6 +41,7 @@ import {
   applyRestoreAllPlan,
   bulkOffActive,
   deregisterFromCliLock,
+  ProjectionInstallError,
   installCommands,
   installCustomFromRepo,
   installProjectDeck,
@@ -512,6 +513,37 @@ describe("runExternalSkillUpdate", () => {
       "owner--alpha",
       "--yes",
     ]);
+  });
+
+  test("source が空なら何もせず成功扱いにしない", () => {
+    install("active", "owner--alpha");
+    const calls: string[][] = [];
+    expect(() =>
+      runExternalSkillUpdate(
+        "owner--alpha",
+        { external: { "owner--alpha": { source: "", installSkill: "alpha" } } },
+        (cmd) => calls.push(cmd)
+      )
+    ).toThrow(ValueError);
+    expect(calls).toEqual([]);
+  });
+
+  test("add しても上流名のフォルダができなければ失敗にし、元の skill を残す", () => {
+    install("active", "owner--alpha");
+    setEnv("MY_SKILLS_ADD_BIN", "add-stub");
+    expect(() =>
+      runExternalSkillUpdate(
+        "owner--alpha",
+        {
+          external: {
+            "owner--alpha": { source: "owner/repo", installSkill: "alpha" },
+          },
+        },
+        () => {}
+      )
+    ).toThrow(ProjectionInstallError);
+    expect(existsSync(dir("active", "owner--alpha", "SKILL.md"))).toBe(true);
+    expect(linked("owner--alpha")).toBe(true);
   });
 
   test("上流名で別の skill が入っていても触らない", () => {

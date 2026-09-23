@@ -167,6 +167,10 @@ export function runExternalSkillUpdate(
   lock: Lock,
   run: (cmd: string[]) => void
 ): void {
+  // source が無いと入れ直しのコマンドが作られず、何もせずに成功したように見える。
+  const meta = lock.external?.[name];
+  if (isAliasedExternal(name, meta) && !lock.external?.[name]?.source)
+    throw new ValueError(`Missing source for aliased external skill: ${name}`);
   if (reinstallAliasedExternal(name, lock, run)) return;
   run(externalUpdateCommand(name));
 }
