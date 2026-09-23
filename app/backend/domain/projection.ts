@@ -452,6 +452,12 @@ export function reinstallAliasedExternal(
     console.log(`+ ${cmd.join(" ")}`);
     withStashedUpstream(meta.installSkill, () => {
       run(cmd);
+      // add が 0 終了でも上流名のフォルダが無ければ入れ替えられていない。成功扱いにしない。
+      const placed = join(activeDir(), meta.installSkill);
+      if (!exists(placed) && !isSymlink(placed))
+        throw new ProjectionInstallError(
+          `skills CLI did not install ${meta.installSkill}: ${cmd.join(" ")}`
+        );
       placeAliasedSkill(name, meta.installSkill);
     });
   }
