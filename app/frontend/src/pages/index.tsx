@@ -18,7 +18,7 @@ import {
   TristateList,
   useLoomFilter,
 } from "@/components/lists";
-import { useConfirm } from "@/components/dialog";
+import { DialogFrame, Modal, useConfirm } from "@/components/dialog";
 import { useListViewSearch } from "@/router-search";
 import { useT, useUiSettings } from "@/settings/react";
 import {
@@ -415,25 +415,28 @@ function PresetPreviewPanel({ preview }: { preview: PresetPreview }) {
 
   if (!rows.length) {
     return (
-      <p className="m-0 text-sm text-[var(--color-ink-2)]">
+      <p className="m-0 mt-1.5 text-sm text-[var(--color-ink-2)]">
         {t("preset.noChanges")}
       </p>
     );
   }
 
   return (
-    <div className="grid gap-2">
+    <ul className="m-0 mt-3.5 max-h-[50vh] list-none divide-y divide-[var(--color-rule)] overflow-auto rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-0">
       {rows.map((row) => (
-        <div key={row.label}>
-          <p className="m-0 mb-1 text-xs font-semibold text-[var(--color-ink-2)]">
-            {row.label} ({row.items.length})
+        <li key={row.label} className="py-2">
+          <p className="m-0 flex items-baseline justify-between gap-3 font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase">
+            {row.label}
+            <b className="text-xs font-semibold text-[var(--color-ink)] [font-variant-numeric:tabular-nums]">
+              {row.items.length}
+            </b>
           </p>
-          <p className="m-0 font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink)]">
+          <p className="m-0 mt-1 font-[family-name:var(--font-mono)] text-xs break-words text-[var(--color-ink)]">
             {row.items.join(", ")}
           </p>
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }
 
@@ -525,9 +528,7 @@ function PresetsPanel({
 
   return (
     <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
-      <div
-        className={`flex flex-wrap items-center gap-2${savingAsNew ? " mb-3" : ""}`}
-      >
+      <div className="flex flex-wrap items-center gap-2">
         <h2 className="m-0 text-sm font-semibold">{t("preset.title")}</h2>
         <select
           aria-label={t("preset.selectAria")}
@@ -624,11 +625,37 @@ function PresetsPanel({
           {pendingLabel(!!busy, t("common.delete"), t("common.processing"))}
         </button>
       </div>
-      {savingAsNew ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-rule)] pt-3">
+      <Modal
+        open={savingAsNew}
+        onClose={() => {
+          if (!busy) closeSaveAsNew();
+        }}
+        labelledBy="save-preset-title"
+      >
+        <DialogFrame
+          titleId="save-preset-title"
+          title={t("preset.saveAsTitle")}
+          footer={
+            <>
+              <Button disabled={busy} onClick={closeSaveAsNew}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                variant="primary"
+                disabled={busy || !newPresetName.trim() || !!preview}
+                onClick={saveAsNew}
+              >
+                {pendingLabel(!!busy, t("common.save"), t("common.processing"))}
+              </Button>
+            </>
+          }
+        >
+          <p className="m-0 mt-1.5 text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
+            {t("preset.saveAsBody")}
+          </p>
           <label
             htmlFor="new-preset-name"
-            className="text-sm text-[var(--color-ink-2)]"
+            className="mt-3.5 mb-1.5 block font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase"
           >
             {t("preset.newName")}
           </label>
@@ -640,50 +667,55 @@ function PresetsPanel({
             onChange={(e) => setNewPresetName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") saveAsNew();
-              if (e.key === "Escape") closeSaveAsNew();
             }}
             disabled={busy || !!preview}
             autoComplete="off"
             spellCheck={false}
             placeholder={t("preset.newPlaceholder")}
-            className="min-h-10 min-w-[200px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+            className="min-h-10 w-full rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
           />
-          <Button
-            variant="primary"
-            disabled={busy || !newPresetName.trim() || !!preview}
-            onClick={saveAsNew}
+        </DialogFrame>
+      </Modal>
+      <Modal
+        open={!!preview}
+        onClose={() => {
+          if (!busy) onCancelPreview();
+        }}
+        labelledBy="preset-preview-title"
+      >
+        {preview ? (
+          <DialogFrame
+            titleId="preset-preview-title"
+            title={
+              preview.name === "_last"
+                ? t("preset.applyLast")
+                : t("preset.applyNamed", { name: preview.name })
+            }
+            footer={
+              <>
+                <Button disabled={busy} onClick={onCancelPreview}>
+                  {t("common.cancel")}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={busy || preview.blocked}
+                  onClick={
+                    preview.name === "_last" ? onRestoreConfirm : onApplyConfirm
+                  }
+                >
+                  {pendingLabel(
+                    !!busy,
+                    t("common.run"),
+                    t("common.processing")
+                  )}
+                </Button>
+              </>
+            }
           >
-            {pendingLabel(!!busy, t("common.save"), t("common.processing"))}
-          </Button>
-          <Button disabled={busy} onClick={closeSaveAsNew}>
-            {t("common.cancel")}
-          </Button>
-        </div>
-      ) : null}
-      {preview ? (
-        <div className="rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-3">
-          <p className="m-0 mb-2 text-sm font-semibold">
-            {preview.name === "_last"
-              ? t("preset.applyLast")
-              : t("preset.applyNamed", { name: preview.name })}
-          </p>
-          <PresetPreviewPanel preview={preview} />
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              disabled={busy || preview.blocked}
-              onClick={
-                preview.name === "_last" ? onRestoreConfirm : onApplyConfirm
-              }
-            >
-              {pendingLabel(!!busy, t("common.run"), t("common.processing"))}
-            </Button>
-            <Button disabled={busy} onClick={onCancelPreview}>
-              {t("common.cancel")}
-            </Button>
-          </div>
-        </div>
-      ) : null}
+            <PresetPreviewPanel preview={preview} />
+          </DialogFrame>
+        ) : null}
+      </Modal>
     </div>
   );
 }

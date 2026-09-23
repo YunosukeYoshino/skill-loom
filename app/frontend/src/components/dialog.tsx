@@ -115,6 +115,62 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** ダイアログ共通の骨格: (アイコン) 見出し・本文 + 右寄せフッタ。max-sm ではフッタを縦積み。 */
+export function DialogFrame({
+  titleId,
+  title,
+  icon,
+  children,
+  footer,
+}: {
+  titleId: string;
+  title: ReactNode;
+  icon?: ReactNode;
+  children?: ReactNode;
+  footer: ReactNode;
+}) {
+  return (
+    <div>
+      <div className="flex gap-3.5 px-5 pt-5 pb-4">
+        {icon}
+        <div className="min-w-0 flex-1">
+          <h2
+            id={titleId}
+            className="m-0 font-[family-name:var(--font-display)] text-[1.15rem] leading-snug font-[540] tracking-[-0.015em] [text-wrap:balance]"
+          >
+            {title}
+          </h2>
+          {children}
+        </div>
+      </div>
+      <div className="flex justify-end gap-2 border-t border-[var(--color-rule)] bg-[var(--color-paper)] px-5 py-3 max-sm:flex-col-reverse max-sm:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-sm:[&>button]:justify-center">
+        {footer}
+      </div>
+    </div>
+  );
+}
+
+/** 何が・いくつ・どう戻せるか を並べる key/value ボックス */
+export function DetailBox({ details }: { details: ConfirmDetail[] }) {
+  return (
+    <dl className="m-0 mt-3.5 divide-y divide-[var(--color-rule)] rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 text-sm">
+      {details.map((d) => (
+        <div
+          key={d.label}
+          className="flex items-baseline justify-between gap-3 py-2"
+        >
+          <dt className="shrink-0 font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase">
+            {d.label}
+          </dt>
+          <dd className="m-0 min-w-0 text-right font-[family-name:var(--font-mono)] text-xs break-words [font-variant-numeric:tabular-nums]">
+            {d.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function ConfirmBody({
   options,
   onCancel,
@@ -127,8 +183,10 @@ function ConfirmBody({
   const t = useT();
   const danger = options.tone === "danger";
   return (
-    <div>
-      <div className="flex gap-3.5 px-5 pt-5 pb-4">
+    <DialogFrame
+      titleId="confirm-dialog-title"
+      title={options.title}
+      icon={
         <span
           aria-hidden
           className={`grid size-9 shrink-0 place-items-center rounded-full ${
@@ -156,50 +214,28 @@ function ConfirmBody({
             )}
           </svg>
         </span>
-        <div className="min-w-0 flex-1">
-          <h2
-            id="confirm-dialog-title"
-            className="m-0 font-[family-name:var(--font-display)] text-[1.15rem] leading-snug font-[540] tracking-[-0.015em] [text-wrap:balance]"
+      }
+      footer={
+        <>
+          <Button onClick={onCancel}>
+            {options.cancelLabel ?? t("common.cancel")}
+          </Button>
+          <Button
+            autoFocus={!danger}
+            variant={danger ? "danger" : "primary"}
+            onClick={onConfirm}
           >
-            {options.title}
-          </h2>
-          {options.body ? (
-            <p className="m-0 mt-1.5 text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
-              {options.body}
-            </p>
-          ) : null}
-          {options.details?.length ? (
-            <dl className="m-0 mt-3.5 divide-y divide-[var(--color-rule)] rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 text-sm">
-              {options.details.map((d) => (
-                <div
-                  key={d.label}
-                  className="flex items-baseline justify-between gap-3 py-2"
-                >
-                  <dt className="font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase">
-                    {d.label}
-                  </dt>
-                  <dd className="m-0 min-w-0 text-right font-[family-name:var(--font-mono)] text-xs break-words [font-variant-numeric:tabular-nums]">
-                    {d.value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          ) : null}
-        </div>
-      </div>
-      <div className="flex justify-end gap-2 border-t border-[var(--color-rule)] bg-[var(--color-paper)] px-5 py-3 max-sm:flex-col-reverse max-sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <Button onClick={onCancel} className="max-sm:justify-center">
-          {options.cancelLabel ?? t("common.cancel")}
-        </Button>
-        <Button
-          autoFocus={!danger}
-          variant={danger ? "danger" : "primary"}
-          onClick={onConfirm}
-          className="max-sm:justify-center"
-        >
-          {options.confirmLabel}
-        </Button>
-      </div>
-    </div>
+            {options.confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      {options.body ? (
+        <p className="m-0 mt-1.5 text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
+          {options.body}
+        </p>
+      ) : null}
+      {options.details?.length ? <DetailBox details={options.details} /> : null}
+    </DialogFrame>
   );
 }

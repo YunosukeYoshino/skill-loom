@@ -188,6 +188,8 @@ const en = {
   "preset.none": "No saved presets",
   "preset.overwrite": "Overwrite",
   "preset.saveAs": "Save as new…",
+  "preset.saveAsTitle": "Save as new preset",
+  "preset.saveAsBody": "Snapshots the current Active set under a new name.",
   "preset.restoreLast": "Restore previous",
   "preset.deleteConfirm": "Delete preset “{name}”?",
   "preset.deleteBody":
@@ -371,6 +373,9 @@ const ja: MessageCatalog = {
   "preset.none": "保存済みプリセットなし",
   "preset.overwrite": "上書き保存",
   "preset.saveAs": "別名で保存…",
+  "preset.saveAsTitle": "新しいプリセットとして保存",
+  "preset.saveAsBody":
+    "現在の Active 構成を新しい名前でスナップショットします。",
   "preset.restoreLast": "直前に戻す",
   "preset.deleteConfirm": "プリセット “{name}” を削除しますか？",
   "preset.deleteBody":
