@@ -11,7 +11,7 @@
  * trash 経路を通しつつ、テストでは一時ディレクトリだけを確実に消す。
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
@@ -28,6 +28,11 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ValueError } from "./errors";
+import {
+  externalSkillUpdateCommand,
+  externalSkillStillUpdatable,
+  runExternalSkillUpdate,
+} from "./external";
 import type { Lock } from "./inventory";
 import {
   applyDeck,
@@ -385,6 +390,151 @@ describe("applyDeck external install", () => {
     ).toContain("description: incoming");
     expect(linked("alpha")).toBe(true);
     expect(linked("owner--alpha")).toBe(true);
+  });
+});
+
+describe("runExternalSkillUpdate", () => {
+  /** `skills add --skill <name>` の代わりに、上流名のフォルダへ新しい内容を書く。 */
+  function recordingRun(calls: string[][], description: string) {
+    return (cmd: string[]) => {
+      calls.push(cmd);
+      const index = cmd.indexOf("--skill");
+      if (index < 0) return;
+      const name = cmd[index + 1] as string;
+      mkdirSync(dir("active", name), { recursive: true });
+      writeFileSync(
+        dir("active", name, "SKILL.md"),
+        `---\nname: ${name}\ndescription: ${description}\n---\n`
+      );
+    };
+  }
+
+  test("展開名と上流名が同じ skill は skills update に任せる", () => {
+    setEnv("MY_SKILLS_UPDATE_BIN", "update-stub");
+    const calls: string[][] = [];
+    runExternalSkillUpdate(
+      "ext",
+      { external: { ext: { source: "owner/repo" } } },
+      (cmd) => calls.push(cmd)
+    );
+    expect(calls).toEqual([
+      ["update-stub", "skills", "update", "ext", "-g", "-y"],
+    ]);
+  });
+
+  test("installSkill 付きの skill は上流名で入れ直して展開名へ置き換える", () => {
+    // CLI lock は上流名 alpha で持っているので、`skills update owner--alpha` は空振りする。
+    install("active", "owner--alpha");
+    setEnv("MY_SKILLS_ADD_BIN", "add-stub");
+    const calls: string[][] = [];
+
+    runExternalSkillUpdate(
+      "owner--alpha",
+      {
+        external: {
+          "owner--alpha": { source: "owner/repo", installSkill: "alpha" },
+        },
+      },
+      recordingRun(calls, "updated")
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.slice(0, 6)).toEqual([
+      "add-stub",
+      "skills",
+      "add",
+      "owner/repo",
+      "--skill",
+      "alpha",
+    ]);
+    expect(existsSync(dir("active", "alpha"))).toBe(false);
+    const md = readFileSync(dir("active", "owner--alpha", "SKILL.md"), "utf-8");
+    expect(md).toContain("name: owner--alpha");
+    expect(md).toContain("description: updated");
+    expect(linked("owner--alpha")).toBe(true);
+  });
+
+  test("入れ直した後の再確認では更新なしになる", async () => {
+    // 報告された「未反映(CLI最新扱い)」はこの再確認が true を返し続けていたもの。
+    install("active", "owner--alpha");
+    setEnv("MY_SKILLS_ADD_BIN", "add-stub");
+    const aliasedLock: Lock = {
+      external: {
+        "owner--alpha": {
+          source: "owner/repo",
+          skillPath: "skills/alpha/SKILL.md",
+          installSkill: "alpha",
+        },
+      },
+    };
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(
+      async () => new Response("---\nname: alpha\ndescription: updated\n---\n")
+    ) as unknown as typeof fetch;
+    try {
+      expect(
+        await externalSkillStillUpdatable(aliasedLock, "owner--alpha")
+      ).toBe(true);
+      runExternalSkillUpdate(
+        "owner--alpha",
+        aliasedLock,
+        recordingRun([], "updated")
+      );
+      expect(
+        await externalSkillStillUpdatable(aliasedLock, "owner--alpha")
+      ).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("表示用コマンドは実際に効く経路を指す", () => {
+    setEnv("MY_SKILLS_UPDATE_BIN", "update-stub");
+    const mixedLock: Lock = {
+      external: {
+        ext: { source: "owner/repo" },
+        "owner--alpha": { source: "owner/repo", installSkill: "alpha" },
+      },
+    };
+    expect(externalSkillUpdateCommand("ext", mixedLock)).toEqual([
+      "update-stub",
+      "skills",
+      "update",
+      "ext",
+      "-g",
+      "-y",
+    ]);
+    // 上流名での入れ直しは skills CLI 1 本では書けないので skill-loom 経由を案内する。
+    expect(externalSkillUpdateCommand("owner--alpha", mixedLock)).toEqual([
+      "skill-loom",
+      "external",
+      "update",
+      "owner--alpha",
+      "--yes",
+    ]);
+  });
+
+  test("上流名で別の skill が入っていても触らない", () => {
+    install("active", "alpha", "owner--alpha");
+    setEnv("MY_SKILLS_ADD_BIN", "add-stub");
+
+    runExternalSkillUpdate(
+      "owner--alpha",
+      {
+        external: {
+          "owner--alpha": { source: "owner/repo", installSkill: "alpha" },
+        },
+      },
+      recordingRun([], "updated")
+    );
+
+    expect(
+      readFileSync(dir("active", "alpha", "SKILL.md"), "utf-8")
+    ).not.toContain("updated");
+    expect(linked("alpha")).toBe(true);
+    expect(
+      readFileSync(dir("active", "owner--alpha", "SKILL.md"), "utf-8")
+    ).toContain("description: updated");
   });
 });
 

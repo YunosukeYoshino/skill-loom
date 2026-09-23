@@ -37,8 +37,8 @@ import {
 import {
   activeExternalSkillNames,
   collectExternalUpdateStatus,
-  externalUpdateCommand,
   externalSourceSummary,
+  runExternalSkillUpdate,
 } from "./domain/external";
 import {
   backupActiveToLast,
@@ -232,7 +232,7 @@ function cmdExternalUpdate(argv: string[]): number {
   }
   if (!confirmedAction("Update External Skills", names, yes)) return 1;
   try {
-    for (const name of names) runCommand(externalUpdateCommand(name));
+    for (const name of names) runExternalSkillUpdate(name, lock, runCommand);
   } catch (error) {
     console.error(errorText(error));
     return 2;
