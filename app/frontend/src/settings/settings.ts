@@ -132,6 +132,7 @@ const en = {
   "common.checking": "Checking…",
   "common.updating": "Updating…",
   "common.noMatches": "No matching skills",
+  "toast.dismiss": "Dismiss",
   "projection.caption": "Runtime subset woven from Catalog {total}.",
 
   // error chrome
@@ -161,6 +162,8 @@ const en = {
   "tristate.bulkOffConfirm":
     "Turn off all active skills managed by this repository (unmanaged skills stay as they are). You can restore the previous configuration with “Restore previous”. Continue?",
   "tristate.bulkOffTitle": "Turn off all active skills?",
+  "tristate.changes": "{count} unapplied changes",
+  "tristate.reset": "Reset",
   "tristate.archived": "Archived skills ({count})",
   "list.collisionBadge": "namespaced",
 
@@ -181,6 +184,8 @@ const en = {
   "custom.updateAll": "Update all with updates ({count})",
   "custom.updateOne": "Update",
   "custom.diffNote": "SKILL.md matches. Other files have changes.",
+  "custom.upToDate": "Up to date",
+  "custom.upToDateBody": "Every custom skill matches its source.",
 
   // presets panel
   "preset.title": "Presets",
@@ -236,6 +241,11 @@ const en = {
   "global.checkUpdates": "Check for updates",
   "global.restoreAll": "Restore all",
   "global.restoreAllConfirm": "Restore all tracked skills?",
+
+  // add skills dialog
+  "addSkills.body":
+    "Fetch Skill candidates from a GitHub repository. Nothing is installed until you pick them on the next screen.",
+  "addSkills.hint": "e.g. anthropics/skills or https://github.com/owner/repo",
 
   // external preview page
   "preview.title": "External skills",
@@ -325,6 +335,7 @@ const ja: MessageCatalog = {
   "common.checking": "確認中…",
   "common.updating": "更新中…",
   "common.noMatches": "一致するスキルがありません",
+  "toast.dismiss": "閉じる",
   "projection.caption": "Catalog {total} から織り込まれた実行中の subset",
 
   "error.title": "読み込みに失敗しました",
@@ -350,6 +361,8 @@ const ja: MessageCatalog = {
   "tristate.bulkOffConfirm":
     "このリポジトリ管理下のアクティブなスキルをすべてオフにします（未管理のスキルはそのまま）。直前の構成は「直前に戻す」で復元できます。よろしいですか？",
   "tristate.bulkOffTitle": "アクティブなスキルをすべてオフにしますか？",
+  "tristate.changes": "未反映の変更 {count} 件",
+  "tristate.reset": "リセット",
   "tristate.archived": "Archived skills ({count})",
   "list.collisionBadge": "衝突回避",
 
@@ -367,6 +380,8 @@ const ja: MessageCatalog = {
   "custom.updateAll": "更新があるものをすべてupdate ({count})",
   "custom.updateOne": "個別update",
   "custom.diffNote": "SKILL.md は一致。他ファイルに差分があります。",
+  "custom.upToDate": "最新です",
+  "custom.upToDateBody": "すべての custom skill がソースと一致しています。",
 
   "preset.title": "プリセット",
   "preset.selectAria": "プリセットを選択",
@@ -417,6 +432,10 @@ const ja: MessageCatalog = {
   "global.catalogSub": "外部スキルの追加",
   "global.backToGlobal": "globalに戻る",
   "global.addSkills": "skillsを追加",
+  "addSkills.body":
+    "GitHub リポジトリから Skill 候補を取得します。次の画面で選ぶまで何もインストールされません。",
+  "addSkills.hint":
+    "例: anthropics/skills または https://github.com/owner/repo",
   "global.checkUpdates": "更新を確認",
   "global.restoreAll": "すべて復元",
   "global.restoreAllConfirm": "トラック中のスキルをすべて復元しますか?",

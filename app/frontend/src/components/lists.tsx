@@ -46,7 +46,7 @@ const STATUS_ORDER: Record<string, number> = { active: 0, off: 1, archive: 2 };
 
 /** Shared track: Name | Category | Source | Status(toggle) */
 const ROW_GRID =
-  "grid items-center gap-x-3 px-3 [grid-template-columns:minmax(0,1.5fr)_minmax(8rem,1fr)_4.5rem_12rem] max-md:[grid-template-columns:minmax(0,1fr)_12rem]";
+  "grid items-center gap-x-3 px-3 [grid-template-columns:minmax(0,1.5fr)_minmax(8rem,1fr)_4.5rem_12rem] max-md:[grid-template-columns:minmax(0,1fr)_12rem] max-sm:[grid-template-columns:minmax(0,1fr)] max-sm:gap-y-2.5";
 
 function sortValue(row: SkillRow, key: SortKey): string | number {
   if (key === "name") return row.name.toLowerCase();
@@ -102,7 +102,7 @@ function SortHeader({
 
   return (
     <div
-      className={`${ROW_GRID} bg-[var(--color-paper-2)]/70 py-2 text-[11px] font-semibold tracking-[0.02em] text-[var(--color-ink-2)] uppercase`}
+      className={`${ROW_GRID} bg-[var(--color-paper-2)]/70 py-2 max-sm:hidden text-[11px] font-semibold tracking-[0.02em] text-[var(--color-ink-2)] uppercase`}
     >
       {cols.map((col) => {
         const active = sortKey === col.key;
@@ -256,6 +256,7 @@ export function TristateList({
             variant="primary"
             disabled={!dirty || busy}
             onClick={() => onApply(states)}
+            className="max-md:hidden"
           >
             {pendingLabel(!!busy, t("tristate.apply"), t("tristate.applying"))}
             {dirty ? (
@@ -331,6 +332,29 @@ export function TristateList({
           </div>
         </details>
       ) : null}
+      {dirty ? (
+        <div className="toast-enter fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-ink)] py-2 pr-2 pl-4 text-sm text-[var(--color-paper)] shadow-[0_2px_4px_oklch(20%_0.02_260/0.06),0_24px_64px_oklch(20%_0.02_260/0.22)] md:hidden">
+          <span className="min-w-0 flex-1 [font-variant-numeric:tabular-nums]">
+            {t("tristate.changes", { count: dirtyNames.length })}
+          </span>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setStates(initial)}
+            className="min-h-10 cursor-pointer rounded-[var(--radius-sm)] px-3 text-[oklch(100%_0_0/0.7)] transition-[background,color] duration-100 hover:bg-[oklch(100%_0_0/0.08)] hover:text-[var(--color-paper)] disabled:opacity-45"
+          >
+            {t("tristate.reset")}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onApply(states)}
+            className="min-h-10 cursor-pointer rounded-[var(--radius-sm)] bg-[var(--color-paper)] px-3.5 font-semibold text-[var(--color-ink)] transition-transform duration-100 active:scale-[0.96] disabled:opacity-45"
+          >
+            {pendingLabel(!!busy, t("tristate.apply"), t("tristate.applying"))}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -349,7 +373,7 @@ function StatusToggle({
   const t = useT();
   return (
     <div
-      className="inline-flex h-10 w-48 justify-self-end rounded-full border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-0.5"
+      className="inline-flex h-10 w-48 justify-self-end rounded-full border border-[var(--color-rule)] bg-[var(--color-paper-3)] p-0.5 max-sm:w-full max-sm:justify-self-stretch"
       role="group"
       aria-label={t("statusToggle.aria", { name })}
     >
@@ -358,9 +382,9 @@ function StatusToggle({
         return (
           <label
             key={opt}
-            className={`flex flex-1 cursor-pointer items-center justify-center rounded-full px-1 text-[11px] font-semibold tracking-tight transition-[transform,background,color,box-shadow] duration-100 ease-out active:scale-[0.96] ${
+            className={`flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full px-1 text-[11px] font-semibold tracking-tight capitalize transition-[transform,background,color,box-shadow] duration-100 ease-out active:scale-[0.96] ${
               selected
-                ? "bg-[var(--color-accent)] text-[var(--color-accent-ink)] shadow-[0_1px_2px_oklch(20%_0.02_260_/_0.18)]"
+                ? "bg-[var(--surface)] text-[var(--color-ink)] shadow-[0_1px_2px_oklch(20%_0.02_260_/_0.12),0_0_0_0.5px_oklch(20%_0.02_260_/_0.06)]"
                 : "text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
             }`}
           >
@@ -372,6 +396,12 @@ function StatusToggle({
               disabled={opt === "active" && canActivate === false}
               onChange={() => onChange(name, opt)}
             />
+            {selected && opt === "active" ? (
+              <i
+                aria-hidden
+                className="size-1.5 rounded-full bg-[var(--color-accent)]"
+              />
+            ) : null}
             {opt}
           </label>
         );
@@ -397,7 +427,7 @@ function TristateRow({
   if (compact) {
     return (
       <div
-        className={`loom-row grid grid-cols-[minmax(0,1fr)_12rem] items-center gap-x-3 px-3 py-2.5${dirty ? " warp-row" : ""}`}
+        className={`loom-row grid grid-cols-[minmax(0,1fr)_12rem] items-center gap-x-3 px-3 py-2.5 max-sm:grid-cols-1 max-sm:gap-y-2.5${dirty ? " warp-row" : ""}`}
       >
         <div className="min-w-0">
           <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">

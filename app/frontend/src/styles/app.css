@@ -245,3 +245,14 @@ h3 {
     transform: translateY(100%);
   }
 }
+
+/* Toast — 下から短く立ち上がる */
+.toast-enter {
+  animation: toast-enter var(--dur-enter) var(--ease-soft);
+}
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}

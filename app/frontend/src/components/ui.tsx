@@ -550,6 +550,67 @@ export function ActionStatus({ text }: { text?: string }) {
   );
 }
 
+/**
+ * 操作結果のトースト — ink 面・右下 (max-sm は下端いっぱい)・自動で消える。
+ * action は「直前に戻す」等の取り消し導線。
+ */
+export function Toast({
+  text,
+  action,
+  onDismiss,
+}: {
+  text?: string;
+  action?: { label: string; onClick: () => void };
+  onDismiss: () => void;
+}) {
+  const t = useT();
+  useEffect(() => {
+    if (!text) return;
+    const timer = window.setTimeout(onDismiss, 8000);
+    return () => window.clearTimeout(timer);
+  }, [text, onDismiss]);
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="pointer-events-none fixed right-4 bottom-4 z-50 max-w-[min(420px,calc(100vw-2rem))] max-sm:right-3 max-sm:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-sm:left-3 max-sm:max-w-none"
+    >
+      {text ? (
+        <div className="toast-enter pointer-events-auto flex items-center gap-3 rounded-[var(--radius-md)] bg-[var(--color-ink)] py-2 pr-2 pl-4 text-sm text-[var(--color-paper)] shadow-[0_2px_4px_oklch(20%_0.02_260/0.06),0_24px_64px_oklch(20%_0.02_260/0.22)]">
+          <span className="min-w-0 flex-1 py-1 [text-wrap:pretty]">{text}</span>
+          {action ? (
+            <button
+              type="button"
+              onClick={() => {
+                action.onClick();
+                onDismiss();
+              }}
+              className="min-h-9 shrink-0 cursor-pointer rounded-[var(--radius-sm)] px-2 font-semibold text-[oklch(80%_0.1_255)] transition-[background] duration-100 hover:bg-[oklch(100%_0_0/0.08)]"
+            >
+              {action.label}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            aria-label={t("toast.dismiss")}
+            onClick={onDismiss}
+            className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-[var(--radius-sm)] text-[oklch(100%_0_0/0.6)] transition-[background,color] duration-100 hover:bg-[oklch(100%_0_0/0.08)] hover:text-[var(--color-paper)]"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+              <path
+                d="M2.5 2.5l7 7M9.5 2.5l-7 7"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function BusyRegion({
   busy,
   children,
