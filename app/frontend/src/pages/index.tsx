@@ -18,6 +18,7 @@ import {
   TristateList,
   useLoomFilter,
 } from "@/components/lists";
+import { useConfirm } from "@/components/dialog";
 import { useListViewSearch } from "@/router-search";
 import { useT, useUiSettings } from "@/settings/react";
 import {
@@ -464,6 +465,7 @@ function PresetsPanel({
   onCancelPreview: () => void;
 }) {
   const t = useT();
+  const confirm = useConfirm();
   const [selected, setSelected] = useState(presets[0]?.name || "");
   const [newPresetName, setNewPresetName] = useState("");
   const [savingAsNew, setSavingAsNew] = useState(false);
@@ -607,9 +609,15 @@ function PresetsPanel({
         <button
           type="button"
           disabled={!canUseSelected}
-          onClick={() => {
-            if (confirm(t("preset.deleteConfirm", { name: selected })))
-              onDelete(selected);
+          onClick={async () => {
+            const ok = await confirm({
+              title: t("preset.deleteConfirm", { name: selected }),
+              body: t("preset.deleteBody"),
+              confirmLabel: t("preset.deleteAction"),
+              cancelLabel: t("preset.keep"),
+              tone: "danger",
+            });
+            if (ok) onDelete(selected);
           }}
           className="ml-auto min-h-10 cursor-pointer rounded-[var(--radius-sm)] px-2 py-1.5 text-sm text-[var(--color-ink-2)] transition-[transform,color,background] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
         >
@@ -682,6 +690,7 @@ function PresetsPanel({
 
 export function GlobalPage({ catalog }: { catalog: boolean }) {
   const t = useT();
+  const confirm = useConfirm();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const q = useQuery({
@@ -710,8 +719,12 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
   const restoreAll = useMutation({
     mutationFn: async () => {
       const preview = await api.restoreAll(false);
-      if (!confirm(preview.message || t("global.restoreAllConfirm")))
-        return preview;
+      const ok = await confirm({
+        title: t("global.restoreAllConfirm"),
+        body: preview.message || undefined,
+        confirmLabel: t("global.restoreAll"),
+      });
+      if (!ok) return preview;
       return api.restoreAll(true);
     },
     onSuccess: (data) => qc.setQueryData(["global", false], data),
@@ -1380,6 +1393,7 @@ export function ExternalSourcesPage() {
 
 export function ExternalSourceDetailPage({ source }: { source: string }) {
   const t = useT();
+  const confirm = useConfirm();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const q = useQuery({
@@ -1615,10 +1629,14 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             ) : null}
             <Button
               disabled={detailBusy}
-              onClick={() => {
-                if (confirm(t("detail.removeConfirm"))) {
-                  remove.mutate(skill.name);
-                }
+              onClick={async () => {
+                const ok = await confirm({
+                  title: t("detail.removeTitle", { name: skill.name }),
+                  body: t("detail.removeConfirm"),
+                  confirmLabel: t("detail.remove"),
+                  tone: "danger",
+                });
+                if (ok) remove.mutate(skill.name);
               }}
             >
               {pendingLabel(

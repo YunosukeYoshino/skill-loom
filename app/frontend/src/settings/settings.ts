@@ -160,6 +160,7 @@ const en = {
   "tristate.bulkOff": "Turn all off",
   "tristate.bulkOffConfirm":
     "Turn off all active skills managed by this repository (unmanaged skills stay as they are). You can restore the previous configuration with “Restore previous”. Continue?",
+  "tristate.bulkOffTitle": "Turn off all active skills?",
   "tristate.archived": "Archived skills ({count})",
   "list.collisionBadge": "namespaced",
 
@@ -189,6 +190,10 @@ const en = {
   "preset.saveAs": "Save as new…",
   "preset.restoreLast": "Restore previous",
   "preset.deleteConfirm": "Delete preset “{name}”?",
+  "preset.deleteBody":
+    "Only the saved snapshot is removed. Current skills stay as they are.",
+  "preset.deleteAction": "Delete preset",
+  "preset.keep": "Keep preset",
   "preset.newName": "New preset name",
   "preset.newPlaceholder": "e.g. dev-and-writing…",
   "preset.applyNamed": "Apply preset “{name}”",
@@ -254,6 +259,7 @@ const en = {
   "detail.updateOne": "Update",
   "detail.removeConfirm":
     "Remove from management? Applies to global remove, skills.lock.json, and project-decks.",
+  "detail.removeTitle": "Remove “{name}” from management?",
   "detail.remove": "Remove from management",
   "detail.available": "Available to install",
   "detail.installSelected": "Install selected",
@@ -341,6 +347,7 @@ const ja: MessageCatalog = {
   "tristate.bulkOff": "すべてオフ",
   "tristate.bulkOffConfirm":
     "このリポジトリ管理下のアクティブなスキルをすべてオフにします（未管理のスキルはそのまま）。直前の構成は「直前に戻す」で復元できます。よろしいですか？",
+  "tristate.bulkOffTitle": "アクティブなスキルをすべてオフにしますか？",
   "tristate.archived": "Archived skills ({count})",
   "list.collisionBadge": "衝突回避",
 
@@ -366,6 +373,10 @@ const ja: MessageCatalog = {
   "preset.saveAs": "別名で保存…",
   "preset.restoreLast": "直前に戻す",
   "preset.deleteConfirm": "プリセット “{name}” を削除しますか？",
+  "preset.deleteBody":
+    "保存済みのスナップショットだけを削除します。現在のスキル構成はそのままです。",
+  "preset.deleteAction": "プリセットを削除",
+  "preset.keep": "残す",
   "preset.newName": "新しいプリセット名",
   "preset.newPlaceholder": "例: 開発・執筆 などの名前…",
   "preset.applyNamed": "プリセット “{name}” を適用",
@@ -426,6 +437,7 @@ const ja: MessageCatalog = {
   "detail.updateOne": "個別update",
   "detail.removeConfirm":
     "管理から外しますか？ global remove、skills.lock.json、project-decks に反映します。",
+  "detail.removeTitle": "“{name}” を管理から外しますか？",
   "detail.remove": "管理から外す",
   "detail.available": "install 可能",
   "detail.installSelected": "選択してinstall",

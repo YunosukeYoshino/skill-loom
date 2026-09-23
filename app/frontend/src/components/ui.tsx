@@ -575,14 +575,19 @@ export function Button({
   className = "",
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary";
+  variant?: "primary" | "secondary" | "danger";
 }) {
   const base =
     "inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 py-1.5 text-sm font-medium transition-[transform,background,border-color,opacity,box-shadow] duration-100 ease-out active:scale-[0.96] disabled:pointer-events-none disabled:opacity-45";
-  const styles =
-    variant === "primary"
-      ? "border-[var(--color-accent-hover)] [background:var(--btn-primary-face)] text-[var(--color-accent-ink)] shadow-[var(--btn-primary-edge)] hover:brightness-105"
-      : "border-[var(--color-rule)] [background:var(--btn-secondary-face)] text-[var(--color-ink)] shadow-[var(--btn-secondary-edge)] hover:border-[var(--color-rule-strong)]";
+  const styles = {
+    primary:
+      "border-[var(--color-accent-hover)] [background:var(--btn-primary-face)] text-[var(--color-accent-ink)] shadow-[var(--btn-primary-edge)] hover:brightness-105",
+    secondary:
+      "border-[var(--color-rule)] [background:var(--btn-secondary-face)] text-[var(--color-ink)] shadow-[var(--btn-secondary-edge)] hover:border-[var(--color-rule-strong)]",
+    // 破壊的操作。warn (明) は白文字のコントラストが足りないので warn-text を面に使う
+    danger:
+      "border-transparent [background:var(--color-warn-text)] text-white hover:brightness-110",
+  }[variant];
   return (
     <button
       type="button"

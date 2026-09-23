@@ -221,3 +221,27 @@ h3 {
   content-visibility: auto;
   contain-intrinsic-size: auto 64px;
 }
+
+/* ===== Dialog — ネイティブ <dialog> の scrim と入場。max-sm はボトムシート ===== */
+.loom-dialog::backdrop {
+  background: oklch(20% 0.02 260 / 0.42);
+}
+.loom-dialog[open] {
+  animation: dialog-enter var(--dur-enter) var(--ease-soft);
+}
+@keyframes dialog-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+@media (max-width: 639.98px) {
+  .loom-dialog[open] {
+    animation-name: sheet-enter;
+  }
+}
+@keyframes sheet-enter {
+  from {
+    transform: translateY(100%);
+  }
+}

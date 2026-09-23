@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { SkillRow, Tristate } from "@shared/api-types";
 import { useListViewSearch } from "@/router-search";
 import { useT } from "@/settings/react";
+import { useConfirm } from "./dialog";
 import { Button, pendingLabel } from "./ui";
 
 /**
@@ -148,6 +149,7 @@ export function TristateList({
   busy?: boolean;
 }) {
   const t = useT();
+  const confirm = useConfirm();
   const mainRows = rows ?? [];
   const archiveRows = archivedRows ?? [];
   const initial = useMemo(() => {
@@ -265,10 +267,14 @@ export function TristateList({
           {onBulkOff ? (
             <Button
               disabled={busy || !hasManagedActive}
-              onClick={() => {
-                if (confirm(t("tristate.bulkOffConfirm"))) {
-                  onBulkOff();
-                }
+              onClick={async () => {
+                const ok = await confirm({
+                  title: t("tristate.bulkOffTitle"),
+                  body: t("tristate.bulkOffConfirm"),
+                  confirmLabel: t("tristate.bulkOff"),
+                  tone: "danger",
+                });
+                if (ok) onBulkOff();
               }}
             >
               {pendingLabel(
