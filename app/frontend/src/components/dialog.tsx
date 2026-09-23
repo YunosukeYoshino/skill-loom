@@ -2,59 +2,16 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { useT } from "@/settings/react";
-import { Button } from "./ui";
+import { Button, Modal } from "./ui";
 
 /* ======================================================================
- * Modal / ConfirmDialog — ネイティブ <dialog> (showModal) でフォーカス
- * トラップ・Esc・inert を任せる。狭い画面 (max-sm) ではボトムシートになる。
+ * ConfirmDialog と、モーダル内容の共通骨格 (DialogFrame / DetailBox)。
+ * 器の <dialog> は ui.tsx の Modal。
  * ====================================================================== */
-
-export function Modal({
-  open,
-  onClose,
-  labelledBy,
-  children,
-  className = "",
-}: {
-  open: boolean;
-  onClose: () => void;
-  labelledBy: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  const ref = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
-
-  return (
-    <dialog
-      ref={ref}
-      aria-labelledby={labelledBy}
-      onCancel={(e) => {
-        e.preventDefault();
-        onClose();
-      }}
-      onClick={(e) => {
-        // ::backdrop のクリックは dialog 自身へのクリックとして届く
-        if (e.target === e.currentTarget) onClose();
-      }}
-      className={`loom-dialog m-auto w-[min(520px,calc(100vw-2rem))] max-w-none rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-0 text-[var(--color-ink)] shadow-[0_2px_4px_oklch(20%_0.02_260/0.06),0_24px_64px_oklch(20%_0.02_260/0.18)] max-sm:mb-0 max-sm:w-full max-sm:rounded-b-none ${className}`}
-    >
-      {open ? children : null}
-    </dialog>
-  );
-}
 
 export type ConfirmDetail = { label: string; value: ReactNode };
 

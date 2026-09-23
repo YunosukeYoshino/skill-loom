@@ -240,6 +240,14 @@ h3 {
     animation-name: sheet-enter;
   }
 }
+.loom-drawer[open] {
+  animation: drawer-enter var(--dur-enter) var(--ease-soft) !important;
+}
+@keyframes drawer-enter {
+  from {
+    transform: translateX(-100%);
+  }
+}
 @keyframes sheet-enter {
   from {
     transform: translateY(100%);

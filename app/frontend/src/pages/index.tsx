@@ -25,7 +25,7 @@ import {
   TristateList,
   useLoomFilter,
 } from "@/components/lists";
-import { DialogFrame, Modal, useConfirm } from "@/components/dialog";
+import { DialogFrame, useConfirm } from "@/components/dialog";
 import { useListViewSearch } from "@/router-search";
 import { useT, useUiSettings } from "@/settings/react";
 import {
@@ -38,6 +38,7 @@ import {
   Button,
   Message,
   PageError,
+  Modal,
   PageLoading,
   Toast,
   WorkbenchShell,
@@ -360,7 +361,7 @@ function CustomUpdatesPanel({
     );
   }
   return (
-    <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
+    <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <h2 className="m-0 text-sm font-semibold [font-variant-numeric:tabular-nums]">
           {t("custom.newerSource", { count: items.length })}
@@ -563,7 +564,7 @@ function PresetsPanel({
     "block min-h-10 w-full cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-sm transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-45";
 
   return (
-    <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
+    <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="m-0 text-sm font-semibold">{t("preset.title")}</h2>
         <select
@@ -2008,7 +2009,7 @@ export function ProjectDeckPage({
         }
       />
       {data.installCommands.length ? (
-        <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
+        <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]">
           <div className="mb-1 font-[family-name:var(--font-mono)] text-[10px] tracking-wide text-[var(--color-ink-2)]">
             INSTALLATION
           </div>
