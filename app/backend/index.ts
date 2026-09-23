@@ -40,13 +40,13 @@ import {
   collectUpdatableSkillNames,
   externalRemoveCommand,
   externalSkillStillUpdatable,
-  externalUpdateCommand,
   formatExternalUpdateMessage,
   isArgvSafeSkillName,
   registerInstalledExternalSelection,
   removeExternalSkillFromManagement,
   resolveSelectedExternalSkills,
   runExternalInstall,
+  runExternalSkillUpdate,
 } from "./domain/external";
 import { commitRepoChanges } from "./infrastructure/git";
 import {
@@ -849,7 +849,7 @@ app.post("/api/external-sources/update", async (c) => {
   if (!tryAcquireApply()) return errorResponse(UPDATE_BUSY_MESSAGE, 409, base);
 
   try {
-    runExternalCommand(externalUpdateCommand(skill));
+    runExternalSkillUpdate(skill, loadLock(), runExternalCommand);
   } catch (error) {
     return errorResponse(
       `updateに失敗: ${errorText(error)}`,
@@ -890,7 +890,7 @@ app.post("/api/external-sources/update-all", async (c) => {
   try {
     for (const skill of updatable) {
       try {
-        runExternalCommand(externalUpdateCommand(skill));
+        runExternalSkillUpdate(skill, loadLock(), runExternalCommand);
         if (await externalSkillStillUpdatable(loadLock(), skill))
           unchanged.push(skill);
         else updated.push(skill);

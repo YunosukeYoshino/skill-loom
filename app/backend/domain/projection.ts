@@ -389,7 +389,7 @@ function movePath(src: string, dst: string): void {
   }
 }
 
-function isAliasedExternal(
+export function isAliasedExternal(
   name: string,
   meta: { installSkill?: string } | undefined
 ): meta is { installSkill: string } {
@@ -433,6 +433,29 @@ function placeAliasedSkill(deployName: string, installSkill: string): void {
   movePath(srcDir, dstDir);
   syncSkillMdName(join(dstDir, "SKILL.md"), deployName);
   linkAgentSkillDirs(deployName);
+}
+
+/**
+ * 展開名で入れている外部 skill を入れ直す。展開名でなければ何もせず false。
+ *
+ * CLI lock には上流名で載っているので `skills update <展開名>` は空振りする。
+ * install と同じく上流名で add し、展開名へ移し替える。
+ */
+export function reinstallAliasedExternal(
+  name: string,
+  lock: Lock,
+  run: (cmd: string[]) => void = runSkillsCli
+): boolean {
+  const meta = lock.external?.[name];
+  if (!isAliasedExternal(name, meta)) return false;
+  for (const cmd of installCommands(new Set([name]), lock)) {
+    console.log(`+ ${cmd.join(" ")}`);
+    withStashedUpstream(meta.installSkill, () => {
+      run(cmd);
+      placeAliasedSkill(name, meta.installSkill);
+    });
+  }
+  return true;
 }
 
 /**
@@ -492,16 +515,7 @@ export function applyDeck(
     runSkillsCli(cmd);
   }
 
-  for (const name of aliased) {
-    const installSkill = lockExt[name]?.installSkill as string;
-    for (const cmd of installCommands(new Set([name]), lock)) {
-      console.log(`+ ${cmd.join(" ")}`);
-      withStashedUpstream(installSkill, () => {
-        runSkillsCli(cmd);
-        placeAliasedSkill(name, installSkill);
-      });
-    }
-  }
+  for (const name of aliased) reinstallAliasedExternal(name, lock);
 
   linkAgentSkillDirsMany(
     [...externalInstall].filter((name) => exists(join(activeDir(), name)))

@@ -47,7 +47,11 @@ import {
   sortNames,
   visibleInstalledNames,
 } from "./inventory";
-import { linkAgentSkillDirsMany } from "./projection";
+import {
+  isAliasedExternal,
+  linkAgentSkillDirsMany,
+  reinstallAliasedExternal,
+} from "./projection";
 
 // ---- 型 ----
 
@@ -140,6 +144,31 @@ export function externalUpdateCommand(skillName: string): string[] {
   if (!isArgvSafeSkillName(skillName))
     throw new ValueError(`Invalid external skill name: ${skillName}`);
   return [skillsUpdateBin(), "skills", "update", skillName, "-g", "-y"];
+}
+
+/**
+ * 利用者に見せる update コマンド。展開名で入れている skill は上流名での入れ直しが
+ * 要り、skills CLI 1 本では書けないので `skill-loom external update` を案内する。
+ */
+export function externalSkillUpdateCommand(name: string, lock: Lock): string[] {
+  if (!isAliasedExternal(name, lock.external?.[name]))
+    return externalUpdateCommand(name);
+  if (!isArgvSafeSkillName(name))
+    throw new ValueError(`Invalid external skill name: ${name}`);
+  return ["skill-loom", "external", "update", name, "--yes"];
+}
+
+/**
+ * 外部 skill を 1 件 update する。展開名で入れている skill は CLI が名前を
+ * 知らないので、`skills update` ではなく上流名での入れ直しに回す。
+ */
+export function runExternalSkillUpdate(
+  name: string,
+  lock: Lock,
+  run: (cmd: string[]) => void
+): void {
+  if (reinstallAliasedExternal(name, lock, run)) return;
+  run(externalUpdateCommand(name));
 }
 
 export function externalRemoveCommand(skillName: string): string[] {

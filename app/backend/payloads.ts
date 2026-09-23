@@ -26,7 +26,7 @@ import {
   activeExternalSkillNames,
   externalSourceStatusLabel,
   externalSourceSummary,
-  externalUpdateCommand,
+  externalSkillUpdateCommand,
   resolveExternalCandidatesMapping,
   skillHasRemoteUpdate,
   type SourceUpdateStatus,
@@ -215,7 +215,7 @@ export async function externalSourceDetailPayload(
       state: skillProjectionState(name, activeExternal, archivedExternal),
       hasUpdate,
       updateCommand: hasUpdate
-        ? shellCommandText(externalUpdateCommand(name))
+        ? shellCommandText(externalSkillUpdateCommand(name, lock))
         : "",
       managed: true,
     });
