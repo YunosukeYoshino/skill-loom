@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useReducer,
   useRef,
   useState,
   type ButtonHTMLAttributes,
@@ -491,13 +492,15 @@ export function Modal({
   const ref = useRef<HTMLDialogElement>(null);
   // 押下も backdrop で始まったときだけ閉じる (入力中のドラッグ選択で閉じない)
   const pressedBackdrop = useRef(false);
+  // ネイティブに閉じられたのに open のままなら、再描画して開き直す
+  const [resync, bumpResync] = useReducer((n: number) => n + 1, 0);
 
   useEffect(() => {
     const dialog = ref.current;
-    if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
+    if (!dialog || dialog.open === open) return;
+    if (open) dialog.showModal();
+    else dialog.close();
+  }, [open, resync]);
 
   return (
     <dialog
@@ -506,6 +509,12 @@ export function Modal({
       onCancel={(e) => {
         e.preventDefault();
         onClose();
+      }}
+      onClose={() => {
+        // Esc 連打では cancel を止められず閉じる。親へ伝え、拒否されたら開き直す
+        if (!open) return;
+        onClose();
+        bumpResync();
       }}
       onPointerDown={(e) => {
         pressedBackdrop.current = e.target === e.currentTarget;
