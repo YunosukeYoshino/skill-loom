@@ -42,6 +42,29 @@ const pillClass: Record<string, string> = {
 
 type SortKey = "name" | "category" | "status" | "source";
 
+/** 絞り込み語が fields のどれかに (大小無視で) 含まれるか。空なら常に true */
+function matchesFilter(filter: string, ...fields: string[]): boolean {
+  const q = filter.trim().toLowerCase();
+  return !q || fields.some((field) => field.toLowerCase().includes(q));
+}
+
+/** 絞り込み後の行と、その行がすべて / いくつか選択済みか */
+export function filterSelection<
+  T extends { name: string; category: string; description: string },
+>(rows: T[], filter: string, isSelected: (name: string) => boolean) {
+  const filtered = rows.filter((row) =>
+    matchesFilter(filter, row.name, row.category, row.description)
+  );
+  const filteredNames = filtered.map((row) => row.name);
+  return {
+    filtered,
+    filteredNames,
+    allFilteredSelected:
+      filteredNames.length > 0 && filteredNames.every(isSelected),
+    someFilteredSelected: filteredNames.some(isSelected),
+  };
+}
+
 const STATUS_ORDER: Record<string, number> = { active: 0, off: 1, archive: 2 };
 
 /** Shared track: Name | Category | Source | Status(toggle) */
@@ -189,28 +212,13 @@ export function TristateList({
     setStates(initial);
   }
 
-  const match = (row: SkillRow) => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      row.name.toLowerCase().includes(q) ||
-      row.category.toLowerCase().includes(q) ||
-      row.description.toLowerCase().includes(q) ||
-      row.source.toLowerCase().includes(q)
-    );
-  };
+  const match = (row: SkillRow) =>
+    matchesFilter(filter, row.name, row.category, row.description, row.source);
 
   const sortedRows = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    const filtered = mainRows.filter((row) => {
-      if (!q) return true;
-      return (
-        row.name.toLowerCase().includes(q) ||
-        row.category.toLowerCase().includes(q) ||
-        row.description.toLowerCase().includes(q) ||
-        row.source.toLowerCase().includes(q)
-      );
-    });
+    const filtered = mainRows.filter((row) =>
+      matchesFilter(filter, row.name, row.category, row.description, row.source)
+    );
     return [...filtered].sort((a, b) => {
       const va = sortValue(a, sortKey);
       const vb = sortValue(b, sortKey);
@@ -518,19 +526,8 @@ export function CheckboxList({
     setSelected(Object.fromEntries(rows.map((r) => [r.name, !!r.checked])));
   }
 
-  const filtered = rows.filter((row) => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      row.name.toLowerCase().includes(q) ||
-      row.category.toLowerCase().includes(q) ||
-      row.description.toLowerCase().includes(q)
-    );
-  });
-  const filteredNames = filtered.map((row) => row.name);
-  const allFilteredSelected =
-    filteredNames.length > 0 && filteredNames.every((name) => !!selected[name]);
-  const someFilteredSelected = filteredNames.some((name) => !!selected[name]);
+  const { filtered, filteredNames, allFilteredSelected, someFilteredSelected } =
+    filterSelection(rows, filter, (name) => !!selected[name]);
 
   const skills = Object.entries(selected)
     .filter(([, v]) => v)

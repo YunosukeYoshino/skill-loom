@@ -13,9 +13,9 @@ import { Button, Modal } from "./ui";
  * 器の <dialog> は ui.tsx の Modal。
  * ====================================================================== */
 
-export type ConfirmDetail = { label: string; value: ReactNode };
+type ConfirmDetail = { label: string; value: ReactNode };
 
-export type ConfirmOptions = {
+type ConfirmOptions = {
   title: string;
   body?: ReactNode;
   /** 何が・いくつ・どう戻せるか を key/value で示す */
@@ -114,7 +114,8 @@ export function DialogFrame({
 }
 
 /** 何が・いくつ・どう戻せるか を並べる key/value ボックス */
-export function DetailBox({ details }: { details: ConfirmDetail[] }) {
+function DetailBox({ details }: { details?: ConfirmDetail[] }) {
+  if (!details?.length) return null;
   return (
     <dl className="m-0 mt-3.5 divide-y divide-[var(--color-rule)] rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 text-sm">
       {details.map((d) => (
@@ -149,35 +150,7 @@ function ConfirmBody({
     <DialogFrame
       titleId="confirm-dialog-title"
       title={options.title}
-      icon={
-        <span
-          aria-hidden
-          className={`grid size-9 shrink-0 place-items-center rounded-full ${
-            danger
-              ? "bg-[var(--color-warn-soft)] text-[var(--color-warn-text)]"
-              : "bg-[var(--color-accent-soft)] text-[var(--color-accent-text)]"
-          }`}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            {danger ? (
-              <path
-                d="M8 5.5v3.2M8 11.2v.1M7.1 2.4 1.6 12a1 1 0 0 0 .9 1.5h11a1 1 0 0 0 .9-1.5L8.9 2.4a1 1 0 0 0-1.8 0Z"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ) : (
-              <path
-                d="M8 7.2v4M8 4.8v.1M14.5 8a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            )}
-          </svg>
-        </span>
-      }
+      icon={<ConfirmIcon danger={danger} />}
       footer={
         <>
           <Button onClick={onCancel}>
@@ -198,7 +171,39 @@ function ConfirmBody({
           {options.body}
         </p>
       ) : null}
-      {options.details?.length ? <DetailBox details={options.details} /> : null}
+      <DetailBox details={options.details} />
     </DialogFrame>
+  );
+}
+
+function ConfirmIcon({ danger }: { danger: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={`grid size-9 shrink-0 place-items-center rounded-full ${
+        danger
+          ? "bg-[var(--color-warn-soft)] text-[var(--color-warn-text)]"
+          : "bg-[var(--color-accent-soft)] text-[var(--color-accent-text)]"
+      }`}
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        {danger ? (
+          <path
+            d="M8 5.5v3.2M8 11.2v.1M7.1 2.4 1.6 12a1 1 0 0 0 .9 1.5h11a1 1 0 0 0 .9-1.5L8.9 2.4a1 1 0 0 0-1.8 0Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ) : (
+          <path
+            d="M8 7.2v4M8 4.8v.1M14.5 8a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        )}
+      </svg>
+    </span>
   );
 }

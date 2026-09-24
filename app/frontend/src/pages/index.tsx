@@ -23,6 +23,7 @@ import {
   ExternalImportForm,
   SearchField,
   TristateList,
+  filterSelection,
   useLoomFilter,
 } from "@/components/lists";
 import { DialogFrame, useConfirm } from "@/components/dialog";
@@ -505,13 +506,8 @@ function PresetsPanel({
   onCancelPreview: () => void;
 }) {
   const t = useT();
-  const confirm = useConfirm();
-  const [selected, setSelected] = useState(presets[0]?.name || "");
-  const [newPresetName, setNewPresetName] = useState("");
+  const [selected, setSelected] = useState(() => presets[0]?.name || "");
   const [savingAsNew, setSavingAsNew] = useState(false);
-  const [saveMenuOpen, setSaveMenuOpen] = useState(false);
-  const newPresetInputRef = useRef<HTMLInputElement>(null);
-  const saveMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (presets.length && !presets.some((preset) => preset.name === selected)) {
@@ -519,71 +515,26 @@ function PresetsPanel({
     }
   }, [presets, selected]);
 
-  useEffect(() => {
-    if (!savingAsNew) return;
-    newPresetInputRef.current?.focus();
-  }, [savingAsNew]);
-
-  useEffect(() => {
-    if (!saveMenuOpen) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (!saveMenuRef.current?.contains(event.target as Node))
-        setSaveMenuOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSaveMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [saveMenuOpen]);
-
-  const closeSaveAsNew = () => {
-    setSavingAsNew(false);
-    setNewPresetName("");
-  };
-
-  const openSaveAsNew = () => {
-    setSaveMenuOpen(false);
-    setSavingAsNew(true);
-  };
-
-  const saveAsNew = () => {
-    const name = newPresetName.trim();
-    if (!name) return;
+  const saveAsNew = (name: string) => {
     onSaveAsNew(name);
     setSelected(name);
-    closeSaveAsNew();
+    setSavingAsNew(false);
   };
 
-  const canUseSelected = Boolean(selected) && !busy && !preview;
-  const menuItemClass =
-    "block min-h-10 w-full cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-sm transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-45";
+  // 実行中またはプレビュー確認中は、パネルの操作をすべて止める
+  const locked = busy || !!preview;
+  const canUseSelected = Boolean(selected) && !locked;
 
   return (
     <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="m-0 text-sm font-semibold">{t("preset.title")}</h2>
-        <select
-          aria-label={t("preset.selectAria")}
+        <PresetSelect
+          presets={presets}
           value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          disabled={busy || !presets.length || !!preview}
-          className="min-h-10 min-w-[180px] rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-2.5 py-1.5 text-sm text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {presets.length ? (
-            presets.map((preset) => (
-              <option key={preset.name} value={preset.name}>
-                {preset.name} ({preset.skillCount})
-              </option>
-            ))
-          ) : (
-            <option value="">{t("preset.none")}</option>
-          )}
-        </select>
+          onChange={setSelected}
+          disabled={locked}
+        />
         <Button
           variant="primary"
           disabled={!canUseSelected}
@@ -591,52 +542,14 @@ function PresetsPanel({
         >
           {pendingLabel(!!busy, t("common.apply"), t("common.processing"))}
         </Button>
-        <div className="relative" ref={saveMenuRef}>
-          <Button
-            disabled={busy || !!preview}
-            aria-expanded={saveMenuOpen}
-            aria-haspopup="menu"
-            onClick={() => setSaveMenuOpen((open) => !open)}
-          >
-            {t("common.save")}
-            <span
-              className="ml-1 text-[10px] leading-none text-[var(--color-ink-2)]"
-              aria-hidden
-            >
-              ▾
-            </span>
-          </Button>
-          {saveMenuOpen ? (
-            <div
-              role="menu"
-              className="absolute top-[calc(100%+4px)] left-0 z-30 min-w-[11rem] rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--surface)] p-1 shadow-[var(--shadow-lift)]"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                className={menuItemClass}
-                disabled={!canUseSelected}
-                onClick={() => {
-                  setSaveMenuOpen(false);
-                  onOverwriteSave(selected);
-                }}
-              >
-                {t("preset.overwrite")}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className={menuItemClass}
-                disabled={busy || !!preview}
-                onClick={openSaveAsNew}
-              >
-                {t("preset.saveAs")}
-              </button>
-            </div>
-          ) : null}
-        </div>
+        <SaveMenu
+          disabled={locked}
+          canOverwrite={canUseSelected}
+          onOverwrite={() => onOverwriteSave(selected)}
+          onSaveAs={() => setSavingAsNew(true)}
+        />
         {hasPrevious ? (
-          <Button disabled={busy || !!preview} onClick={onRestoreRequest}>
+          <Button disabled={locked} onClick={onRestoreRequest}>
             {pendingLabel(
               !!busy,
               t("preset.restoreLast"),
@@ -644,116 +557,346 @@ function PresetsPanel({
             )}
           </Button>
         ) : null}
-        <button
-          type="button"
+        <DeletePresetButton
+          name={selected}
+          busy={busy}
           disabled={!canUseSelected}
-          onClick={async () => {
-            const ok = await confirm({
-              title: t("preset.deleteConfirm", { name: selected }),
-              body: t("preset.deleteBody"),
-              confirmLabel: t("preset.deleteAction"),
-              cancelLabel: t("preset.keep"),
-              tone: "danger",
-            });
-            if (ok) onDelete(selected);
-          }}
-          className="ml-auto min-h-10 cursor-pointer rounded-[var(--radius-sm)] px-2 py-1.5 text-sm text-[var(--color-ink-2)] transition-[transform,color,background] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {pendingLabel(!!busy, t("common.delete"), t("common.processing"))}
-        </button>
+          onDelete={onDelete}
+        />
       </div>
-      <Modal
+      <SavePresetModal
         open={savingAsNew}
-        onClose={() => {
-          if (!busy) closeSaveAsNew();
-        }}
-        labelledBy="save-preset-title"
-      >
-        <DialogFrame
-          titleId="save-preset-title"
-          title={t("preset.saveAsTitle")}
-          footer={
-            <>
-              <Button disabled={busy} onClick={closeSaveAsNew}>
-                {t("common.cancel")}
-              </Button>
-              <Button
-                variant="primary"
-                disabled={busy || !newPresetName.trim() || !!preview}
-                onClick={saveAsNew}
-              >
-                {pendingLabel(!!busy, t("common.save"), t("common.processing"))}
-              </Button>
-            </>
-          }
-        >
-          <p className="m-0 mt-1.5 text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
-            {t("preset.saveAsBody")}
-          </p>
-          <label
-            htmlFor="new-preset-name"
-            className="mt-3.5 mb-1.5 block font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase"
-          >
-            {t("preset.newName")}
-          </label>
-          <input
-            id="new-preset-name"
-            ref={newPresetInputRef}
-            type="text"
-            value={newPresetName}
-            onChange={(e) => setNewPresetName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") saveAsNew();
-            }}
-            disabled={busy || !!preview}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder={t("preset.newPlaceholder")}
-            className="min-h-10 w-full rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
-          />
-        </DialogFrame>
-      </Modal>
-      <Modal
-        open={!!preview}
-        onClose={() => {
-          if (!busy) onCancelPreview();
-        }}
-        labelledBy="preset-preview-title"
-      >
-        {preview ? (
-          <DialogFrame
-            titleId="preset-preview-title"
-            title={
-              preview.name === "_last"
-                ? t("preset.applyLast")
-                : t("preset.applyNamed", { name: preview.name })
-            }
-            footer={
-              <>
-                <Button disabled={busy} onClick={onCancelPreview}>
-                  {t("common.cancel")}
-                </Button>
-                <Button
-                  variant="primary"
-                  disabled={busy || preview.blocked}
-                  onClick={
-                    preview.name === "_last" ? onRestoreConfirm : onApplyConfirm
-                  }
-                >
-                  {pendingLabel(
-                    !!busy,
-                    t("common.run"),
-                    t("common.processing")
-                  )}
-                </Button>
-              </>
-            }
-          >
-            <PresetPreviewPanel preview={preview} />
-          </DialogFrame>
-        ) : null}
-      </Modal>
+        busy={busy}
+        disabled={!!preview}
+        onSave={saveAsNew}
+        onClose={() => setSavingAsNew(false)}
+      />
+      <PresetPreviewModal
+        preview={preview}
+        busy={busy}
+        onApplyConfirm={onApplyConfirm}
+        onRestoreConfirm={onRestoreConfirm}
+        onCancel={onCancelPreview}
+      />
     </div>
+  );
+}
+function DeletePresetButton({
+  name,
+  busy,
+  disabled,
+  onDelete,
+}: {
+  name: string;
+  busy?: boolean;
+  disabled: boolean;
+  onDelete: (name: string) => void;
+}) {
+  const t = useT();
+  const confirm = useConfirm();
+  const requestDelete = async () => {
+    const ok = await confirm({
+      title: t("preset.deleteConfirm", { name }),
+      body: t("preset.deleteBody"),
+      confirmLabel: t("preset.deleteAction"),
+      cancelLabel: t("preset.keep"),
+      tone: "danger",
+    });
+    if (ok) onDelete(name);
+  };
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={requestDelete}
+      className="ml-auto min-h-10 cursor-pointer rounded-[var(--radius-sm)] px-2 py-1.5 text-sm text-[var(--color-ink-2)] transition-[transform,color,background] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {pendingLabel(!!busy, t("common.delete"), t("common.processing"))}
+    </button>
+  );
+}
+
+function PresetSelect({
+  presets,
+  value,
+  onChange,
+  disabled,
+}: {
+  presets: PresetSummary[];
+  value: string;
+  onChange: (name: string) => void;
+  disabled: boolean;
+}) {
+  const t = useT();
+  return (
+    <select
+      aria-label={t("preset.selectAria")}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled || !presets.length}
+      className="min-h-10 min-w-[180px] rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-2.5 py-1.5 text-sm text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {presets.length ? (
+        presets.map((preset) => (
+          <option key={preset.name} value={preset.name}>
+            {preset.name} ({preset.skillCount})
+          </option>
+        ))
+      ) : (
+        <option value="">{t("preset.none")}</option>
+      )}
+    </select>
+  );
+}
+
+const menuItemClass =
+  "block min-h-10 w-full cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-sm transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-45";
+
+/** 保存 ▾ メニュー (上書き / 名前を付けて保存)。外側クリックと Esc で閉じる */
+function SaveMenu({
+  disabled,
+  canOverwrite,
+  onOverwrite,
+  onSaveAs,
+}: {
+  disabled: boolean;
+  canOverwrite: boolean;
+  onOverwrite: () => void;
+  onSaveAs: () => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const choose = (action: () => void) => () => {
+    setOpen(false);
+    action();
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button
+        disabled={disabled}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        {t("common.save")}
+        <span
+          className="ml-1 text-[10px] leading-none text-[var(--color-ink-2)]"
+          aria-hidden
+        >
+          ▾
+        </span>
+      </Button>
+      {open ? (
+        <div
+          role="menu"
+          className="absolute top-[calc(100%+4px)] left-0 z-30 min-w-[11rem] rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--surface)] p-1 shadow-[var(--shadow-lift)]"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className={menuItemClass}
+            disabled={!canOverwrite}
+            onClick={choose(onOverwrite)}
+          >
+            {t("preset.overwrite")}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={menuItemClass}
+            disabled={disabled}
+            onClick={choose(onSaveAs)}
+          >
+            {t("preset.saveAs")}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** 現在のスキル構成を新しい名前のプリセットとして保存するダイアログ */
+function SavePresetModal({
+  open,
+  busy,
+  disabled,
+  onSave,
+  onClose,
+}: {
+  open: boolean;
+  busy?: boolean;
+  disabled: boolean;
+  onSave: (name: string) => void;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const [name, setName] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    inputRef.current?.focus();
+  }, [open]);
+
+  const close = () => {
+    setName("");
+    onClose();
+  };
+
+  const save = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setName("");
+    onSave(trimmed);
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => {
+        if (!busy) close();
+      }}
+      labelledBy="save-preset-title"
+    >
+      <DialogFrame
+        titleId="save-preset-title"
+        title={t("preset.saveAsTitle")}
+        footer={
+          <>
+            <Button disabled={busy} onClick={close}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={busy || !name.trim() || disabled}
+              onClick={save}
+            >
+              {pendingLabel(!!busy, t("common.save"), t("common.processing"))}
+            </Button>
+          </>
+        }
+      >
+        <p className="m-0 mt-1.5 text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
+          {t("preset.saveAsBody")}
+        </p>
+        <label
+          htmlFor="new-preset-name"
+          className="mt-3.5 mb-1.5 block font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase"
+        >
+          {t("preset.newName")}
+        </label>
+        <input
+          id="new-preset-name"
+          ref={inputRef}
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+          }}
+          disabled={busy || disabled}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={t("preset.newPlaceholder")}
+          className="min-h-10 w-full rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+        />
+      </DialogFrame>
+    </Modal>
+  );
+}
+
+/** プリセット適用 / 直前に戻す の差分プレビューと実行確認 */
+function PresetPreviewModal({
+  preview,
+  busy,
+  onApplyConfirm,
+  onRestoreConfirm,
+  onCancel,
+}: {
+  preview: PresetPreview | null;
+  busy?: boolean;
+  onApplyConfirm: () => void;
+  onRestoreConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal
+      open={!!preview}
+      onClose={() => {
+        if (!busy) onCancel();
+      }}
+      labelledBy="preset-preview-title"
+    >
+      {preview ? (
+        <PresetPreviewDialog
+          preview={preview}
+          busy={busy}
+          onConfirm={
+            preview.name === "_last" ? onRestoreConfirm : onApplyConfirm
+          }
+          onCancel={onCancel}
+        />
+      ) : null}
+    </Modal>
+  );
+}
+
+function PresetPreviewDialog({
+  preview,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  preview: PresetPreview;
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const t = useT();
+  return (
+    <DialogFrame
+      titleId="preset-preview-title"
+      title={
+        preview.name === "_last"
+          ? t("preset.applyLast")
+          : t("preset.applyNamed", { name: preview.name })
+      }
+      footer={
+        <>
+          <Button disabled={busy} onClick={onCancel}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={busy || preview.blocked}
+            onClick={onConfirm}
+          >
+            {pendingLabel(!!busy, t("common.run"), t("common.processing"))}
+          </Button>
+        </>
+      }
+    >
+      <PresetPreviewPanel preview={preview} />
+    </DialogFrame>
   );
 }
 
@@ -863,6 +1006,9 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
   } | null>(null);
   const dismissToast = useCallback(() => setToast(null), []);
 
+  const onGlobalError = (err: unknown) =>
+    applyErrorBody(err, (body) => qc.setQueryData(["global", false], body));
+
   /** 成功結果の message はインラインではなくトーストへ回す */
   const settle = (data: GlobalPayload, undo = false) => {
     qc.setQueryData(["global", false], { ...data, message: undefined });
@@ -885,15 +1031,13 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
   const bulkOff = useMutation({
     mutationFn: () => api.bulkOff(),
     onSuccess: (data) => settle(data, true),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   const restoreAll = useMutation({
     mutationFn: () => api.restoreAll(true),
     onSuccess: (data) => settle(data),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   // 確認ダイアログを待つ間は pending にしない (onSuccess で await しない)
@@ -908,30 +1052,26 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
         if (ok) restoreAll.mutate();
       });
     },
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
   const restoreAllBusy = restoreAllPreview.isPending || restoreAll.isPending;
 
   const checkCustom = useMutation({
     mutationFn: () => api.checkCustomUpdates(),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   const updateCustomOne = useMutation({
     mutationFn: (skill: string) => api.updateCustomSkill(skill),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   const updateCustomAll = useMutation({
     mutationFn: () => api.updateAllCustomSkills(),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   const externalPreview = useMutation({
@@ -971,8 +1111,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
       setPendingPresetName("");
       settle(data, true);
     },
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   const presetRestorePreview = useMutation({
@@ -1000,23 +1139,20 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
       setPresetPreview(null);
       settle(data);
     },
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   const presetSave = useMutation({
     mutationFn: ({ name, overwrite }: { name: string; overwrite: boolean }) =>
       api.savePreset(name, overwrite),
     onSuccess: (data) => settle(data),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   const presetDelete = useMutation({
     mutationFn: (name: string) => api.deletePreset(name),
     onSuccess: (data) => settle(data),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   if (q.isPending) return <PageLoading variant="list" />;
@@ -1373,22 +1509,8 @@ function SelectableSkills({
     );
   }, [rows, presetChecked]);
 
-  const filtered = rows.filter((row) => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      row.name.toLowerCase().includes(q) ||
-      row.category.toLowerCase().includes(q) ||
-      row.description.toLowerCase().includes(q)
-    );
-  });
-  const filteredNames = filtered.map((row) => row.name);
-  const allFilteredSelected =
-    filteredNames.length > 0 &&
-    filteredNames.every((name) => selected.includes(name));
-  const someFilteredSelected = filteredNames.some((name) =>
-    selected.includes(name)
-  );
+  const { filtered, filteredNames, allFilteredSelected, someFilteredSelected } =
+    filterSelection(rows, filter, (name) => selected.includes(name));
 
   return (
     <div>

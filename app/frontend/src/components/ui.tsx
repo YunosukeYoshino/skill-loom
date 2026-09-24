@@ -21,7 +21,7 @@ import { useT } from "@/settings/react";
  * ====================================================================== */
 
 /** 織り機マーク: 経糸×緯糸と交点 */
-export function LoomMark({ size = 19 }: { size?: number }) {
+function LoomMark({ size = 19 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -654,7 +654,7 @@ type CreateDeckFormProps = {
  * 空の Project Deck を作るフォーム。作成まわりの状態と API 呼び出しを
  * SideNav（汎用 UI の置き場）から切り離して持つ。
  */
-export function CreateDeckForm({ onClose }: CreateDeckFormProps) {
+function CreateDeckForm({ onClose }: CreateDeckFormProps) {
   const t = useT();
   const navigate = useNavigate();
   const qc = useQueryClient();
