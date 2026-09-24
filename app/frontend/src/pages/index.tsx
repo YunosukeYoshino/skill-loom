@@ -856,16 +856,22 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
     null
   );
   const [pendingPresetName, setPendingPresetName] = useState("");
-  const [toast, setToast] = useState<{ text: string; undo: boolean } | null>(
-    null
-  );
+  const [toast, setToast] = useState<{
+    id: number;
+    text: string;
+    undo: boolean;
+  } | null>(null);
   const dismissToast = useCallback(() => setToast(null), []);
 
   /** 成功結果の message はインラインではなくトーストへ回す */
   const settle = (data: GlobalPayload, undo = false) => {
     qc.setQueryData(["global", false], { ...data, message: undefined });
     if (data.message) {
-      setToast({ text: data.message, undo: undo && !!data.hasPreviousPreset });
+      setToast({
+        id: Date.now(),
+        text: data.message,
+        undo: undo && !!data.hasPreviousPreset,
+      });
     }
   };
 
@@ -884,22 +890,28 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
   });
 
   const restoreAll = useMutation({
-    mutationFn: async () => {
-      const preview = await api.restoreAll(false);
-      const ok = await confirm({
+    mutationFn: () => api.restoreAll(true),
+    onSuccess: (data) => settle(data),
+    onError: (err) =>
+      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+  });
+
+  // 確認ダイアログを待つ間は pending にしない (onSuccess で await しない)
+  const restoreAllPreview = useMutation({
+    mutationFn: () => api.restoreAll(false),
+    onSuccess: (preview) => {
+      void confirm({
         title: t("global.restoreAllConfirm"),
         body: preview.message || undefined,
         confirmLabel: t("global.restoreAll"),
+      }).then((ok) => {
+        if (ok) restoreAll.mutate();
       });
-      if (!ok) return null;
-      return api.restoreAll(true);
-    },
-    onSuccess: (data) => {
-      if (data) settle(data);
     },
     onError: (err) =>
       applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
   });
+  const restoreAllBusy = restoreAllPreview.isPending || restoreAll.isPending;
 
   const checkCustom = useMutation({
     mutationFn: () => api.checkCustomUpdates(),
@@ -1024,7 +1036,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
     presetSave.isPending ||
     presetDelete.isPending;
   const listBusy =
-    apply.isPending || bulkOff.isPending || restoreAll.isPending || presetBusy;
+    apply.isPending || bulkOff.isPending || restoreAllBusy || presetBusy;
 
   return (
     <WorkbenchShell
@@ -1087,6 +1099,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
           data.message ||
           errMessage(apply.error) ||
           errMessage(bulkOff.error) ||
+          errMessage(restoreAllPreview.error) ||
           errMessage(restoreAll.error) ||
           (catalog ? errMessage(externalPreview.error) : "") ||
           errMessage(checkCustom.error) ||
@@ -1108,7 +1121,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
               ? t("status.updatingSkills")
               : bulkOff.isPending
                 ? t("status.bulkOff")
-                : restoreAll.isPending
+                : restoreAllBusy
                   ? t("status.restoreAll")
                   : apply.isPending
                     ? t("status.applying")
@@ -1152,10 +1165,10 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
             </Button>
             <Button
               disabled={customBusy || listBusy}
-              onClick={() => restoreAll.mutate()}
+              onClick={() => restoreAllPreview.mutate()}
             >
               {pendingLabel(
-                restoreAll.isPending,
+                restoreAllBusy,
                 t("global.restoreAll"),
                 t("common.processing")
               )}
@@ -1186,6 +1199,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
         onFetch={(source) => externalPreview.mutate(source)}
       />
       <Toast
+        id={toast?.id}
         text={toast?.text}
         action={
           toast?.undo

@@ -43,7 +43,13 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
   const confirm = useCallback(
     (options: ConfirmOptions) =>
-      new Promise<boolean>((resolve) => setPending({ ...options, resolve })),
+      new Promise<boolean>((resolve) =>
+        setPending((prev) => {
+          // 前の確認が残っていたら取り消し扱いで解決し、待ち続けさせない
+          prev?.resolve(false);
+          return { ...options, resolve };
+        })
+      ),
     []
   );
 

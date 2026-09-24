@@ -489,6 +489,8 @@ export function Modal({
   placement?: "center" | "left";
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // 押下も backdrop で始まったときだけ閉じる (入力中のドラッグ選択で閉じない)
+  const pressedBackdrop = useRef(false);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -505,9 +507,13 @@ export function Modal({
         e.preventDefault();
         onClose();
       }}
+      onPointerDown={(e) => {
+        pressedBackdrop.current = e.target === e.currentTarget;
+      }}
       onClick={(e) => {
         // ::backdrop のクリックは dialog 自身へのクリックとして届く
-        if (e.target === e.currentTarget) onClose();
+        if (pressedBackdrop.current && e.target === e.currentTarget) onClose();
+        pressedBackdrop.current = false;
       }}
       className={`loom-dialog max-w-none border border-[var(--color-rule)] bg-[var(--surface)] p-0 text-[var(--color-ink)] shadow-[0_2px_4px_oklch(20%_0.02_260/0.06),0_24px_64px_oklch(20%_0.02_260/0.18)] ${
         placement === "left"
@@ -611,7 +617,7 @@ export function WorkbenchShell({
         placement="left"
       >
         <div
-          className="p-2"
+          className="min-h-full p-2"
           onClickCapture={(e) => {
             // ナビ先へ移動したらドロワーを閉じる
             if ((e.target as HTMLElement).closest("a")) setNavOpen(false);
@@ -773,28 +779,46 @@ export function ActionStatus({ text }: { text?: string }) {
  * action は「直前に戻す」等の取り消し導線。
  */
 export function Toast({
+  id,
   text,
   action,
   onDismiss,
 }: {
+  /** 表示ごとに変える。同じ文言が続いてもタイマーと入場アニメをやり直す */
+  id?: number;
   text?: string;
   action?: { label: string; onClick: () => void };
   onDismiss: () => void;
 }) {
   const t = useT();
+  // ホバー・フォーカス中は自動で消さない (操作ボタンを押す前に消えないように)
+  const [paused, setPaused] = useState(false);
+  // ホバー中に閉じると pointerleave が来ないので、次の表示で解除する
+  const [prevId, setPrevId] = useState(id);
+  if (prevId !== id) {
+    setPrevId(id);
+    setPaused(false);
+  }
   useEffect(() => {
-    if (!text) return;
+    if (!text || paused) return;
     const timer = window.setTimeout(onDismiss, 8000);
     return () => window.clearTimeout(timer);
-  }, [text, onDismiss]);
+  }, [id, text, paused, onDismiss]);
   return (
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed right-4 bottom-4 z-50 max-w-[min(420px,calc(100vw-2rem))] max-sm:right-3 max-sm:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-sm:left-3 max-sm:max-w-none"
+      className="toast-region pointer-events-none fixed right-4 bottom-4 z-50 max-w-[min(420px,calc(100vw-2rem))] max-md:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-sm:right-3 max-sm:left-3 max-sm:max-w-none"
     >
       {text ? (
-        <div className="toast-enter pointer-events-auto flex items-center gap-3 rounded-[var(--radius-md)] bg-[var(--color-ink)] py-2 pr-2 pl-4 text-sm text-[var(--color-paper)] shadow-[0_2px_4px_oklch(20%_0.02_260/0.06),0_24px_64px_oklch(20%_0.02_260/0.22)]">
+        <div
+          key={id}
+          onPointerEnter={() => setPaused(true)}
+          onPointerLeave={() => setPaused(false)}
+          onFocus={() => setPaused(true)}
+          onBlur={() => setPaused(false)}
+          className="toast-enter pointer-events-auto flex items-center gap-3 rounded-[var(--radius-md)] bg-[var(--color-ink)] py-2 pr-2 pl-4 text-sm text-[var(--color-paper)] shadow-[0_2px_4px_oklch(20%_0.02_260/0.06),0_24px_64px_oklch(20%_0.02_260/0.22)]"
+        >
           <span className="min-w-0 flex-1 py-1 [text-wrap:pretty]">{text}</span>
           {action ? (
             <button

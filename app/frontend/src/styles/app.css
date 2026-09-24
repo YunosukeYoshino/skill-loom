@@ -264,3 +264,10 @@ h3 {
     transform: translateY(8px);
   }
 }
+
+/* Changes バー表示中 (md 未満) はトーストをバーの上へ逃がす */
+@media (max-width: 767.98px) {
+  body:has([data-changes-bar]) .toast-region {
+    bottom: calc(8.5rem + env(safe-area-inset-bottom));
+  }
+}

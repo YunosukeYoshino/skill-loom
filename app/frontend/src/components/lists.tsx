@@ -333,7 +333,10 @@ export function TristateList({
         </details>
       ) : null}
       {dirty ? (
-        <div className="toast-enter fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-ink)] py-2 pr-2 pl-4 text-sm text-[var(--color-paper)] shadow-[0_2px_4px_oklch(20%_0.02_260/0.06),0_24px_64px_oklch(20%_0.02_260/0.22)] md:hidden">
+        <div
+          data-changes-bar
+          className="toast-enter fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-ink)] py-2 pr-2 pl-4 text-sm text-[var(--color-paper)] shadow-[0_2px_4px_oklch(20%_0.02_260/0.06),0_24px_64px_oklch(20%_0.02_260/0.22)] md:hidden"
+        >
           <span className="min-w-0 flex-1 [font-variant-numeric:tabular-nums]">
             {t("tristate.changes", { count: dirtyNames.length })}
           </span>
