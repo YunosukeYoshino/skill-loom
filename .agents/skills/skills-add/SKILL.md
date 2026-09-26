@@ -12,7 +12,6 @@ external Skill の取得から selected Catalog の Inventory Lock 更新・コ�
 - `$0` = GitHub URL または `owner/repo` 形式
 - `MY_SKILLS_CATALOG_DIR` = 更新対象 Catalog
 - `--skill <name>` = 特定のスキルのみインストール（省略時は repo 内全スキル）
-- `--as <alias>` = 展開名・エイリアスを指定（`--skill` 1件指定時のみ利用可能。kebab-case、スラッシュ不可）
 - `--no-commit` = lock.json 更新のみ、コミットしない
 
 `$ARGUMENTS` が空の場合はユーザーに URL を質問する。
@@ -36,10 +35,10 @@ MY_SKILLS_CATALOG_DIR="$CATALOG_ROOT" \
 
 - `npx skills add` でインストール
 - 対象 agent は `claude-code`、`codex`、`antigravity`
-- インストール前後の差分で新規スキルを検出
+- インストール前に source の候補を列挙し、衝突しないものだけをインストール
 - GitHub API で各 SKILL.md の frontmatter `name` を突合して `skillPath` を解決
 - `.skills-ignore.json` に含まれるスキルはスキップ
-- 展開名は上流名のまま（`owner--name` の名前空間化はしない）。既存スキルとの同名衝突時は取り込まずに skip し、対話時は skip / Vendor fork を選ぶ。明示的に `--as <alias>` を指定した場合だけ別名で入れ、`SKILL.md` の frontmatter `name` も展開名と同期する。同一 source の再 add は skip
+- 同じ名前の skill は 1 つしか管理しない。lock・active・archive のどこかに同名があれば（別 source でも）インストールせず skip し、対話時は skip / Vendor fork を選ぶ。別名や `owner--name` での共存はしない。入れ替えたいときは既存を外してから add する。同一 source の再 add は skip
 - Catalog の `skills.lock.json` に追記（キーを展開名とし、上流スキル名は `installSkill` に記録）
 - デフォルトで Catalog repository にコミット（`--no-commit` でスキップ）
 

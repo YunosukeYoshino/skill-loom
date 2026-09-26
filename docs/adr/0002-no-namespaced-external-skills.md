@@ -16,12 +16,15 @@ ADR 0001 introduced automatic `{owner}--{name}` namespacing when an External Ski
 
 ## Decision
 
-- An External Skill is always deployed under its upstream name. Skill Loom never generates `{owner}--{name}`.
-- A name already used by a Custom Skill, a Vendor Skill, an External Skill from another source, or an on-disk directory whose skills CLI lock entry points to another (or unknown) source is a conflict. The candidate is rejected; the user skips it, removes the existing skill, or forks it as a Vendor Skill.
+One skill name, one managed skill. Which of two same-named skills should win is a case-by-case call, so Skill Loom never lets them coexist.
+
+- An External Skill is always deployed under its upstream name. Skill Loom never generates `{owner}--{name}` and no longer accepts new aliases (`skills-add --as` and `--prefix` are removed).
+- A name already used by a Custom Skill, a Vendor Skill, an External Skill from another source, or an active / archived directory whose skills CLI lock entry points to another (or unknown) source is a conflict. The candidate is not installed and not registered. To switch, remove the existing skill first, or fork it as a Vendor Skill.
 - An on-disk directory whose skills CLI lock entry points to the same source is the same skill and can be registered or reinstalled.
-- `skills-add --prefix` and the interactive "namespace" option are removed. An explicit `--as <alias>` and existing `installSkill` lock entries stay supported for deliberate renames.
+- `skills-add` resolves candidates before calling the skills CLI, so an unfiltered add never overwrites a same-named skill from another source.
+- Existing lock entries with `installSkill` keep working (restore / update) for backward compatibility, but no new ones are created.
 
 ## Consequences
 
 - Skill names are stable and match upstream, so cross-skill invocation works.
-- Two sources cannot provide the same skill name at the same time; the user must choose one (or vendor-fork).
+- Two sources cannot provide the same skill name at the same time; the user explicitly chooses one.

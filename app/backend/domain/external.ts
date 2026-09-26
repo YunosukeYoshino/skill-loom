@@ -711,27 +711,13 @@ export async function runExternalInstall(
     }
   }
 
-  for (const item of aliased) {
-    const command = [
-      "bash",
-      skillsAddScript(),
-      source,
-      "--skill",
-      item.upstreamName,
-      "--as",
-      item.deployName,
-      "--no-commit",
-    ];
-    const proc = Bun.spawn(command, {
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: 180_000,
-    });
-    const exitCode = await proc.exited;
-    if (exitCode !== 0) {
-      throw new Error(
-        `Command '${command.join(" ")}' returned non-zero exit status ${exitCode}.`
-      );
+  // 過去に別名で登録した lock エントリの入れ直しだけがここに来る。新規の別名は作らない。
+  if (aliased.length > 0) {
+    const lock = loadLock();
+    for (const item of aliased) {
+      if (!reinstallAliasedExternal(item.deployName, lock)) {
+        throw new ValueError(`Not a registered alias: ${item.deployName}`);
+      }
     }
   }
 
