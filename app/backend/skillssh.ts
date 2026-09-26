@@ -8,15 +8,11 @@
  * ずらないため、ogp.ts と同じ方針）。
  */
 
+import type { DiscoverSource } from "@shared/api-types";
+
 const TTL_MS = 5 * 60 * 1000;
 const FETCH_LIMIT = 100;
 const MAX_ENTRIES = 50;
-
-export type DiscoverSource = {
-  source: string;
-  installs: number;
-  skills: { skillId: string; name: string; installs: number }[];
-};
 
 const cache = new Map<string, { at: number; data: DiscoverSource[] }>();
 
@@ -25,12 +21,34 @@ export function clearDiscoverCache(): void {
   cache.clear();
 }
 
-type SearchResultSkill = {
+export type SearchResultSkill = {
   source?: unknown;
   skillId?: unknown;
   name?: unknown;
   installs?: unknown;
 };
+
+/** skill 単位の API レスポンスを source 単位に集約する。installs は合算・降順。 */
+export function groupBySource(skills: SearchResultSkill[]): DiscoverSource[] {
+  const bySource = new Map<string, DiscoverSource>();
+  for (const skill of skills) {
+    const source = typeof skill.source === "string" ? skill.source : "";
+    if (!source) continue;
+    let entry = bySource.get(source);
+    if (!entry) {
+      entry = { source, installs: 0, skills: [] };
+      bySource.set(source, entry);
+    }
+    const installs = typeof skill.installs === "number" ? skill.installs : 0;
+    entry.installs += installs;
+    entry.skills.push({
+      skillId: typeof skill.skillId === "string" ? skill.skillId : "",
+      name: typeof skill.name === "string" ? skill.name : "",
+      installs,
+    });
+  }
+  return [...bySource.values()].sort((a, b) => b.installs - a.installs);
+}
 
 export async function searchSkillsSh(
   query: string
@@ -57,24 +75,7 @@ export async function searchSkillsSh(
   const payload = (await response.json()) as { skills?: SearchResultSkill[] };
   const skills = Array.isArray(payload.skills) ? payload.skills : [];
 
-  const bySource = new Map<string, DiscoverSource>();
-  for (const skill of skills) {
-    const source = typeof skill.source === "string" ? skill.source : "";
-    if (!source) continue;
-    let entry = bySource.get(source);
-    if (!entry) {
-      entry = { source, installs: 0, skills: [] };
-      bySource.set(source, entry);
-    }
-    const installs = typeof skill.installs === "number" ? skill.installs : 0;
-    entry.installs += installs;
-    entry.skills.push({
-      skillId: typeof skill.skillId === "string" ? skill.skillId : "",
-      name: typeof skill.name === "string" ? skill.name : "",
-      installs,
-    });
-  }
-  const data = [...bySource.values()].sort((a, b) => b.installs - a.installs);
+  const data = groupBySource(skills);
   cache.set(query, { at: now, data });
   // q はユーザー入力由来で無限に増え得るので、期限切れを掃除してから上限で絞る
   if (cache.size > MAX_ENTRIES) {

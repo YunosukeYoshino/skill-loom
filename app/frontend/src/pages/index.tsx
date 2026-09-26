@@ -1668,7 +1668,7 @@ function DiscoverSearch() {
           {cards.length}
         </p>
       ) : null}
-      {searched && cards.length === 0 ? (
+      {!searched ? null : cards.length === 0 ? (
         <p className="mt-3 text-sm text-[var(--color-ink-2)]">
           {t("discover.empty")}
         </p>
