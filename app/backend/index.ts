@@ -83,6 +83,7 @@ import {
   parseTristateStates,
 } from "./domain/tristate";
 import { fetchOgp } from "./ogp";
+import { searchSkillsSh } from "./skillssh";
 import {
   draftsPayload,
   externalPreviewPayload,
@@ -805,6 +806,23 @@ app.get("/api/ogp/:source{.+}", async (c) => {
     );
   } catch (error) {
     return jsonResponse({ message: `OGP取得に失敗: ${errorText(error)}` }, 502);
+  }
+});
+
+/**
+ * skills.sh 検索の薄いプロキシ。Discover セクションが source 単位の結果を
+ * 欲するので、取得とグルーピング・キャッシュは skillssh.ts に閉じ込める。
+ */
+app.get("/api/discover-search", async (c) => {
+  const q = (c.req.query("q") ?? "").trim();
+  if (q.length < 2) return jsonResponse({ results: [] }, 200);
+  try {
+    return jsonResponse({ results: await searchSkillsSh(q) }, 200);
+  } catch (error) {
+    return jsonResponse(
+      { results: [], message: `検索に失敗: ${errorText(error)}` },
+      502
+    );
   }
 });
 
