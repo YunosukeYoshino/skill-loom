@@ -229,7 +229,7 @@ export async function externalSourceDetailPayload(
       .map((name) => candidateByUpstream.get(name) as ExternalCandidate)
   );
   const conflicts = availableMapping.flatMap((row) =>
-    row.conflict ? [row.upstreamName] : []
+    row.conflict ? [row.conflict] : []
   );
   for (const { candidate, deployName, conflict } of availableMapping) {
     if (conflict) continue;
@@ -249,7 +249,7 @@ export async function externalSourceDetailPayload(
     message: [
       message,
       conflicts.length
-        ? `名前が重複しています。CLI で別名を指定してください: ${conflicts.join(", ")}`
+        ? `同名の skill が既にあるため取り込めません（vendor-fork するか既存を外してください）: ${conflicts.join(", ")}`
         : "",
     ]
       .filter(Boolean)
@@ -358,7 +358,7 @@ export function externalPreviewPayload(
         .filter((row) => row.conflict)
         .map(
           (row) =>
-            `名前が重複しています。CLI で別名を指定してください: ${row.upstreamName}`
+            `同名の skill が既にあるため取り込めません（vendor-fork するか既存を外してください）: ${row.conflict}`
         ),
     ]
       .filter(Boolean)
@@ -368,11 +368,9 @@ export function externalPreviewPayload(
     source: ownerRepo,
     rows: resolved
       .filter((row) => !row.conflict)
-      .map(({ candidate, deployName, isColliding }) => ({
+      .map(({ candidate, deployName }) => ({
         name: deployName,
-        category: isColliding
-          ? `[名前空間: ${deployName}] ${candidate.path ?? ownerRepo}`
-          : (candidate.path ?? ownerRepo),
+        category: candidate.path ?? ownerRepo,
         description: candidate.description ?? "",
         source: "external",
         state: active.has(deployName)

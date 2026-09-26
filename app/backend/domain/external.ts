@@ -531,18 +531,6 @@ export type ResolvedExternalCandidate = {
   conflict?: string;
 };
 
-function githubOwner(ownerRepo: string): string {
-  const index = ownerRepo.indexOf("/");
-  return (index < 0 ? ownerRepo : ownerRepo.slice(0, index)) || ownerRepo;
-}
-
-export function namespacedExternalName(
-  ownerRepo: string,
-  upstreamName: string
-): string {
-  return `${githubOwner(ownerRepo).toLowerCase()}--${upstreamName}`;
-}
-
 export function matchResolvedCandidate(
   mapping: ResolvedExternalCandidate[],
   selectedName: string
@@ -569,18 +557,35 @@ export function resolveSelectedExternalSkills(
   });
 }
 
+/**
+ * source の候補を、展開名（= 上流名）へ対応付ける。
+ *
+ * 展開名は常に上流名のまま。`owner--name` のような名前空間化はしない。
+ * 名前が変わると管理が追いにくく、skill 同士で名前を指して invoke できなくなるため。
+ * 同じ名前が別 source で使われているときは conflict にして取り込ませない
+ * （必要なら vendor-fork するか、どちらかを外す）。
+ *
+ * 手元にディレクトリがあっても、skills CLI の lock が同じ source を指していれば
+ * 同じ skill の入れ直し・登録し直しとして扱う。
+ */
 export function resolveExternalCandidatesMapping(
   lock: Lock,
   source: string,
   candidates: ExternalCandidate[]
 ): ResolvedExternalCandidate[] {
-  const ownerRepo = normalizeGithubSource(source);
-  const namespacedOf = (upstreamName: string) =>
-    namespacedExternalName(ownerRepo, upstreamName);
+  const ownerRepo = normalizeGithubSource(source).toLowerCase();
+  const sameSource = (value: string | undefined): boolean => {
+    try {
+      return normalizeGithubSource(value ?? "").toLowerCase() === ownerRepo;
+    } catch {
+      return false;
+    }
+  };
 
   const custom = lock.custom?.skills ?? {};
   const vendor = lock.vendor ?? {};
   const external = lock.external ?? {};
+  const globalLock = loadGlobalLock();
   const onDisk = (name: string): boolean =>
     [activeDir(), archiveDir()].some((dir) => {
       try {
@@ -590,40 +595,62 @@ export function resolveExternalCandidatesMapping(
         return false;
       }
     });
-  const occupied = (name: string): boolean =>
-    name in custom || name in vendor || name in external || onDisk(name);
-  const reserved = new Set(candidates.map((candidate) => candidate.name));
+  const claimed = new Set<string>();
+
+  /** 上流名 `name` を別の持ち主が使っていれば、その説明を返す。 */
+  const ownerOf = (name: string): string | undefined => {
+    if (name in custom) return "Custom skill";
+    if (name in vendor) return "Vendor skill";
+    const meta = external[name];
+    if (meta) {
+      if (meta.installSkill && meta.installSkill !== name)
+        return `${meta.source ?? "external"} (alias of ${meta.installSkill})`;
+      return sameSource(meta.source) ? undefined : meta.source;
+    }
+    if (!onDisk(name)) return undefined;
+    const installed = globalLock[name]?.source;
+    if (installed && sameSource(installed)) return undefined;
+    return installed ?? "installed skill";
+  };
 
   return candidates.map((candidate) => {
     const upstreamName = candidate.name;
+    // 過去に別名で登録済みのものは、その名前をそのまま使う。
     const existing = Object.entries(external).find(
       ([name, meta]) =>
-        meta.source?.toLowerCase() === ownerRepo.toLowerCase() &&
+        sameSource(meta.source) &&
         (meta.installSkill ?? name) === upstreamName &&
         !(name in custom) &&
         !(name in vendor)
     );
     if (existing) {
+      claimed.add(existing[0]);
       return {
         candidate,
         upstreamName,
         deployName: existing[0],
-        isColliding: existing[0] !== upstreamName,
+        isColliding: false,
       };
     }
-    const taken = occupied(upstreamName);
-    const deployName = taken ? namespacedOf(upstreamName) : upstreamName;
-    if (taken && (occupied(deployName) || reserved.has(deployName))) {
+    const owner = claimed.has(upstreamName)
+      ? `${ownerRepo} (duplicate path)`
+      : ownerOf(upstreamName);
+    if (owner) {
       return {
         candidate,
         upstreamName,
-        deployName,
+        deployName: upstreamName,
         isColliding: true,
-        conflict: `Skill already exists: ${deployName}; choose a different alias`,
+        conflict: `Skill name already used by ${owner}: ${upstreamName}`,
       };
     }
-    reserved.add(deployName);
-    return { candidate, upstreamName, deployName, isColliding: taken };
+    claimed.add(upstreamName);
+    return {
+      candidate,
+      upstreamName,
+      deployName: upstreamName,
+      isColliding: false,
+    };
   });
 }
 

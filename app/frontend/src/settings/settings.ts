@@ -166,7 +166,6 @@ const en = {
   "tristate.changes": "{count} unapplied changes",
   "tristate.reset": "Reset",
   "tristate.archived": "Archived skills ({count})",
-  "list.collisionBadge": "namespaced",
 
   // external import form
   "import.aria": "Source for external skills",
@@ -366,7 +365,6 @@ const ja: MessageCatalog = {
   "tristate.changes": "未反映の変更 {count} 件",
   "tristate.reset": "リセット",
   "tristate.archived": "Archived skills ({count})",
-  "list.collisionBadge": "衝突回避",
 
   "import.aria": "外部skillsの追加元",
   "import.placeholder": "owner/repo または GitHub URL…",

@@ -4,7 +4,7 @@ Date: 2026-08-29
 
 ## Status
 
-Accepted
+Superseded by [0002](0002-no-namespaced-external-skills.md)
 
 ## Context
 

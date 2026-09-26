@@ -514,7 +514,7 @@ describe("skills-add", () => {
     }
   }, 20_000);
 
-  test("既存スキルと衝突した場合は owner--name で自動名前空間化される", () => {
+  test("別 source の既存スキルと衝突した場合は名前空間化せず skip する", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mgmt-add-collision-"));
     const repo = path.join(tmp, "repo");
     const clone = Bun.spawnSync([
@@ -597,23 +597,16 @@ describe("skills-add", () => {
     );
     expect(result.exitCode).toBe(0);
 
-    const lock = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as {
-      external: Record<string, { source?: string; installSkill?: string }>;
-    };
-    expect(lock.external["search"]?.source).toBe("first-owner/search-repo");
-    expect(lock.external["second-owner--search"]).toEqual({
-      source: "second-owner/search-repo",
-      sourceUrl: "https://github.com/second-owner/search-repo.git",
-      skillPath: "skills/search/SKILL.md",
-      installSkill: "search",
-    });
+    expect(result.stdout).toContain("Skipping");
 
-    const nsSkillMd = path.join(active, "second-owner--search", "SKILL.md");
-    expect(fs.existsSync(nsSkillMd)).toBe(true);
-    expect(fs.readFileSync(nsSkillMd, "utf-8")).toContain(
-      "name: second-owner--search"
+    const lock = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as {
+      external: Record<string, { source?: string }>;
+    };
+    expect(Object.keys(lock.external)).toEqual(["search"]);
+    expect(lock.external["search"]?.source).toBe("first-owner/search-repo");
+    expect(fs.existsSync(path.join(active, "second-owner--search"))).toBe(
+      false
     );
-    expect(fs.existsSync(path.join(active, "search"))).toBe(true);
     expect(
       fs.readFileSync(path.join(active, "search", "SKILL.md"), "utf-8")
     ).toContain("name: search");
@@ -733,89 +726,6 @@ describe("skills-add", () => {
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("not a valid skill name");
   }, 20_000);
-
-  test("--prefix は衝突がなくても owner--name で登録する", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mgmt-add-prefix-"));
-    const repo = path.join(tmp, "repo");
-    const clone = Bun.spawnSync([
-      "git",
-      "clone",
-      "--quiet",
-      "--no-hardlinks",
-      REPO_ROOT,
-      repo,
-    ]);
-    expect(clone.exitCode).toBe(0);
-    copySkillsAddScripts(repo);
-    const catalog = path.join(tmp, "catalog");
-    fs.mkdirSync(catalog);
-    const lockFile = path.join(catalog, "skills.lock.json");
-    fs.writeFileSync(
-      lockFile,
-      JSON.stringify({
-        version: 1,
-        custom: { skills: {} },
-        external: {},
-        vendor: {},
-      })
-    );
-    const home = path.join(tmp, "home");
-    const active = path.join(home, ".agents", "skills");
-    fs.mkdirSync(active, { recursive: true });
-    const binDir = path.join(tmp, "bin");
-    fs.mkdirSync(binDir);
-    const skillsStub = path.join(binDir, "skills-stub");
-    fs.writeFileSync(
-      skillsStub,
-      [
-        "#!/usr/bin/env bash",
-        "set -euo pipefail",
-        'target="$HOME/.agents/skills"',
-        "for ((i=1; i <= $#; i++)); do",
-        '  if [ "${!i}" = "--skill" ]; then',
-        "    j=$((i+1))",
-        '    name="${!j}"',
-        '    mkdir -p "$target/$name"',
-        '    printf -- \'---\\nname: %s\\ndescription: fixture\\n---\\n\' "$name" > "$target/$name/SKILL.md"',
-        "  fi",
-        "done",
-      ].join("\n")
-    );
-    fs.chmodSync(skillsStub, 0o755);
-
-    const claude = path.join(tmp, "claude-skills");
-    const gemini = path.join(tmp, "gemini-skills");
-    const result = runBash(
-      path.join(repo, ".agents/skills/skills-add/scripts/skills-add"),
-      ["owner/repo", "--skill", "alpha", "--prefix", "--no-commit"],
-      {
-        cwd: repo,
-        env: {
-          ...(process.env as Record<string, string>),
-          HOME: home,
-          PATH: `${binDir}:${process.env.PATH ?? ""}`,
-          MY_SKILLS_ADD_BIN: skillsStub,
-          MY_SKILLS_CATALOG_DIR: catalog,
-          MY_SKILLS_ACTIVE_DIR: active,
-          MY_SKILLS_CLAUDE_SKILLS_DIR: claude,
-          MY_SKILLS_GEMINI_SKILLS_DIR: gemini,
-        },
-      }
-    );
-    expect(result.exitCode).toBe(0);
-    const lock = JSON.parse(fs.readFileSync(lockFile, "utf-8")) as {
-      external: Record<string, unknown>;
-    };
-    expect(lock.external["owner--alpha"]).toEqual({
-      source: "owner/repo",
-      sourceUrl: "https://github.com/owner/repo.git",
-      skillPath: "skills/alpha/SKILL.md",
-      installSkill: "alpha",
-    });
-    expect(
-      fs.readFileSync(path.join(active, "owner--alpha", "SKILL.md"), "utf-8")
-    ).toContain("name: owner--alpha");
-  }, 20_000);
 });
 
 describe("PR 6 skills-add regressions", () => {
@@ -903,15 +813,7 @@ printf -- '---\\nname: alpha\\n---\\nincoming\\n' > "$MY_SKILLS_ACTIVE_DIR/alpha
     expect(fs.existsSync(path.join(f.active, "alpha/SKILL.md"))).toBe(true);
   }, 20_000);
 
-  test("--prefix lowercases the owner", () => {
-    const f = fixture();
-    expect(f.run(["--prefix"]).exitCode).toBe(0);
-    expect(
-      fs.readFileSync(path.join(f.active, "owner--alpha/SKILL.md"), "utf8")
-    ).toContain("name: owner--alpha");
-  }, 20_000);
-
-  test("an unmanaged upstream directory triggers namespacing", () => {
+  test("an unmanaged upstream directory is skipped, not namespaced", () => {
     const f = fixture();
     fs.mkdirSync(path.join(f.active, "alpha"));
     fs.writeFileSync(path.join(f.active, "alpha/SKILL.md"), "original");
@@ -919,9 +821,7 @@ printf -- '---\\nname: alpha\\n---\\nincoming\\n' > "$MY_SKILLS_ACTIVE_DIR/alpha
     expect(fs.readFileSync(path.join(f.active, "alpha/SKILL.md"), "utf8")).toBe(
       "original"
     );
-    expect(
-      fs.readFileSync(path.join(f.active, "owner--alpha/SKILL.md"), "utf8")
-    ).toContain("name: owner--alpha");
+    expect(fs.existsSync(path.join(f.active, "owner--alpha"))).toBe(false);
   }, 20_000);
 
   test("SIGTERM restores the stashed upstream", () => {

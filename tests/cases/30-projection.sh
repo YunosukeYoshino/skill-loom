@@ -574,7 +574,7 @@ test_global_apply_returns_409_while_another_write_runs() {
   local active_dir="$tmp_dir/active"
 
   cat > "$lock_file" <<'JSON'
-{"version":1,"custom":{"repo":"owner/catalog","skills":{"alpha":{"repoPath":"skills/a/alpha","category":"a"}}},"external":{},"vendor":{}}
+{"version":1,"custom":{"repo":"owner/catalog","skills":{"mine":{"repoPath":"skills/a/mine","category":"a"}}},"external":{},"vendor":{}}
 JSON
   cat > "$tmp_dir/.skills-ignore.json" <<'JSON'
 {"ignore":[]}
@@ -616,7 +616,7 @@ SH
     http_code=$(curl -s -o "$tmp_dir/response.json" -w "%{http_code}" \
       -X POST "http://localhost:${port}/api/apply" \
       -H "Content-Type: application/json" \
-      -d '{"states":{"alpha":"active"}}' 2>/dev/null || echo "000")
+      -d '{"states":{"mine":"active"}}' 2>/dev/null || echo "000")
 
     [ "$http_code" = "409" ] \
       && pass "test_global_apply_returns_409_while_another_write_runs: HTTP 409" \
@@ -626,7 +626,7 @@ SH
       && pass "test_global_apply_returns_409_while_another_write_runs: explains why" \
       || fail "test_global_apply_returns_409_while_another_write_runs: no message"
 
-    [ ! -e "$active_dir/alpha" ] \
+    [ ! -e "$active_dir/mine" ] \
       && pass "test_global_apply_returns_409_while_another_write_runs: wrote nothing" \
       || fail "test_global_apply_returns_409_while_another_write_runs: applied anyway"
 

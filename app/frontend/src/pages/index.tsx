@@ -1570,11 +1570,6 @@ function SelectableSkills({
                   <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
                     {row.name}
                   </code>
-                  {row.category?.startsWith("[名前空間:") && (
-                    <span className="rounded bg-[var(--color-warn-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-warn-text)]">
-                      {t("list.collisionBadge")}
-                    </span>
-                  )}
                 </div>
                 <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
                   {row.description}

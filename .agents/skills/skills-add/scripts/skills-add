@@ -8,7 +8,7 @@
 #   デフォルトで git commit まで実行する（--no-commit でスキップ可能）。
 #
 # 使い方:
-#   bash scripts/skills-add [--catalog-dir PATH] <url-or-owner/repo> [--skill <name>] [--as <alias>] [--prefix] [--no-commit]
+#   bash scripts/skills-add [--catalog-dir PATH] <url-or-owner/repo> [--skill <name>] [--as <alias>] [--no-commit]
 
 set -euo pipefail
 
@@ -25,7 +25,6 @@ URL=""
 NO_COMMIT=false
 SKILL_FILTERS=()
 ALIAS=""
-FORCE_PREFIX=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -42,7 +41,6 @@ while [[ $# -gt 0 ]]; do
             ALIAS="$2"
             shift 2
             ;;
-        --prefix) FORCE_PREFIX=true; shift ;;
         *) URL="$1"; shift ;;
     esac
 done
@@ -52,7 +50,7 @@ if [ -n "$ALIAS" ] && [ "${#SKILL_FILTERS[@]}" -ne 1 ]; then
     exit 2
 fi
 
-: "${URL:?Usage: skills-add [--catalog-dir PATH] <url-or-owner/repo> [--skill <name>] [--as <alias>] [--prefix] [--no-commit]}"
+: "${URL:?Usage: skills-add [--catalog-dir PATH] <url-or-owner/repo> [--skill <name>] [--as <alias>] [--no-commit]}"
 if [ -z "$CATALOG_ROOT" ]; then
     CATALOG_ROOT="$(git rev-parse --show-toplevel)"
 fi
@@ -68,7 +66,6 @@ VENDOR_FORK="$ENGINE_ROOT/.agents/skills/vendor-fork/scripts/skills-vendor-fork"
 # --- Normalize URL to owner/repo ---
 OWNER_REPO=$(bun "$DIR/normalize-github-url.ts" "$URL")
 SOURCE_URL="https://github.com/${OWNER_REPO}.git"
-OWNER="${OWNER_REPO%%/*}"
 
 echo "=== Installing ${OWNER_REPO} ==="
 
@@ -162,54 +159,26 @@ install_aliased() (
     place_aliased_skill "$skill_name" "$target_name"
 )
 
+# 展開名は上流名のまま。owner--name のような名前空間化はしない
+# （名前が変わると管理が追いにくく、skill 同士で名前を指して invoke できなくなるため）。
 prompt_collision() {
     local skill_name="$1"
-    local namespaced_name="$2"
-    echo "  ⚠️ Conflict: '$skill_name' already exists in skills.lock.json."
-    echo "    1) Namespace as '$namespaced_name' (default)"
-    echo "    2) Enter custom alias"
-    echo "    3) Fork as Vendor Skill"
-    echo "    4) Skip"
-    read -r -p "    Select option [1-4] (default: 1): " choice </dev/tty || choice="1"
-    case "$choice" in
-        2)
-            while true; do
-                read -r -p "    Enter alias: " custom_alias </dev/tty || custom_alias=""
-                if [ -z "$custom_alias" ]; then
-                    echo "  → Empty alias, skipping"
-                    return 1
-                fi
-                if ! validate_deploy_name "$custom_alias"; then
-                    echo "  → Invalid alias '$custom_alias' (use kebab-case, no slashes)"
-                    continue
-                fi
-                if deploy_name_taken "$custom_alias"; then
-                    echo "  → Alias '$custom_alias' already in skills.lock.json"
-                    continue
-                fi
-                TARGET_NAME="$custom_alias"
-                return 0
-            done
-            ;;
-        3)
-            echo "  → Forking '$skill_name' as Vendor Skill"
-            if ! bash "$VENDOR_FORK" --catalog-dir "$CATALOG_ROOT" "$skill_name"; then
-                echo "  → Vendor fork failed, skipping"
-                return 1
-            fi
-            bun "$DIR/register-skill-lock.ts" --vendor "$LOCK_FILE" "$skill_name" "$OWNER_REPO"
-            echo "  → Registered vendor/$skill_name (skipped external import)"
+    echo "  ⚠️ Conflict: '$skill_name' already exists (lock or installed from another source)."
+    echo "    1) Skip (default)"
+    echo "    2) Fork as Vendor Skill"
+    read -r -p "    Select option [1-2] (default: 1): " choice </dev/tty || choice="1"
+    if [ "$choice" = "2" ]; then
+        echo "  → Forking '$skill_name' as Vendor Skill"
+        if ! bash "$VENDOR_FORK" --catalog-dir "$CATALOG_ROOT" "$skill_name"; then
+            echo "  → Vendor fork failed, skipping"
             return 1
-            ;;
-        4)
-            echo "  → Skipping by user choice"
-            return 1
-            ;;
-        *)
-            TARGET_NAME="$namespaced_name"
-            return 0
-            ;;
-    esac
+        fi
+        bun "$DIR/register-skill-lock.ts" --vendor "$LOCK_FILE" "$skill_name" "$OWNER_REPO"
+        echo "  → Registered vendor/$skill_name (skipped external import)"
+        return 1
+    fi
+    echo "  → Skipping"
+    return 1
 }
 
 plan_skill() {
@@ -224,9 +193,8 @@ plan_skill() {
         return 1
     fi
 
-    local lookup namespaced_name
+    local lookup
     lookup=$(lock_lookup "$skill_name")
-    namespaced_name="$(printf '%s' "${OWNER}--${skill_name}" | tr '[:upper:]' '[:lower:]')"
 
     if [ -n "$ALIAS" ]; then
         if ! validate_deploy_name "$ALIAS"; then
@@ -242,36 +210,18 @@ plan_skill() {
         return 0
     fi
 
-    if [ "$FORCE_PREFIX" = true ]; then
-        if deploy_name_taken "$namespaced_name"; then
-            echo "  → '$namespaced_name' already in skills.lock.json, skipping"
-            return 1
-        fi
-        TARGET_NAME="$namespaced_name"
-        INSTALL_SKILL="$skill_name"
-        return 0
-    fi
-
     if [ "$lookup" = "external $OWNER_REPO" ]; then
         echo "  → Skipping (already registered from $OWNER_REPO)"
         return 1
     fi
 
     if [ "$lookup" != "none" ] || grep -Fxq -- "$skill_name" "$BEFORE_FILE"; then
-        if deploy_name_taken "$namespaced_name"; then
-            echo "  → Both '$skill_name' and '$namespaced_name' already in skills.lock.json, skipping"
-            return 1
-        fi
         if [ -t 0 ] && [ -r /dev/tty ]; then
-            if ! prompt_collision "$skill_name" "$namespaced_name"; then
-                return 1
-            fi
+            prompt_collision "$skill_name"
         else
-            echo "  → Notice: '$skill_name' already in skills.lock.json; namespacing as '$namespaced_name'"
-            TARGET_NAME="$namespaced_name"
+            echo "  → Skipping: '$skill_name' already exists; use --as <alias> or /vendor-fork"
         fi
-        INSTALL_SKILL="$skill_name"
-        return 0
+        return 1
     fi
 
     TARGET_NAME="$skill_name"
