@@ -1608,8 +1608,12 @@ function DiscoverSearch() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [query, setQuery] = useState("");
-  const search = useMutation({
-    mutationFn: (q: string) => api.discoverSearch(q),
+  const [term, setTerm] = useState("");
+  // queryKey が検索語を保持するので、前の検索語の結果が新しい入力に残らない
+  const search = useQuery({
+    queryKey: ["discover-search", term],
+    queryFn: () => api.discoverSearch(term),
+    enabled: term.length >= 2,
   });
   const preview = useMutation({
     mutationFn: (source: string) => api.previewExternal(source, ""),
@@ -1622,16 +1626,11 @@ function DiscoverSearch() {
     },
   });
 
-  // 入力 debounce: 2文字以上でライブ検索、空なら POPULAR シードに戻す
+  // 入力 debounce: 2文字以上で検索語を確定、未満なら結果を消す
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) {
-      search.reset();
-      return;
-    }
-    const id = setTimeout(() => search.mutate(q), 300);
+    const id = setTimeout(() => setTerm(q.length >= 2 ? q : ""), 300);
     return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
   const searched = search.data !== undefined;

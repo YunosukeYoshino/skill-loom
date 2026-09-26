@@ -10,6 +10,7 @@
 
 const TTL_MS = 5 * 60 * 1000;
 const FETCH_LIMIT = 100;
+const MAX_ENTRIES = 50;
 
 export type DiscoverSource = {
   source: string;
@@ -36,7 +37,13 @@ export async function searchSkillsSh(
 ): Promise<DiscoverSource[]> {
   const now = Date.now();
   const cached = cache.get(query);
-  if (cached && now - cached.at < TTL_MS) return cached.data;
+  if (cached && now - cached.at < TTL_MS) {
+    // Map は挿入順を保つので、移し直して LRU に近い退避順にする
+    cache.delete(query);
+    cache.set(query, cached);
+    return cached.data;
+  }
+  cache.delete(query);
 
   const params = new URLSearchParams({
     q: query,
@@ -69,5 +76,16 @@ export async function searchSkillsSh(
   }
   const data = [...bySource.values()].sort((a, b) => b.installs - a.installs);
   cache.set(query, { at: now, data });
+  // q はユーザー入力由来で無限に増え得るので、期限切れを掃除してから上限で絞る
+  if (cache.size > MAX_ENTRIES) {
+    for (const [key, entry] of cache) {
+      if (now - entry.at >= TTL_MS) cache.delete(key);
+    }
+    while (cache.size > MAX_ENTRIES) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+  }
   return data;
 }
