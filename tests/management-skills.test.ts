@@ -50,7 +50,7 @@ const SKILLS_ADD_SCRIPTS = [
   ".agents/skills/skills-add/scripts/register-skill-lock.ts",
   ".agents/skills/skills-add/scripts/update-inventory-lock.ts",
   ".agents/skills/skills-add/scripts/lock-check.ts",
-  ".agents/skills/skills-add/scripts/sync-skill-name.ts",
+  ".agents/skills/skills-add/scripts/plan-candidates.ts",
   ".agents/skills/skills-add/scripts/run-skills-cli.sh",
   ".agents/skills/skills-add/scripts/skills-add",
 ] as const;
@@ -623,6 +623,7 @@ printf -- '---\\nname: alpha\\n---\\nincoming\\n' > "$MY_SKILLS_ACTIVE_DIR/alpha
       MY_SKILLS_GEMINI_SKILLS_DIR: path.join(home, ".gemini/config/skills"),
       MY_SKILLS_ADD_BIN: stub,
       MY_SKILLS_EXTERNAL_CANDIDATES_FILE: path.join(root, "candidates.json"),
+      MY_SKILLS_GLOBAL_LOCK_FILE: path.join(home, ".agents/.skill-lock.json"),
       PATH: `${bin}:${process.env.PATH}`,
     };
     fs.writeFileSync(
@@ -673,6 +674,24 @@ printf -- '---\\nname: alpha\\n---\\nincoming\\n' > "$MY_SKILLS_ACTIVE_DIR/alpha
         ).external
       )
     ).toEqual(["beta"]);
+  }, 60_000);
+
+  test("an unregistered directory installed from the same source is registered", () => {
+    const f = fixture();
+    fs.mkdirSync(path.join(f.active, "alpha"));
+    fs.writeFileSync(path.join(f.active, "alpha/SKILL.md"), "original");
+    fs.writeFileSync(
+      path.join(f.root, "home/.agents/.skill-lock.json"),
+      JSON.stringify({ skills: { alpha: { source: "owner/Repo" } } })
+    );
+    expect(f.run([]).exitCode).toBe(0);
+    expect(
+      Object.keys(
+        JSON.parse(
+          fs.readFileSync(path.join(f.catalog, "skills.lock.json"), "utf8")
+        ).external
+      )
+    ).toEqual(["alpha"]);
   }, 60_000);
 
   test("an unmanaged upstream directory is skipped, not namespaced", () => {

@@ -527,9 +527,55 @@ export type ResolvedExternalCandidate = {
   candidate: ExternalCandidate;
   upstreamName: string;
   deployName: string;
-  isColliding: boolean;
   conflict?: string;
 };
+
+/** 取り込もうとした名前を既に使っているもの。conflict メッセージの材料にする。 */
+type SkillNameOwner =
+  | { kind: "custom" }
+  | { kind: "vendor" }
+  | {
+      kind: "external";
+      source?: string;
+      aliasOf?: string;
+      registeredAs?: string;
+    }
+  | { kind: "installed"; source?: string }
+  | { kind: "duplicate"; source: string };
+
+function describeSkillNameOwner(owner: SkillNameOwner): string {
+  switch (owner.kind) {
+    case "custom":
+      return "Custom skill";
+    case "vendor":
+      return "Vendor skill";
+    case "external":
+      if (owner.aliasOf)
+        return `${owner.source ?? "external"} (alias of ${owner.aliasOf})`;
+      if (owner.registeredAs)
+        return `${owner.source ?? "external"} (registered as ${owner.registeredAs})`;
+      return owner.source ?? "external";
+    case "installed":
+      return owner.source ?? "installed skill";
+    case "duplicate":
+      return `${owner.source} (duplicate path)`;
+  }
+}
+
+/** owner/repo の表記揺れ（大文字小文字・URL 形式）を吸収して比べる。 */
+export function isSameGithubSource(
+  a: string | undefined,
+  b: string | undefined
+): boolean {
+  try {
+    return (
+      normalizeGithubSource(a ?? "").toLowerCase() ===
+      normalizeGithubSource(b ?? "").toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
 
 export function matchResolvedCandidate(
   mapping: ResolvedExternalCandidate[],
@@ -573,14 +619,9 @@ export function resolveExternalCandidatesMapping(
   source: string,
   candidates: ExternalCandidate[]
 ): ResolvedExternalCandidate[] {
-  const ownerRepo = normalizeGithubSource(source).toLowerCase();
-  const sameSource = (value: string | undefined): boolean => {
-    try {
-      return normalizeGithubSource(value ?? "").toLowerCase() === ownerRepo;
-    } catch {
-      return false;
-    }
-  };
+  const ownerRepo = normalizeGithubSource(source);
+  const sameSource = (value: string | undefined) =>
+    isSameGithubSource(value, ownerRepo);
 
   const custom = lock.custom?.skills ?? {};
   const vendor = lock.vendor ?? {};
@@ -597,20 +638,38 @@ export function resolveExternalCandidatesMapping(
     });
   const claimed = new Set<string>();
 
-  /** 上流名 `name` を別の持ち主が使っていれば、その説明を返す。 */
-  const ownerOf = (name: string): string | undefined => {
-    if (name in custom) return "Custom skill";
-    if (name in vendor) return "Vendor skill";
+  const ownerOf = (name: string): SkillNameOwner | undefined => {
+    if (claimed.has(name)) return { kind: "duplicate", source: ownerRepo };
+    if (name in custom) return { kind: "custom" };
+    if (name in vendor) return { kind: "vendor" };
     const meta = external[name];
     if (meta) {
+      // 旧来の別名エントリ（key と上流名が違う）は、key 側の名前も塞いでいる。
       if (meta.installSkill && meta.installSkill !== name)
-        return `${meta.source ?? "external"} (alias of ${meta.installSkill})`;
-      return sameSource(meta.source) ? undefined : meta.source;
+        return {
+          kind: "external",
+          source: meta.source,
+          aliasOf: meta.installSkill,
+        };
+      return sameSource(meta.source)
+        ? undefined
+        : { kind: "external", source: meta.source };
     }
+    // 旧来の別名エントリが同じ上流名を別 source から入れていれば、同じ skill の二重管理になる。
+    const aliased = Object.entries(external).find(
+      ([key, entry]) => entry.installSkill === name && key !== name
+    );
+    if (aliased && !sameSource(aliased[1].source))
+      return {
+        kind: "external",
+        source: aliased[1].source,
+        registeredAs: aliased[0],
+      };
     if (!onDisk(name)) return undefined;
     const installed = globalLock[name]?.source;
-    if (installed && sameSource(installed)) return undefined;
-    return installed ?? "installed skill";
+    return sameSource(installed)
+      ? undefined
+      : { kind: "installed", source: installed };
   };
 
   return candidates.map((candidate) => {
@@ -625,32 +684,19 @@ export function resolveExternalCandidatesMapping(
     );
     if (existing) {
       claimed.add(existing[0]);
-      return {
-        candidate,
-        upstreamName,
-        deployName: existing[0],
-        isColliding: false,
-      };
+      return { candidate, upstreamName, deployName: existing[0] };
     }
-    const owner = claimed.has(upstreamName)
-      ? `${ownerRepo} (duplicate path)`
-      : ownerOf(upstreamName);
+    const owner = ownerOf(upstreamName);
     if (owner) {
       return {
         candidate,
         upstreamName,
         deployName: upstreamName,
-        isColliding: true,
-        conflict: `Skill name already used by ${owner}: ${upstreamName}`,
+        conflict: `Skill name already used by ${describeSkillNameOwner(owner)}: ${upstreamName}`,
       };
     }
     claimed.add(upstreamName);
-    return {
-      candidate,
-      upstreamName,
-      deployName: upstreamName,
-      isColliding: false,
-    };
+    return { candidate, upstreamName, deployName: upstreamName };
   });
 }
 
@@ -780,16 +826,18 @@ export function registerInstalledExternalSelection(
   const external = (lock.external ??= {});
   const custom = lock.custom?.skills ?? {};
   const globalSkills = loadGlobalLock();
+  // selection が無くても衝突判定は必ず通す。通さないと別 source の既存エントリを付け替えてしまう。
   const resolved =
     selection ??
-    sortNames(selected).map((name) => ({
-      deployName: name,
-      upstreamName: external[name]?.installSkill ?? name,
-      candidate: {
+    resolveSelectedExternalSkills(
+      lock,
+      ownerRepo,
+      selected,
+      sortNames(selected).map((name) => ({
         name: external[name]?.installSkill ?? name,
         path: external[name]?.skillPath,
-      },
-    }));
+      }))
+    );
   const ignored = new Set<string>();
 
   for (const row of resolved) {

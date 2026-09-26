@@ -35,11 +35,11 @@ MY_SKILLS_CATALOG_DIR="$CATALOG_ROOT" \
 
 - `npx skills add` でインストール
 - 対象 agent は `claude-code`、`codex`、`antigravity`
-- インストール前に source の候補を列挙し、衝突しないものだけをインストール
+- インストール前に source の候補を UI と同じ規則で衝突判定し（`plan-candidates.ts`）、衝突しないものだけをインストール。候補が取れなければ失敗として終了
 - GitHub API で各 SKILL.md の frontmatter `name` を突合して `skillPath` を解決
 - `.skills-ignore.json` に含まれるスキルはスキップ
 - 同じ名前の skill は 1 つしか管理しない。lock・active・archive のどこかに同名があれば（別 source でも）インストールせず skip し、対話時は skip / Vendor fork を選ぶ。別名や `owner--name` での共存はしない。入れ替えたいときは既存を外してから add する。同一 source の再 add は skip
-- Catalog の `skills.lock.json` に追記（キーを展開名とし、上流スキル名は `installSkill` に記録）
+- Catalog の `skills.lock.json` に上流名をキーとして追記
 - デフォルトで Catalog repository にコミット（`--no-commit` でスキップ）
 
 完了基準: スクリプトが exit 0 で終了し、`skills.lock.json` に新規スキルが追記されていること。追記前に、取得元（source・sourceUrl）、解決済み `skillPath`、インストールされた SKILL.md が期待したスキルであるかを検証し、検証に失敗した場合は lock への登録と成功報告を行わないこと。

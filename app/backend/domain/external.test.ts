@@ -587,6 +587,28 @@ describe("registerInstalledExternalSelection", () => {
     ).toEqual(["other"]);
   });
 
+  test("selection 無しでも別 source の既存エントリは付け替えない", () => {
+    const lockPath = dir("skills.lock.json");
+    setEnv("MY_SKILLS_LOCK_FILE", lockPath);
+    const data = {
+      version: 1,
+      custom: { repo: "owner/catalog", skills: {} },
+      vendor: {},
+      external: {
+        alpha: {
+          source: "first/repo",
+          sourceUrl: "https://github.com/first/repo.git",
+          skillPath: "skills/alpha/SKILL.md",
+        },
+      },
+    };
+    writeFileSync(lockPath, JSON.stringify(data));
+    expect(() =>
+      registerInstalledExternalSelection("second/repo", new Set(["alpha"]))
+    ).toThrow("Skill name already used by first/repo: alpha");
+    expect(JSON.parse(readFileSync(lockPath, "utf-8"))).toEqual(data);
+  });
+
   test("空白を含む skill 名は lock へ永続化しない", () => {
     const unsafeName = "two skills";
 
@@ -709,7 +731,6 @@ describe("resolveExternalCandidatesMapping", () => {
         candidate: candidates[0]!,
         upstreamName: "alpha",
         deployName: "alpha",
-        isColliding: false,
       },
     ]);
   });
@@ -733,7 +754,6 @@ describe("resolveExternalCandidatesMapping", () => {
         candidate: candidates[0]!,
         upstreamName: "alpha",
         deployName: "alpha",
-        isColliding: true,
         conflict: "Skill name already used by Custom skill: alpha",
       },
     ]);
@@ -759,7 +779,6 @@ describe("resolveExternalCandidatesMapping", () => {
         candidate: candidates[0]!,
         upstreamName: "alpha",
         deployName: "alpha",
-        isColliding: true,
         conflict: "Skill name already used by first-owner/repo: alpha",
       },
     ]);
@@ -785,7 +804,6 @@ describe("resolveExternalCandidatesMapping", () => {
         candidate: candidates[0]!,
         upstreamName: "alpha",
         deployName: "alpha",
-        isColliding: false,
       },
     ]);
   });
@@ -806,7 +824,6 @@ describe("resolveExternalCandidatesMapping", () => {
         candidate: candidates[0]!,
         upstreamName: "alpha",
         deployName: "alpha",
-        isColliding: true,
         conflict: "Skill name already used by Vendor skill: alpha",
       },
     ]);
@@ -833,10 +850,68 @@ describe("resolveExternalCandidatesMapping", () => {
         candidate: candidates[0]!,
         upstreamName: "alpha",
         deployName: "alpha",
-        isColliding: true,
         conflict: "Skill name already used by first-owner/repo: alpha",
       },
     ]);
+  });
+
+  test("lock 未登録でも skills CLI が同じ source から入れたものは同じ skill とみなす", () => {
+    place("active", "alpha", "---\nname: alpha\n---\n");
+    writeFileSync(
+      dir("skill-lock.json"),
+      JSON.stringify({ skills: { alpha: { source: "Owner/Repo" } } })
+    );
+    const candidates = [{ name: "alpha", path: "skills/alpha/SKILL.md" }];
+    expect(
+      resolveExternalCandidatesMapping({}, "owner/repo", candidates)
+    ).toEqual([
+      { candidate: candidates[0]!, upstreamName: "alpha", deployName: "alpha" },
+    ]);
+  });
+
+  test("取得元の分からない手元のディレクトリとは conflict になる", () => {
+    place("archive", "alpha", "local");
+    const mapping = resolveExternalCandidatesMapping({}, "owner/repo", [
+      { name: "alpha" },
+    ]);
+    expect(mapping[0]?.conflict).toBe(
+      "Skill name already used by installed skill: alpha"
+    );
+  });
+
+  test("同じ source 内の同名候補は 2 件目を conflict にする", () => {
+    const mapping = resolveExternalCandidatesMapping({}, "owner/repo", [
+      { name: "alpha", path: "a/alpha/SKILL.md" },
+      { name: "alpha", path: "b/alpha/SKILL.md" },
+    ]);
+    expect(mapping.map((row) => row.conflict)).toEqual([
+      undefined,
+      "Skill name already used by owner/repo (duplicate path): alpha",
+    ]);
+  });
+
+  test("別 source の旧別名エントリが同じ上流名を持っていれば conflict になる", () => {
+    const mapping = resolveExternalCandidatesMapping(
+      {
+        external: {
+          "first--alpha": { source: "first/repo", installSkill: "alpha" },
+        },
+      },
+      "second/repo",
+      [{ name: "alpha" }]
+    );
+    expect(mapping[0]?.conflict).toBe(
+      "Skill name already used by first/repo (registered as first--alpha): alpha"
+    );
+  });
+
+  test("source の大文字小文字違いは同じ source とみなす", () => {
+    const mapping = resolveExternalCandidatesMapping(
+      { external: { alpha: { source: "Owner/Repo" } } },
+      "owner/repo",
+      [{ name: "alpha" }]
+    );
+    expect(mapping[0]?.conflict).toBeUndefined();
   });
 });
 
