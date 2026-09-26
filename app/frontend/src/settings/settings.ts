@@ -114,6 +114,7 @@ const en = {
   "nav.decks": "Decks",
   "nav.newDeck": "+ Deck",
   "nav.settings": "Settings",
+  "nav.open": "Open navigation",
   "search.aria": "Search skills",
   "search.placeholder": "Search skills…",
   "filter.placeholder": "Filter skills…",
@@ -132,6 +133,7 @@ const en = {
   "common.checking": "Checking…",
   "common.updating": "Updating…",
   "common.noMatches": "No matching skills",
+  "toast.dismiss": "Dismiss",
   "projection.caption": "Runtime subset woven from Catalog {total}.",
 
   // error chrome
@@ -160,6 +162,9 @@ const en = {
   "tristate.bulkOff": "Turn all off",
   "tristate.bulkOffConfirm":
     "Turn off all active skills managed by this repository (unmanaged skills stay as they are). You can restore the previous configuration with “Restore previous”. Continue?",
+  "tristate.bulkOffTitle": "Turn off all active skills?",
+  "tristate.changes": "{count} unapplied changes",
+  "tristate.reset": "Reset",
   "tristate.archived": "Archived skills ({count})",
   "list.collisionBadge": "namespaced",
 
@@ -180,6 +185,8 @@ const en = {
   "custom.updateAll": "Update all with updates ({count})",
   "custom.updateOne": "Update",
   "custom.diffNote": "SKILL.md matches. Other files have changes.",
+  "custom.upToDate": "Up to date",
+  "custom.upToDateBody": "Every custom skill matches its source.",
 
   // presets panel
   "preset.title": "Presets",
@@ -187,8 +194,14 @@ const en = {
   "preset.none": "No saved presets",
   "preset.overwrite": "Overwrite",
   "preset.saveAs": "Save as new…",
+  "preset.saveAsTitle": "Save as new preset",
+  "preset.saveAsBody": "Snapshots the current Active set under a new name.",
   "preset.restoreLast": "Restore previous",
   "preset.deleteConfirm": "Delete preset “{name}”?",
+  "preset.deleteBody":
+    "Only the saved snapshot is removed. Current skills stay as they are.",
+  "preset.deleteAction": "Delete preset",
+  "preset.keep": "Keep preset",
   "preset.newName": "New preset name",
   "preset.newPlaceholder": "e.g. dev-and-writing…",
   "preset.applyNamed": "Apply preset “{name}”",
@@ -230,6 +243,11 @@ const en = {
   "global.restoreAll": "Restore all",
   "global.restoreAllConfirm": "Restore all tracked skills?",
 
+  // add skills dialog
+  "addSkills.body":
+    "Fetch Skill candidates from a GitHub repository. Nothing is installed until you pick them on the next screen.",
+  "addSkills.hint": "e.g. anthropics/skills or https://github.com/owner/repo",
+
   // external preview page
   "preview.title": "External skills",
   "preview.noSource": "No source specified",
@@ -254,6 +272,7 @@ const en = {
   "detail.updateOne": "Update",
   "detail.removeConfirm":
     "Remove from management? Applies to global remove, skills.lock.json, and project-decks.",
+  "detail.removeTitle": "Remove “{name}” from management?",
   "detail.remove": "Remove from management",
   "detail.available": "Available to install",
   "detail.installSelected": "Install selected",
@@ -299,6 +318,7 @@ const ja: MessageCatalog = {
   "nav.decks": "Decks",
   "nav.newDeck": "+ Deck",
   "nav.settings": "設定",
+  "nav.open": "ナビゲーションを開く",
   "search.aria": "スキルを検索",
   "search.placeholder": "スキルを検索…",
   "filter.placeholder": "スキルを絞り込む…",
@@ -317,6 +337,7 @@ const ja: MessageCatalog = {
   "common.checking": "確認中…",
   "common.updating": "更新中…",
   "common.noMatches": "一致するスキルがありません",
+  "toast.dismiss": "閉じる",
   "projection.caption": "Catalog {total} から織り込まれた実行中の subset",
 
   "error.title": "読み込みに失敗しました",
@@ -341,6 +362,9 @@ const ja: MessageCatalog = {
   "tristate.bulkOff": "すべてオフ",
   "tristate.bulkOffConfirm":
     "このリポジトリ管理下のアクティブなスキルをすべてオフにします（未管理のスキルはそのまま）。直前の構成は「直前に戻す」で復元できます。よろしいですか？",
+  "tristate.bulkOffTitle": "アクティブなスキルをすべてオフにしますか？",
+  "tristate.changes": "未反映の変更 {count} 件",
+  "tristate.reset": "リセット",
   "tristate.archived": "Archived skills ({count})",
   "list.collisionBadge": "衝突回避",
 
@@ -358,14 +382,23 @@ const ja: MessageCatalog = {
   "custom.updateAll": "更新があるものをすべてupdate ({count})",
   "custom.updateOne": "個別update",
   "custom.diffNote": "SKILL.md は一致。他ファイルに差分があります。",
+  "custom.upToDate": "最新です",
+  "custom.upToDateBody": "すべての custom skill がソースと一致しています。",
 
   "preset.title": "プリセット",
   "preset.selectAria": "プリセットを選択",
   "preset.none": "保存済みプリセットなし",
   "preset.overwrite": "上書き保存",
   "preset.saveAs": "別名で保存…",
+  "preset.saveAsTitle": "新しいプリセットとして保存",
+  "preset.saveAsBody":
+    "現在の Active 構成を新しい名前でスナップショットします。",
   "preset.restoreLast": "直前に戻す",
   "preset.deleteConfirm": "プリセット “{name}” を削除しますか？",
+  "preset.deleteBody":
+    "保存済みのスナップショットだけを削除します。現在のスキル構成はそのままです。",
+  "preset.deleteAction": "プリセットを削除",
+  "preset.keep": "残す",
   "preset.newName": "新しいプリセット名",
   "preset.newPlaceholder": "例: 開発・執筆 などの名前…",
   "preset.applyNamed": "プリセット “{name}” を適用",
@@ -401,6 +434,10 @@ const ja: MessageCatalog = {
   "global.catalogSub": "外部スキルの追加",
   "global.backToGlobal": "globalに戻る",
   "global.addSkills": "skillsを追加",
+  "addSkills.body":
+    "GitHub リポジトリから Skill 候補を取得します。次の画面で選ぶまで何もインストールされません。",
+  "addSkills.hint":
+    "例: anthropics/skills または https://github.com/owner/repo",
   "global.checkUpdates": "更新を確認",
   "global.restoreAll": "すべて復元",
   "global.restoreAllConfirm": "トラック中のスキルをすべて復元しますか?",
@@ -426,6 +463,7 @@ const ja: MessageCatalog = {
   "detail.updateOne": "個別update",
   "detail.removeConfirm":
     "管理から外しますか？ global remove、skills.lock.json、project-decks に反映します。",
+  "detail.removeTitle": "“{name}” を管理から外しますか？",
   "detail.remove": "管理から外す",
   "detail.available": "install 可能",
   "detail.installSelected": "選択してinstall",

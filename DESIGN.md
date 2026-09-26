@@ -51,8 +51,8 @@ spacing:
   xl: 3rem
 components:
   button-primary:
-    backgroundColor: "{colors.accent}"
-    textColor: "{colors.accent-ink}"
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.paper}"
     rounded: "{rounded.sm}"
   button-secondary:
     textColor: "{colors.ink}"
@@ -71,7 +71,7 @@ The palette is a warm light paper scale with one refined system blue; semantic s
 - **Ink (`ink`, `ink-2`):** primary and secondary text tones; `ink-2` also carries metadata and placeholders.
 - **Rules (`rule`, `rule-strong`):** hairline borders, dividers, and sort headers; `rule-strong` is the hover/edge variant.
 - **Chrome (`chrome`, `chrome-border`):** translucent white for sticky topbars, toolbars, and nav panels, always paired with backdrop blur; fall back to opaque white under `prefers-reduced-transparency: reduce`.
-- **Accent (`accent` and its variants):** `accent` drives primary buttons, active nav, and indicators; `accent-hover` is its pressed state; `accent-soft` tints selected rows and focus rings; `accent-ink` is the only text color placed on `accent`; `accent-text` is the accent-family color for text on light backgrounds (it keeps 4.5:1 on `accent-soft`); `focus` marks focused input borders.
+- **Accent (`accent` and its variants):** `accent` drives active nav, selection, and indicators; `accent-hover` is its pressed state; `accent-soft` tints selected rows and focus rings; `accent-ink` is the only text color placed on `accent`; `accent-text` is the accent-family color for text on light backgrounds (it keeps 4.5:1 on `accent-soft`); `focus` marks focused input borders.
 - **Status (`warn`, `warn-soft`, `warn-text`, `draft`, `draft-soft`):** tinted background + darker text pairs for status pills; `warn` itself is for icons and borders only — text on `warn-soft` uses `warn-text` to keep 4.5:1. Never use status colors as full-surface backgrounds.
 
 ## Typography
@@ -96,7 +96,7 @@ Corner radii are continuous and three-stepped: `sm` for controls, inputs, and ch
 
 ## Components
 
-Buttons are the primary shared control: primary buttons pair `accent` with `accent-ink` text at `sm` radius, secondary buttons pair a hairline `rule` border with `ink` text at the same radius, and both give instant pointer-down feedback (slight scale press, no release delay). Text inputs and search fields use the `sm` radius, a `rule` border, and a focus treatment of `focus` border plus an `accent-soft` ring. List rows sit on divided `rule` hairlines, and dirty rows carry an accent warp thread at the left edge instead of a heavier highlight.
+Buttons are the primary shared control: primary buttons pair an `ink` face with `paper` text at `sm` radius (at most one per area; `accent` stays for selection, indicators, and focus), destructive confirmations use a `warn-text` face with white text, secondary buttons pair a hairline `rule` border with `ink` text at the same radius, and both give instant pointer-down feedback (slight scale press, no release delay). Text inputs and search fields use the `sm` radius, a `rule` border, and a focus treatment of `focus` border plus an `accent-soft` ring. List rows sit on divided `rule` hairlines, and dirty rows carry an accent warp thread at the left edge instead of a heavier highlight.
 
 ## Do's and Don'ts
 

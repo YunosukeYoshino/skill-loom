@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { SkillRow, Tristate } from "@shared/api-types";
 import { useListViewSearch } from "@/router-search";
 import { useT } from "@/settings/react";
+import { useConfirm } from "./dialog";
 import { Button, pendingLabel } from "./ui";
 
 /**
@@ -41,11 +42,34 @@ const pillClass: Record<string, string> = {
 
 type SortKey = "name" | "category" | "status" | "source";
 
+/** 絞り込み語が fields のどれかに (大小無視で) 含まれるか。空なら常に true */
+function matchesFilter(filter: string, ...fields: string[]): boolean {
+  const q = filter.trim().toLowerCase();
+  return !q || fields.some((field) => field.toLowerCase().includes(q));
+}
+
+/** 絞り込み後の行と、その行がすべて / いくつか選択済みか */
+export function filterSelection<
+  T extends { name: string; category: string; description: string },
+>(rows: T[], filter: string, isSelected: (name: string) => boolean) {
+  const filtered = rows.filter((row) =>
+    matchesFilter(filter, row.name, row.category, row.description)
+  );
+  const filteredNames = filtered.map((row) => row.name);
+  return {
+    filtered,
+    filteredNames,
+    allFilteredSelected:
+      filteredNames.length > 0 && filteredNames.every(isSelected),
+    someFilteredSelected: filteredNames.some(isSelected),
+  };
+}
+
 const STATUS_ORDER: Record<string, number> = { active: 0, off: 1, archive: 2 };
 
 /** Shared track: Name | Category | Source | Status(toggle) */
 const ROW_GRID =
-  "grid items-center gap-x-3 px-3 [grid-template-columns:minmax(0,1.5fr)_minmax(8rem,1fr)_4.5rem_12rem] max-md:[grid-template-columns:minmax(0,1fr)_12rem]";
+  "grid items-center gap-x-3 px-3 [grid-template-columns:minmax(0,1.5fr)_minmax(8rem,1fr)_4.5rem_12rem] max-md:[grid-template-columns:minmax(0,1fr)_12rem] max-sm:[grid-template-columns:minmax(0,1fr)] max-sm:gap-y-2.5";
 
 function sortValue(row: SkillRow, key: SortKey): string | number {
   if (key === "name") return row.name.toLowerCase();
@@ -101,7 +125,7 @@ function SortHeader({
 
   return (
     <div
-      className={`${ROW_GRID} bg-[var(--color-paper-2)]/70 py-2 text-[11px] font-semibold tracking-[0.02em] text-[var(--color-ink-2)] uppercase`}
+      className={`${ROW_GRID} bg-[var(--color-paper-2)]/70 py-2 max-sm:hidden text-[11px] font-semibold tracking-[0.02em] text-[var(--color-ink-2)] uppercase`}
     >
       {cols.map((col) => {
         const active = sortKey === col.key;
@@ -148,6 +172,7 @@ export function TristateList({
   busy?: boolean;
 }) {
   const t = useT();
+  const confirm = useConfirm();
   const mainRows = rows ?? [];
   const archiveRows = archivedRows ?? [];
   const initial = useMemo(() => {
@@ -187,28 +212,13 @@ export function TristateList({
     setStates(initial);
   }
 
-  const match = (row: SkillRow) => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      row.name.toLowerCase().includes(q) ||
-      row.category.toLowerCase().includes(q) ||
-      row.description.toLowerCase().includes(q) ||
-      row.source.toLowerCase().includes(q)
-    );
-  };
+  const match = (row: SkillRow) =>
+    matchesFilter(filter, row.name, row.category, row.description, row.source);
 
   const sortedRows = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    const filtered = mainRows.filter((row) => {
-      if (!q) return true;
-      return (
-        row.name.toLowerCase().includes(q) ||
-        row.category.toLowerCase().includes(q) ||
-        row.description.toLowerCase().includes(q) ||
-        row.source.toLowerCase().includes(q)
-      );
-    });
+    const filtered = mainRows.filter((row) =>
+      matchesFilter(filter, row.name, row.category, row.description, row.source)
+    );
     return [...filtered].sort((a, b) => {
       const va = sortValue(a, sortKey);
       const vb = sortValue(b, sortKey);
@@ -254,6 +264,7 @@ export function TristateList({
             variant="primary"
             disabled={!dirty || busy}
             onClick={() => onApply(states)}
+            className="max-md:hidden"
           >
             {pendingLabel(!!busy, t("tristate.apply"), t("tristate.applying"))}
             {dirty ? (
@@ -265,10 +276,14 @@ export function TristateList({
           {onBulkOff ? (
             <Button
               disabled={busy || !hasManagedActive}
-              onClick={() => {
-                if (confirm(t("tristate.bulkOffConfirm"))) {
-                  onBulkOff();
-                }
+              onClick={async () => {
+                const ok = await confirm({
+                  title: t("tristate.bulkOffTitle"),
+                  body: t("tristate.bulkOffConfirm"),
+                  confirmLabel: t("tristate.bulkOff"),
+                  tone: "danger",
+                });
+                if (ok) onBulkOff();
               }}
             >
               {pendingLabel(
@@ -325,6 +340,32 @@ export function TristateList({
           </div>
         </details>
       ) : null}
+      {dirty ? (
+        <div
+          data-changes-bar
+          className="toast-enter fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-ink)] py-2 pr-2 pl-4 text-sm text-[var(--color-paper)] shadow-[0_2px_4px_oklch(20%_0.02_260/0.06),0_24px_64px_oklch(20%_0.02_260/0.22)] md:hidden"
+        >
+          <span className="min-w-0 flex-1 [font-variant-numeric:tabular-nums]">
+            {t("tristate.changes", { count: dirtyNames.length })}
+          </span>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setStates(initial)}
+            className="min-h-10 cursor-pointer rounded-[var(--radius-sm)] px-3 text-[oklch(100%_0_0/0.7)] transition-[background,color] duration-100 hover:bg-[oklch(100%_0_0/0.08)] hover:text-[var(--color-paper)] disabled:opacity-45"
+          >
+            {t("tristate.reset")}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onApply(states)}
+            className="min-h-10 cursor-pointer rounded-[var(--radius-sm)] bg-[var(--color-paper)] px-3.5 font-semibold text-[var(--color-ink)] transition-transform duration-100 active:scale-[0.96] disabled:opacity-45"
+          >
+            {pendingLabel(!!busy, t("tristate.apply"), t("tristate.applying"))}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -343,7 +384,7 @@ function StatusToggle({
   const t = useT();
   return (
     <div
-      className="inline-flex h-10 w-48 justify-self-end rounded-full border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-0.5"
+      className="inline-flex h-10 w-48 justify-self-end rounded-full border border-[var(--color-rule)] bg-[var(--color-paper-3)] p-0.5 max-sm:w-full max-sm:justify-self-stretch"
       role="group"
       aria-label={t("statusToggle.aria", { name })}
     >
@@ -352,9 +393,9 @@ function StatusToggle({
         return (
           <label
             key={opt}
-            className={`flex flex-1 cursor-pointer items-center justify-center rounded-full px-1 text-[11px] font-semibold tracking-tight transition-[transform,background,color,box-shadow] duration-100 ease-out active:scale-[0.96] ${
+            className={`flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full px-1 text-[11px] font-semibold tracking-tight capitalize transition-[transform,background,color,box-shadow] duration-100 ease-out active:scale-[0.96] ${
               selected
-                ? "bg-[var(--color-accent)] text-[var(--color-accent-ink)] shadow-[0_1px_2px_oklch(20%_0.02_260_/_0.18)]"
+                ? "bg-[var(--surface)] text-[var(--color-ink)] shadow-[0_1px_2px_oklch(20%_0.02_260_/_0.12),0_0_0_0.5px_oklch(20%_0.02_260_/_0.06)]"
                 : "text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
             }`}
           >
@@ -366,6 +407,12 @@ function StatusToggle({
               disabled={opt === "active" && canActivate === false}
               onChange={() => onChange(name, opt)}
             />
+            {selected && opt === "active" ? (
+              <i
+                aria-hidden
+                className="size-1.5 rounded-full bg-[var(--color-accent)]"
+              />
+            ) : null}
             {opt}
           </label>
         );
@@ -391,7 +438,7 @@ function TristateRow({
   if (compact) {
     return (
       <div
-        className={`loom-row grid grid-cols-[minmax(0,1fr)_12rem] items-center gap-x-3 px-3 py-2.5${dirty ? " warp-row" : ""}`}
+        className={`loom-row grid grid-cols-[minmax(0,1fr)_12rem] items-center gap-x-3 px-3 py-2.5 max-sm:grid-cols-1 max-sm:gap-y-2.5${dirty ? " warp-row" : ""}`}
       >
         <div className="min-w-0">
           <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
@@ -479,19 +526,8 @@ export function CheckboxList({
     setSelected(Object.fromEntries(rows.map((r) => [r.name, !!r.checked])));
   }
 
-  const filtered = rows.filter((row) => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      row.name.toLowerCase().includes(q) ||
-      row.category.toLowerCase().includes(q) ||
-      row.description.toLowerCase().includes(q)
-    );
-  });
-  const filteredNames = filtered.map((row) => row.name);
-  const allFilteredSelected =
-    filteredNames.length > 0 && filteredNames.every((name) => !!selected[name]);
-  const someFilteredSelected = filteredNames.some((name) => !!selected[name]);
+  const { filtered, filteredNames, allFilteredSelected, someFilteredSelected } =
+    filterSelection(rows, filter, (name) => !!selected[name]);
 
   const skills = Object.entries(selected)
     .filter(([, v]) => v)

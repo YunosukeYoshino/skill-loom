@@ -1,10 +1,17 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ApiError, api } from "@/api/client";
 import type {
   CustomUpdatable,
   ExternalSourceDetailPayload,
+  GlobalPayload,
   InstalledExternal,
   PresetPreview,
   PresetSummary,
@@ -16,8 +23,10 @@ import {
   ExternalImportForm,
   SearchField,
   TristateList,
+  filterSelection,
   useLoomFilter,
 } from "@/components/lists";
+import { DialogFrame, useConfirm } from "@/components/dialog";
 import { useListViewSearch } from "@/router-search";
 import { useT, useUiSettings } from "@/settings/react";
 import {
@@ -30,7 +39,9 @@ import {
   Button,
   Message,
   PageError,
+  Modal,
   PageLoading,
+  Toast,
   WorkbenchShell,
   pendingLabel,
 } from "@/components/ui";
@@ -321,9 +332,37 @@ function CustomUpdatesPanel({
   onUpdateAll: () => void;
 }) {
   const t = useT();
-  if (!items.length) return null;
+  if (!items.length) {
+    return (
+      <div
+        role="status"
+        className="mb-4 flex items-center gap-2.5 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2.5 text-sm"
+      >
+        <span
+          aria-hidden
+          className="grid size-6 shrink-0 place-items-center rounded-full bg-[var(--color-accent-soft)] text-[var(--color-accent-text)]"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path
+              d="M2.5 6.2 5 8.5l4.5-5"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+        <span className="min-w-0">
+          <b className="font-semibold">{t("custom.upToDate")}</b>
+          <span className="block text-xs text-[var(--color-ink-2)]">
+            {t("custom.upToDateBody")}
+          </span>
+        </span>
+      </div>
+    );
+  }
   return (
-    <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
+    <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <h2 className="m-0 text-sm font-semibold [font-variant-numeric:tabular-nums]">
           {t("custom.newerSource", { count: items.length })}
@@ -414,25 +453,28 @@ function PresetPreviewPanel({ preview }: { preview: PresetPreview }) {
 
   if (!rows.length) {
     return (
-      <p className="m-0 text-sm text-[var(--color-ink-2)]">
+      <p className="m-0 mt-1.5 text-sm text-[var(--color-ink-2)]">
         {t("preset.noChanges")}
       </p>
     );
   }
 
   return (
-    <div className="grid gap-2">
+    <ul className="m-0 mt-3.5 max-h-[50vh] list-none divide-y divide-[var(--color-rule)] overflow-auto rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-0">
       {rows.map((row) => (
-        <div key={row.label}>
-          <p className="m-0 mb-1 text-xs font-semibold text-[var(--color-ink-2)]">
-            {row.label} ({row.items.length})
+        <li key={row.label} className="py-2">
+          <p className="m-0 flex items-baseline justify-between gap-3 font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase">
+            {row.label}
+            <b className="text-xs font-semibold text-[var(--color-ink)] [font-variant-numeric:tabular-nums]">
+              {row.items.length}
+            </b>
           </p>
-          <p className="m-0 font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink)]">
+          <p className="m-0 mt-1 font-[family-name:var(--font-mono)] text-xs break-words text-[var(--color-ink)]">
             {row.items.join(", ")}
           </p>
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }
 
@@ -464,12 +506,8 @@ function PresetsPanel({
   onCancelPreview: () => void;
 }) {
   const t = useT();
-  const [selected, setSelected] = useState(presets[0]?.name || "");
-  const [newPresetName, setNewPresetName] = useState("");
+  const [selected, setSelected] = useState(() => presets[0]?.name || "");
   const [savingAsNew, setSavingAsNew] = useState(false);
-  const [saveMenuOpen, setSaveMenuOpen] = useState(false);
-  const newPresetInputRef = useRef<HTMLInputElement>(null);
-  const saveMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (presets.length && !presets.some((preset) => preset.name === selected)) {
@@ -477,73 +515,26 @@ function PresetsPanel({
     }
   }, [presets, selected]);
 
-  useEffect(() => {
-    if (!savingAsNew) return;
-    newPresetInputRef.current?.focus();
-  }, [savingAsNew]);
-
-  useEffect(() => {
-    if (!saveMenuOpen) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (!saveMenuRef.current?.contains(event.target as Node))
-        setSaveMenuOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSaveMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [saveMenuOpen]);
-
-  const closeSaveAsNew = () => {
-    setSavingAsNew(false);
-    setNewPresetName("");
-  };
-
-  const openSaveAsNew = () => {
-    setSaveMenuOpen(false);
-    setSavingAsNew(true);
-  };
-
-  const saveAsNew = () => {
-    const name = newPresetName.trim();
-    if (!name) return;
+  const saveAsNew = (name: string) => {
     onSaveAsNew(name);
     setSelected(name);
-    closeSaveAsNew();
+    setSavingAsNew(false);
   };
 
-  const canUseSelected = Boolean(selected) && !busy && !preview;
-  const menuItemClass =
-    "block min-h-10 w-full cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-sm transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-45";
+  // 実行中またはプレビュー確認中は、パネルの操作をすべて止める
+  const locked = busy || !!preview;
+  const canUseSelected = Boolean(selected) && !locked;
 
   return (
-    <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
-      <div
-        className={`flex flex-wrap items-center gap-2${savingAsNew ? " mb-3" : ""}`}
-      >
+    <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]">
+      <div className="flex flex-wrap items-center gap-2">
         <h2 className="m-0 text-sm font-semibold">{t("preset.title")}</h2>
-        <select
-          aria-label={t("preset.selectAria")}
+        <PresetSelect
+          presets={presets}
           value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          disabled={busy || !presets.length || !!preview}
-          className="min-h-10 min-w-[180px] rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-2.5 py-1.5 text-sm text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {presets.length ? (
-            presets.map((preset) => (
-              <option key={preset.name} value={preset.name}>
-                {preset.name} ({preset.skillCount})
-              </option>
-            ))
-          ) : (
-            <option value="">{t("preset.none")}</option>
-          )}
-        </select>
+          onChange={setSelected}
+          disabled={locked}
+        />
         <Button
           variant="primary"
           disabled={!canUseSelected}
@@ -551,52 +542,14 @@ function PresetsPanel({
         >
           {pendingLabel(!!busy, t("common.apply"), t("common.processing"))}
         </Button>
-        <div className="relative" ref={saveMenuRef}>
-          <Button
-            disabled={busy || !!preview}
-            aria-expanded={saveMenuOpen}
-            aria-haspopup="menu"
-            onClick={() => setSaveMenuOpen((open) => !open)}
-          >
-            {t("common.save")}
-            <span
-              className="ml-1 text-[10px] leading-none text-[var(--color-ink-2)]"
-              aria-hidden
-            >
-              ▾
-            </span>
-          </Button>
-          {saveMenuOpen ? (
-            <div
-              role="menu"
-              className="absolute top-[calc(100%+4px)] left-0 z-30 min-w-[11rem] rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--surface)] p-1 shadow-[var(--shadow-lift)]"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                className={menuItemClass}
-                disabled={!canUseSelected}
-                onClick={() => {
-                  setSaveMenuOpen(false);
-                  onOverwriteSave(selected);
-                }}
-              >
-                {t("preset.overwrite")}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className={menuItemClass}
-                disabled={busy || !!preview}
-                onClick={openSaveAsNew}
-              >
-                {t("preset.saveAs")}
-              </button>
-            </div>
-          ) : null}
-        </div>
+        <SaveMenu
+          disabled={locked}
+          canOverwrite={canUseSelected}
+          onOverwrite={() => onOverwriteSave(selected)}
+          onSaveAs={() => setSavingAsNew(true)}
+        />
         {hasPrevious ? (
-          <Button disabled={busy || !!preview} onClick={onRestoreRequest}>
+          <Button disabled={locked} onClick={onRestoreRequest}>
             {pendingLabel(
               !!busy,
               t("preset.restoreLast"),
@@ -604,86 +557,440 @@ function PresetsPanel({
             )}
           </Button>
         ) : null}
-        <button
-          type="button"
+        <DeletePresetButton
+          name={selected}
+          busy={busy}
           disabled={!canUseSelected}
-          onClick={() => {
-            if (confirm(t("preset.deleteConfirm", { name: selected })))
-              onDelete(selected);
-          }}
-          className="ml-auto min-h-10 cursor-pointer rounded-[var(--radius-sm)] px-2 py-1.5 text-sm text-[var(--color-ink-2)] transition-[transform,color,background] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {pendingLabel(!!busy, t("common.delete"), t("common.processing"))}
-        </button>
+          onDelete={onDelete}
+        />
       </div>
-      {savingAsNew ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-rule)] pt-3">
-          <label
-            htmlFor="new-preset-name"
-            className="text-sm text-[var(--color-ink-2)]"
+      <SavePresetModal
+        open={savingAsNew}
+        busy={busy}
+        disabled={!!preview}
+        onSave={saveAsNew}
+        onClose={() => setSavingAsNew(false)}
+      />
+      <PresetPreviewModal
+        preview={preview}
+        busy={busy}
+        onApplyConfirm={onApplyConfirm}
+        onRestoreConfirm={onRestoreConfirm}
+        onCancel={onCancelPreview}
+      />
+    </div>
+  );
+}
+function DeletePresetButton({
+  name,
+  busy,
+  disabled,
+  onDelete,
+}: {
+  name: string;
+  busy?: boolean;
+  disabled: boolean;
+  onDelete: (name: string) => void;
+}) {
+  const t = useT();
+  const confirm = useConfirm();
+  const requestDelete = async () => {
+    const ok = await confirm({
+      title: t("preset.deleteConfirm", { name }),
+      body: t("preset.deleteBody"),
+      confirmLabel: t("preset.deleteAction"),
+      cancelLabel: t("preset.keep"),
+      tone: "danger",
+    });
+    if (ok) onDelete(name);
+  };
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={requestDelete}
+      className="ml-auto min-h-10 cursor-pointer rounded-[var(--radius-sm)] px-2 py-1.5 text-sm text-[var(--color-ink-2)] transition-[transform,color,background] duration-100 ease-out hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {pendingLabel(!!busy, t("common.delete"), t("common.processing"))}
+    </button>
+  );
+}
+
+function PresetSelect({
+  presets,
+  value,
+  onChange,
+  disabled,
+}: {
+  presets: PresetSummary[];
+  value: string;
+  onChange: (name: string) => void;
+  disabled: boolean;
+}) {
+  const t = useT();
+  return (
+    <select
+      aria-label={t("preset.selectAria")}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled || !presets.length}
+      className="min-h-10 min-w-[180px] rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-2.5 py-1.5 text-sm text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {presets.length ? (
+        presets.map((preset) => (
+          <option key={preset.name} value={preset.name}>
+            {preset.name} ({preset.skillCount})
+          </option>
+        ))
+      ) : (
+        <option value="">{t("preset.none")}</option>
+      )}
+    </select>
+  );
+}
+
+const menuItemClass =
+  "block min-h-10 w-full cursor-pointer rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-sm transition-[transform,background,color] duration-100 ease-out hover:bg-[var(--color-paper-2)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-45";
+
+/** 保存 ▾ メニュー (上書き / 名前を付けて保存)。外側クリックと Esc で閉じる */
+function SaveMenu({
+  disabled,
+  canOverwrite,
+  onOverwrite,
+  onSaveAs,
+}: {
+  disabled: boolean;
+  canOverwrite: boolean;
+  onOverwrite: () => void;
+  onSaveAs: () => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const choose = (action: () => void) => () => {
+    setOpen(false);
+    action();
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button
+        disabled={disabled}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        {t("common.save")}
+        <span
+          className="ml-1 text-[10px] leading-none text-[var(--color-ink-2)]"
+          aria-hidden
+        >
+          ▾
+        </span>
+      </Button>
+      {open ? (
+        <div
+          role="menu"
+          className="absolute top-[calc(100%+4px)] left-0 z-30 min-w-[11rem] rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--surface)] p-1 shadow-[var(--shadow-lift)]"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className={menuItemClass}
+            disabled={!canOverwrite}
+            onClick={choose(onOverwrite)}
           >
-            {t("preset.newName")}
-          </label>
-          <input
-            id="new-preset-name"
-            ref={newPresetInputRef}
-            type="text"
-            value={newPresetName}
-            onChange={(e) => setNewPresetName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") saveAsNew();
-              if (e.key === "Escape") closeSaveAsNew();
-            }}
-            disabled={busy || !!preview}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder={t("preset.newPlaceholder")}
-            className="min-h-10 min-w-[200px] flex-1 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
-          />
-          <Button
-            variant="primary"
-            disabled={busy || !newPresetName.trim() || !!preview}
-            onClick={saveAsNew}
+            {t("preset.overwrite")}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={menuItemClass}
+            disabled={disabled}
+            onClick={choose(onSaveAs)}
           >
-            {pendingLabel(!!busy, t("common.save"), t("common.processing"))}
-          </Button>
-          <Button disabled={busy} onClick={closeSaveAsNew}>
-            {t("common.cancel")}
-          </Button>
-        </div>
-      ) : null}
-      {preview ? (
-        <div className="rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] p-3">
-          <p className="m-0 mb-2 text-sm font-semibold">
-            {preview.name === "_last"
-              ? t("preset.applyLast")
-              : t("preset.applyNamed", { name: preview.name })}
-          </p>
-          <PresetPreviewPanel preview={preview} />
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              disabled={busy || preview.blocked}
-              onClick={
-                preview.name === "_last" ? onRestoreConfirm : onApplyConfirm
-              }
-            >
-              {pendingLabel(!!busy, t("common.run"), t("common.processing"))}
-            </Button>
-            <Button disabled={busy} onClick={onCancelPreview}>
-              {t("common.cancel")}
-            </Button>
-          </div>
+            {t("preset.saveAs")}
+          </button>
         </div>
       ) : null}
     </div>
   );
 }
 
+/** 現在のスキル構成を新しい名前のプリセットとして保存するダイアログ */
+function SavePresetModal({
+  open,
+  busy,
+  disabled,
+  onSave,
+  onClose,
+}: {
+  open: boolean;
+  busy?: boolean;
+  disabled: boolean;
+  onSave: (name: string) => void;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const [name, setName] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    inputRef.current?.focus();
+  }, [open]);
+
+  const close = () => {
+    setName("");
+    onClose();
+  };
+
+  const save = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setName("");
+    onSave(trimmed);
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => {
+        if (!busy) close();
+      }}
+      labelledBy="save-preset-title"
+    >
+      <DialogFrame
+        titleId="save-preset-title"
+        title={t("preset.saveAsTitle")}
+        footer={
+          <>
+            <Button disabled={busy} onClick={close}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={busy || !name.trim() || disabled}
+              onClick={save}
+            >
+              {pendingLabel(!!busy, t("common.save"), t("common.processing"))}
+            </Button>
+          </>
+        }
+      >
+        <p className="m-0 mt-1.5 text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
+          {t("preset.saveAsBody")}
+        </p>
+        <label
+          htmlFor="new-preset-name"
+          className="mt-3.5 mb-1.5 block font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase"
+        >
+          {t("preset.newName")}
+        </label>
+        <input
+          id="new-preset-name"
+          ref={inputRef}
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+          }}
+          disabled={busy || disabled}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={t("preset.newPlaceholder")}
+          className="min-h-10 w-full rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+        />
+      </DialogFrame>
+    </Modal>
+  );
+}
+
+/** プリセット適用 / 直前に戻す の差分プレビューと実行確認 */
+function PresetPreviewModal({
+  preview,
+  busy,
+  onApplyConfirm,
+  onRestoreConfirm,
+  onCancel,
+}: {
+  preview: PresetPreview | null;
+  busy?: boolean;
+  onApplyConfirm: () => void;
+  onRestoreConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal
+      open={!!preview}
+      onClose={() => {
+        if (!busy) onCancel();
+      }}
+      labelledBy="preset-preview-title"
+    >
+      {preview ? (
+        <PresetPreviewDialog
+          preview={preview}
+          busy={busy}
+          onConfirm={
+            preview.name === "_last" ? onRestoreConfirm : onApplyConfirm
+          }
+          onCancel={onCancel}
+        />
+      ) : null}
+    </Modal>
+  );
+}
+
+function PresetPreviewDialog({
+  preview,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  preview: PresetPreview;
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const t = useT();
+  return (
+    <DialogFrame
+      titleId="preset-preview-title"
+      title={
+        preview.name === "_last"
+          ? t("preset.applyLast")
+          : t("preset.applyNamed", { name: preview.name })
+      }
+      footer={
+        <>
+          <Button disabled={busy} onClick={onCancel}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={busy || preview.blocked}
+            onClick={onConfirm}
+          >
+            {pendingLabel(!!busy, t("common.run"), t("common.processing"))}
+          </Button>
+        </>
+      }
+    >
+      <PresetPreviewPanel preview={preview} />
+    </DialogFrame>
+  );
+}
+
+/** "Add skills" — owner/repo を受けて候補取得へ進むモーダル (max-sm はボトムシート) */
+function AddSkillsDialog({
+  open,
+  busy,
+  error,
+  onClose,
+  onFetch,
+}: {
+  open: boolean;
+  busy?: boolean;
+  error?: string;
+  onClose: () => void;
+  onFetch: (source: string) => void;
+}) {
+  const t = useT();
+  const [source, setSource] = useState("");
+  const close = () => {
+    if (busy) return;
+    setSource("");
+    onClose();
+  };
+  return (
+    <Modal open={open} onClose={close} labelledBy="add-skills-title">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (source.trim() && !busy) onFetch(source.trim());
+        }}
+      >
+        <DialogFrame
+          titleId="add-skills-title"
+          title={t("global.addSkills")}
+          footer={
+            <>
+              <Button disabled={busy} onClick={close}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={busy || !source.trim()}
+              >
+                {pendingLabel(!!busy, t("import.fetch"), t("import.fetching"))}
+              </Button>
+            </>
+          }
+        >
+          <p className="m-0 mt-1.5 text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
+            {t("addSkills.body")}
+          </p>
+          <label
+            htmlFor="add-skills-source"
+            className="mt-3.5 mb-1.5 block font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase"
+          >
+            {t("import.aria")}
+          </label>
+          <input
+            id="add-skills-source"
+            type="text"
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            placeholder={t("import.placeholder")}
+            disabled={busy}
+            autoComplete="off"
+            spellCheck={false}
+            className="min-h-10 w-full rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)] px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none transition-[border-color,box-shadow] duration-100 focus:border-[var(--color-focus)] focus:shadow-[0_0_0_3px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+          />
+          {error ? (
+            <p
+              role="alert"
+              className="m-0 mt-2.5 rounded-[var(--radius-sm)] bg-[var(--color-warn-soft)] px-3 py-2 text-sm text-[var(--color-warn-text)] [text-wrap:pretty]"
+            >
+              {error}
+            </p>
+          ) : (
+            <p className="m-0 mt-2 text-xs text-[var(--color-ink-2)]">
+              {t("addSkills.hint")}
+            </p>
+          )}
+        </DialogFrame>
+      </form>
+    </Modal>
+  );
+}
+
 export function GlobalPage({ catalog }: { catalog: boolean }) {
   const t = useT();
+  const confirm = useConfirm();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const [addOpen, setAddOpen] = useState(false);
   const q = useQuery({
     queryKey: ["global", catalog],
     queryFn: () => api.global(catalog),
@@ -692,52 +999,79 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
     null
   );
   const [pendingPresetName, setPendingPresetName] = useState("");
+  const [toast, setToast] = useState<{
+    id: number;
+    text: string;
+    undo: boolean;
+  } | null>(null);
+  const dismissToast = useCallback(() => setToast(null), []);
+
+  const onGlobalError = (err: unknown) =>
+    applyErrorBody(err, (body) => qc.setQueryData(["global", false], body));
+
+  /** 成功結果の message はインラインではなくトーストへ回す */
+  const settle = (data: GlobalPayload, undo = false) => {
+    qc.setQueryData(["global", false], { ...data, message: undefined });
+    if (data.message) {
+      setToast({
+        id: Date.now(),
+        text: data.message,
+        undo: undo && !!data.hasPreviousPreset,
+      });
+    }
+  };
 
   const apply = useMutation({
     mutationFn: (states: Record<string, Tristate>) => api.apply(states),
-    onSuccess: (data) => qc.setQueryData(["global", false], data),
+    onSuccess: (data) => settle(data, true),
     onError: (err) =>
       applyErrorBody(err, (body) => qc.setQueryData(["global", catalog], body)),
   });
 
   const bulkOff = useMutation({
     mutationFn: () => api.bulkOff(),
-    onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onSuccess: (data) => settle(data, true),
+    onError: onGlobalError,
   });
 
   const restoreAll = useMutation({
-    mutationFn: async () => {
-      const preview = await api.restoreAll(false);
-      if (!confirm(preview.message || t("global.restoreAllConfirm")))
-        return preview;
-      return api.restoreAll(true);
-    },
-    onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    mutationFn: () => api.restoreAll(true),
+    onSuccess: (data) => settle(data),
+    onError: onGlobalError,
   });
+
+  // 確認ダイアログを待つ間は pending にしない (onSuccess で await しない)
+  const restoreAllPreview = useMutation({
+    mutationFn: () => api.restoreAll(false),
+    onSuccess: (preview) => {
+      void confirm({
+        title: t("global.restoreAllConfirm"),
+        body: preview.message || undefined,
+        confirmLabel: t("global.restoreAll"),
+      }).then((ok) => {
+        if (ok) restoreAll.mutate();
+      });
+    },
+    onError: onGlobalError,
+  });
+  const restoreAllBusy = restoreAllPreview.isPending || restoreAll.isPending;
 
   const checkCustom = useMutation({
     mutationFn: () => api.checkCustomUpdates(),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   const updateCustomOne = useMutation({
     mutationFn: (skill: string) => api.updateCustomSkill(skill),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   const updateCustomAll = useMutation({
     mutationFn: () => api.updateAllCustomSkills(),
     onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   const externalPreview = useMutation({
@@ -775,10 +1109,9 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
     onSuccess: (data) => {
       setPresetPreview(null);
       setPendingPresetName("");
-      qc.setQueryData(["global", false], data);
+      settle(data, true);
     },
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   const presetRestorePreview = useMutation({
@@ -804,25 +1137,22 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
     mutationFn: () => api.restorePreset(true),
     onSuccess: (data) => {
       setPresetPreview(null);
-      qc.setQueryData(["global", false], data);
+      settle(data);
     },
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onError: onGlobalError,
   });
 
   const presetSave = useMutation({
     mutationFn: ({ name, overwrite }: { name: string; overwrite: boolean }) =>
       api.savePreset(name, overwrite),
-    onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onSuccess: (data) => settle(data),
+    onError: onGlobalError,
   });
 
   const presetDelete = useMutation({
     mutationFn: (name: string) => api.deletePreset(name),
-    onSuccess: (data) => qc.setQueryData(["global", false], data),
-    onError: (err) =>
-      applyErrorBody(err, (body) => qc.setQueryData(["global", false], body)),
+    onSuccess: (data) => settle(data),
+    onError: onGlobalError,
   });
 
   if (q.isPending) return <PageLoading variant="list" />;
@@ -842,7 +1172,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
     presetSave.isPending ||
     presetDelete.isPending;
   const listBusy =
-    apply.isPending || bulkOff.isPending || restoreAll.isPending || presetBusy;
+    apply.isPending || bulkOff.isPending || restoreAllBusy || presetBusy;
 
   return (
     <WorkbenchShell
@@ -905,8 +1235,9 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
           data.message ||
           errMessage(apply.error) ||
           errMessage(bulkOff.error) ||
+          errMessage(restoreAllPreview.error) ||
           errMessage(restoreAll.error) ||
-          errMessage(externalPreview.error) ||
+          (catalog ? errMessage(externalPreview.error) : "") ||
           errMessage(checkCustom.error) ||
           errMessage(updateCustomOne.error) ||
           errMessage(updateCustomAll.error) ||
@@ -926,7 +1257,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
               ? t("status.updatingSkills")
               : bulkOff.isPending
                 ? t("status.bulkOff")
-                : restoreAll.isPending
+                : restoreAllBusy
                   ? t("status.restoreAll")
                   : apply.isPending
                     ? t("status.applying")
@@ -947,13 +1278,17 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
           </Link>
         ) : (
           <>
-            <Link
-              to="/global"
-              search={{ catalog: true }}
-              className="inline-flex min-h-10 items-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] px-2.5 py-1.5 text-sm transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
+            <Button
+              variant="primary"
+              aria-haspopup="dialog"
+              onClick={() => {
+                externalPreview.reset();
+                setAddOpen(true);
+              }}
             >
+              <span aria-hidden>+</span>
               {t("global.addSkills")}
-            </Link>
+            </Button>
             <Button
               disabled={customBusy || listBusy}
               onClick={() => checkCustom.mutate()}
@@ -966,10 +1301,10 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
             </Button>
             <Button
               disabled={customBusy || listBusy}
-              onClick={() => restoreAll.mutate()}
+              onClick={() => restoreAllPreview.mutate()}
             >
               {pendingLabel(
-                restoreAll.isPending,
+                restoreAllBusy,
                 t("global.restoreAll"),
                 t("common.processing")
               )}
@@ -992,6 +1327,26 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
           onBulkOff={() => bulkOff.mutate()}
         />
       )}
+      <AddSkillsDialog
+        open={addOpen}
+        busy={externalPreview.isPending}
+        error={errMessage(externalPreview.error)}
+        onClose={() => setAddOpen(false)}
+        onFetch={(source) => externalPreview.mutate(source)}
+      />
+      <Toast
+        id={toast?.id}
+        text={toast?.text}
+        action={
+          toast?.undo
+            ? {
+                label: t("preset.restoreLast"),
+                onClick: () => presetRestorePreview.mutate(),
+              }
+            : undefined
+        }
+        onDismiss={dismissToast}
+      />
     </WorkbenchShell>
   );
 }
@@ -1154,22 +1509,8 @@ function SelectableSkills({
     );
   }, [rows, presetChecked]);
 
-  const filtered = rows.filter((row) => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      row.name.toLowerCase().includes(q) ||
-      row.category.toLowerCase().includes(q) ||
-      row.description.toLowerCase().includes(q)
-    );
-  });
-  const filteredNames = filtered.map((row) => row.name);
-  const allFilteredSelected =
-    filteredNames.length > 0 &&
-    filteredNames.every((name) => selected.includes(name));
-  const someFilteredSelected = filteredNames.some((name) =>
-    selected.includes(name)
-  );
+  const { filtered, filteredNames, allFilteredSelected, someFilteredSelected } =
+    filterSelection(rows, filter, (name) => selected.includes(name));
 
   return (
     <div>
@@ -1380,6 +1721,7 @@ export function ExternalSourcesPage() {
 
 export function ExternalSourceDetailPage({ source }: { source: string }) {
   const t = useT();
+  const confirm = useConfirm();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const q = useQuery({
@@ -1615,10 +1957,14 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             ) : null}
             <Button
               disabled={detailBusy}
-              onClick={() => {
-                if (confirm(t("detail.removeConfirm"))) {
-                  remove.mutate(skill.name);
-                }
+              onClick={async () => {
+                const ok = await confirm({
+                  title: t("detail.removeTitle", { name: skill.name }),
+                  body: t("detail.removeConfirm"),
+                  confirmLabel: t("detail.remove"),
+                  tone: "danger",
+                });
+                if (ok) remove.mutate(skill.name);
               }}
             >
               {pendingLabel(
@@ -1799,7 +2145,7 @@ export function ProjectDeckPage({
         }
       />
       {data.installCommands.length ? (
-        <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
+        <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]">
           <div className="mb-1 font-[family-name:var(--font-mono)] text-[10px] tracking-wide text-[var(--color-ink-2)]">
             INSTALLATION
           </div>
