@@ -989,7 +989,6 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
   const t = useT();
   const confirm = useConfirm();
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const [addOpen, setAddOpen] = useState(false);
   const q = useQuery({
     queryKey: ["global", catalog],
@@ -1074,16 +1073,7 @@ export function GlobalPage({ catalog }: { catalog: boolean }) {
     onError: onGlobalError,
   });
 
-  const externalPreview = useMutation({
-    mutationFn: (source: string) => api.previewExternal(source, ""),
-    onSuccess: (data) => {
-      qc.setQueryData(["external-preview", "", data.source], data);
-      navigate({
-        to: "/external-preview",
-        search: { source: data.source, deck: "" },
-      });
-    },
-  });
+  const externalPreview = useExternalPreview();
 
   const presetApplyPreview = useMutation({
     mutationFn: (name: string) => api.applyPreset(name, false),
@@ -1592,6 +1582,22 @@ function SelectableSkills({
   );
 }
 
+/** preview 取得して external-preview ページへ飛ばす共通フック（deck 指定なし用）。 */
+function useExternalPreview() {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (source: string) => api.previewExternal(source, ""),
+    onSuccess: (data) => {
+      qc.setQueryData(["external-preview", "", data.source], data);
+      navigate({
+        to: "/external-preview",
+        search: { source: data.source, deck: "" },
+      });
+    },
+  });
+}
+
 type DiscoverCard = {
   source: string;
   skillId: string;
@@ -1603,10 +1609,79 @@ const compactInstalls = new Intl.NumberFormat("en-US", {
   notation: "compact",
 });
 
+function DiscoverSkillCard({
+  card,
+  busy,
+  onPreview,
+}: {
+  card: DiscoverCard;
+  busy: boolean;
+  onPreview: (source: string) => void;
+}) {
+  const owner = card.source.split("/")[0] ?? "";
+  return (
+    <button
+      type="button"
+      onClick={() => onPreview(card.source)}
+      disabled={busy}
+      className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 text-left transition-colors duration-200 hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
+    >
+      <img
+        src={`https://github.com/${owner}.png`}
+        alt=""
+        loading="lazy"
+        className="h-10 w-10 shrink-0 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)]"
+      />
+      <span className="min-w-0">
+        <span className="block truncate font-medium">{card.name}</span>
+        <span className="block truncate text-sm text-[var(--color-ink-2)] [font-variant-numeric:tabular-nums]">
+          {owner} · ↓ {compactInstalls.format(card.installs)}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function DiscoverResults({
+  cards,
+  searched,
+  busy,
+  onPreview,
+}: {
+  cards: DiscoverCard[];
+  searched: boolean;
+  busy: boolean;
+  onPreview: (source: string) => void;
+}) {
+  const t = useT();
+  if (!searched) return null;
+  return (
+    <>
+      <p className="mt-3 text-xs font-medium uppercase tracking-wide text-[var(--color-ink-2)]">
+        {cards.length}
+      </p>
+      {cards.length === 0 ? (
+        <p className="mt-3 text-sm text-[var(--color-ink-2)]">
+          {t("discover.empty")}
+        </p>
+      ) : (
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {cards.map((card) => (
+            <DiscoverSkillCard
+              key={`${card.source}/${card.skillId}`}
+              card={card}
+              busy={busy}
+              onPreview={onPreview}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 function DiscoverSearch() {
   const t = useT();
-  const navigate = useNavigate();
-  const qc = useQueryClient();
   const [query, setQuery] = useState("");
   const [term, setTerm] = useState("");
   // queryKey が検索語を保持するので、前の検索語の結果が新しい入力に残らない
@@ -1615,16 +1690,7 @@ function DiscoverSearch() {
     queryFn: () => api.discoverSearch(term),
     enabled: term.length >= 2,
   });
-  const preview = useMutation({
-    mutationFn: (source: string) => api.previewExternal(source, ""),
-    onSuccess: (data) => {
-      qc.setQueryData(["external-preview", "", data.source], data);
-      navigate({
-        to: "/external-preview",
-        search: { source: data.source, deck: "" },
-      });
-    },
-  });
+  const preview = useExternalPreview();
 
   // 入力 debounce: 2文字以上で検索語を確定、未満なら結果を消す
   useEffect(() => {
@@ -1633,18 +1699,14 @@ function DiscoverSearch() {
     return () => clearTimeout(id);
   }, [query]);
 
-  const searched = search.data !== undefined;
-  const cards: DiscoverCard[] = searched
-    ? search.data.results.flatMap((r) =>
-        r.skills.map((s) => ({
-          source: r.source,
-          skillId: s.skillId,
-          name: s.name,
-          installs: s.installs,
-        }))
-      )
-    : [];
-  const busy = preview.isPending;
+  const cards: DiscoverCard[] = (search.data?.results ?? []).flatMap((r) =>
+    r.skills.map((s) => ({
+      source: r.source,
+      skillId: s.skillId,
+      name: s.name,
+      installs: s.installs,
+    }))
+  );
 
   return (
     <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]">
@@ -1663,46 +1725,12 @@ function DiscoverSearch() {
           {errMessage(search.error)}
         </p>
       ) : null}
-      {searched ? (
-        <p className="mt-3 text-xs font-medium uppercase tracking-wide text-[var(--color-ink-2)]">
-          {cards.length}
-        </p>
-      ) : null}
-      {!searched ? null : cards.length === 0 ? (
-        <p className="mt-3 text-sm text-[var(--color-ink-2)]">
-          {t("discover.empty")}
-        </p>
-      ) : (
-        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {cards.map((card) => {
-            const owner = card.source.split("/")[0] ?? "";
-            return (
-              <button
-                key={`${card.source}/${card.skillId}`}
-                type="button"
-                onClick={() => preview.mutate(card.source)}
-                disabled={busy}
-                className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 text-left transition-colors duration-200 hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
-              >
-                <img
-                  src={`https://github.com/${owner}.png`}
-                  alt=""
-                  loading="lazy"
-                  className="h-10 w-10 shrink-0 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)]"
-                />
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">
-                    {card.name}
-                  </span>
-                  <span className="block truncate text-sm text-[var(--color-ink-2)] [font-variant-numeric:tabular-nums]">
-                    {owner} · ↓ {compactInstalls.format(card.installs)}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <DiscoverResults
+        cards={cards}
+        searched={search.data !== undefined}
+        busy={preview.isPending}
+        onPreview={preview.mutate}
+      />
     </div>
   );
 }

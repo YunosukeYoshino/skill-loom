@@ -167,7 +167,3 @@ export type ExternalPreviewPayload = {
   source: string;
   rows: SkillRow[];
 };
-
-export type ApiErrorBody = {
-  message?: string;
-};

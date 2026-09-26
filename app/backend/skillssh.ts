@@ -16,11 +16,6 @@ const MAX_ENTRIES = 50;
 
 const cache = new Map<string, { at: number; data: DiscoverSource[] }>();
 
-/** テスト用。TTL 内のキャッシュが残っていると別 fixture の結果を拾ってしまう。 */
-export function clearDiscoverCache(): void {
-  cache.clear();
-}
-
 export type SearchResultSkill = {
   source?: unknown;
   skillId?: unknown;
@@ -50,18 +45,38 @@ export function groupBySource(skills: SearchResultSkill[]): DiscoverSource[] {
   return [...bySource.values()].sort((a, b) => b.installs - a.installs);
 }
 
-export async function searchSkillsSh(
-  query: string
-): Promise<DiscoverSource[]> {
+function cacheGet(key: string): DiscoverSource[] | undefined {
   const now = Date.now();
-  const cached = cache.get(query);
-  if (cached && now - cached.at < TTL_MS) {
-    // Map は挿入順を保つので、移し直して LRU に近い退避順にする
-    cache.delete(query);
-    cache.set(query, cached);
-    return cached.data;
+  const cached = cache.get(key);
+  if (!cached) return undefined;
+  if (now - cached.at >= TTL_MS) {
+    cache.delete(key);
+    return undefined;
   }
-  cache.delete(query);
+  // Map は挿入順を保つので、移し直して LRU に近い退避順にする
+  cache.delete(key);
+  cache.set(key, cached);
+  return cached.data;
+}
+
+function cacheSet(key: string, data: DiscoverSource[]): void {
+  const now = Date.now();
+  cache.set(key, { at: now, data });
+  // q はユーザー入力由来で無限に増え得るので、期限切れを掃除してから上限で絞る
+  if (cache.size <= MAX_ENTRIES) return;
+  for (const [key, entry] of cache) {
+    if (now - entry.at >= TTL_MS) cache.delete(key);
+  }
+  while (cache.size > MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
+export async function searchSkillsSh(query: string): Promise<DiscoverSource[]> {
+  const cached = cacheGet(query);
+  if (cached) return cached;
 
   const params = new URLSearchParams({
     q: query,
@@ -76,17 +91,6 @@ export async function searchSkillsSh(
   const skills = Array.isArray(payload.skills) ? payload.skills : [];
 
   const data = groupBySource(skills);
-  cache.set(query, { at: now, data });
-  // q はユーザー入力由来で無限に増え得るので、期限切れを掃除してから上限で絞る
-  if (cache.size > MAX_ENTRIES) {
-    for (const [key, entry] of cache) {
-      if (now - entry.at >= TTL_MS) cache.delete(key);
-    }
-    while (cache.size > MAX_ENTRIES) {
-      const oldest = cache.keys().next().value;
-      if (oldest === undefined) break;
-      cache.delete(oldest);
-    }
-  }
+  cacheSet(query, data);
   return data;
 }
