@@ -91,6 +91,17 @@ export type OgpPayload = {
   image: string | null;
 };
 
+export type DiscoverSource = {
+  source: string;
+  installs: number;
+  skills: { skillId: string; name: string; installs: number }[];
+};
+
+export type DiscoverSearchPayload = {
+  results: DiscoverSource[];
+  message?: string;
+};
+
 export type ExternalSourcesPayload = {
   page: string;
   title: string;

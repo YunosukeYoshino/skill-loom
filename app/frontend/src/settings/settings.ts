@@ -174,6 +174,11 @@ const en = {
   "import.fetch": "Fetch candidates",
   "import.fetching": "Fetching…",
 
+  // skills.sh discover
+  "discover.title": "Discover on skills.sh",
+  "discover.placeholder": "Search skills.sh…",
+  "discover.empty": "No skills matched",
+
   // view toggle
   "view.aria": "View mode",
   "view.grid": "Grid",
@@ -372,6 +377,10 @@ const ja: MessageCatalog = {
   "import.placeholder": "owner/repo または GitHub URL…",
   "import.fetch": "候補を取得",
   "import.fetching": "取得中…",
+
+  "discover.title": "skills.sh で探す",
+  "discover.placeholder": "skills.sh を検索…",
+  "discover.empty": "一致する skill がありません",
 
   "view.aria": "表示モード",
   "view.grid": "グリッド",

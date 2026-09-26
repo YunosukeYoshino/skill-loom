@@ -1,4 +1,5 @@
 import type {
+  DiscoverSearchPayload,
   DraftsPayload,
   ExternalPreviewPayload,
   ExternalSourceDetailPayload,
@@ -139,6 +140,11 @@ export const api = {
     request<ExternalSourceDetailPayload>(`/api/external-sources/${source}`),
 
   ogp: (source: string) => request<OgpPayload>(`/api/ogp/${source}`),
+
+  discoverSearch: (q: string) =>
+    request<DiscoverSearchPayload>(
+      `/api/discover-search?q=${encodeURIComponent(q)}`
+    ),
 
   checkUpdates: (source: string) =>
     request<ExternalSourceDetailPayload>(

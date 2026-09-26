@@ -1592,6 +1592,122 @@ function SelectableSkills({
   );
 }
 
+type DiscoverCard = {
+  source: string;
+  skillId: string;
+  name: string;
+  installs: number;
+};
+
+const compactInstalls = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+});
+
+function DiscoverSearch() {
+  const t = useT();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [query, setQuery] = useState("");
+  const search = useMutation({
+    mutationFn: (q: string) => api.discoverSearch(q),
+  });
+  const preview = useMutation({
+    mutationFn: (source: string) => api.previewExternal(source, ""),
+    onSuccess: (data) => {
+      qc.setQueryData(["external-preview", "", data.source], data);
+      navigate({
+        to: "/external-preview",
+        search: { source: data.source, deck: "" },
+      });
+    },
+  });
+
+  // 入力 debounce: 2文字以上でライブ検索、空なら POPULAR シードに戻す
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      search.reset();
+      return;
+    }
+    const id = setTimeout(() => search.mutate(q), 300);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  const searched = search.data !== undefined;
+  const cards: DiscoverCard[] = searched
+    ? search.data.results.flatMap((r) =>
+        r.skills.map((s) => ({
+          source: r.source,
+          skillId: s.skillId,
+          name: s.name,
+          installs: s.installs,
+        }))
+      )
+    : [];
+  const busy = preview.isPending;
+
+  return (
+    <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-[var(--color-ink-2)]">
+          {t("discover.title")}
+        </span>
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder={t("discover.placeholder")}
+        />
+      </div>
+      {search.isError ? (
+        <p className="mt-3 text-sm text-[var(--color-ink-2)]">
+          {errMessage(search.error)}
+        </p>
+      ) : null}
+      {searched ? (
+        <p className="mt-3 text-xs font-medium uppercase tracking-wide text-[var(--color-ink-2)]">
+          {cards.length}
+        </p>
+      ) : null}
+      {searched && cards.length === 0 ? (
+        <p className="mt-3 text-sm text-[var(--color-ink-2)]">
+          {t("discover.empty")}
+        </p>
+      ) : (
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {cards.map((card) => {
+            const owner = card.source.split("/")[0] ?? "";
+            return (
+              <button
+                key={`${card.source}/${card.skillId}`}
+                type="button"
+                onClick={() => preview.mutate(card.source)}
+                disabled={busy}
+                className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 text-left transition-colors duration-200 hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
+              >
+                <img
+                  src={`https://github.com/${owner}.png`}
+                  alt=""
+                  loading="lazy"
+                  className="h-10 w-10 shrink-0 rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--color-paper-2)]"
+                />
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">
+                    {card.name}
+                  </span>
+                  <span className="block truncate text-sm text-[var(--color-ink-2)] [font-variant-numeric:tabular-nums]">
+                    {owner} · ↓ {compactInstalls.format(card.installs)}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ExternalSourcesPage() {
   const t = useT();
   const qc = useQueryClient();
@@ -1676,6 +1792,7 @@ export function ExternalSourcesPage() {
         ) : null}
         <ViewModeToggle value={viewMode} onChange={setViewMode} />
       </div>
+      <DiscoverSearch />
       <BusyRegion busy={sourcesBusy}>
         {data.sources.length === 0 ? (
           <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
