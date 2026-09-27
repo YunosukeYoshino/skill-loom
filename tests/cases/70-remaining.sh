@@ -469,10 +469,10 @@ JSON
       && pass "test_external_preview_returns_candidate_rows: lists the candidate" \
       || fail "test_external_preview_returns_candidate_rows: candidate missing"
 
-    # Custom の alpha と衝突するので、外部候補は owner-one--alpha になる。
-    assert_contains "$body" '"name":"owner-one--alpha"' \
-      && pass "test_external_preview_returns_candidate_rows: namespaces colliding candidate" \
-      || fail "test_external_preview_returns_candidate_rows: namespaced name missing"
+    # Custom の alpha と衝突するので、外部候補には出さず理由を message に出す。
+    assert_contains "$body" 'Skill name already used by Custom skill: alpha' \
+      && pass "test_external_preview_returns_candidate_rows: rejects colliding candidate" \
+      || fail "test_external_preview_returns_candidate_rows: collision message missing"
 
     assert_matches "$body" '"name":"zeta","[^}]*"state":"missing"' \
       && pass "test_external_preview_returns_candidate_rows: marks new candidate missing" \

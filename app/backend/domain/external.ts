@@ -39,6 +39,7 @@ import {
   normalizeGithubSource,
 } from "../infrastructure/github";
 import {
+  type ExternalSkillMeta,
   type Lock,
   loadGlobalLock,
   loadLock,
@@ -268,7 +269,7 @@ function resolveAndUpdateSkillPath(
   return null;
 }
 
-export async function checkInstalledSkillRemoteUpdate(
+async function checkInstalledSkillRemoteUpdate(
   task: UpdateTask
 ): Promise<UpdateResult> {
   const [source, name] = task;
@@ -318,7 +319,7 @@ export async function checkInstalledSkillRemoteUpdate(
 }
 
 /** 並列度を絞って一斉に投げる。返す順は入力どおり。 */
-export async function parallelCheckInstalledSkillUpdates(
+async function parallelCheckInstalledSkillUpdates(
   tasks: UpdateTask[]
 ): Promise<UpdateResult[]> {
   if (tasks.length === 0) return [];
@@ -338,7 +339,7 @@ export async function parallelCheckInstalledSkillUpdates(
   return results;
 }
 
-export async function updatableSkillsForSource(
+async function updatableSkillsForSource(
   lock: Lock,
   source: string,
   candidates: ExternalCandidate[]
@@ -527,23 +528,63 @@ export type ResolvedExternalCandidate = {
   candidate: ExternalCandidate;
   upstreamName: string;
   deployName: string;
-  isColliding: boolean;
   conflict?: string;
 };
 
-function githubOwner(ownerRepo: string): string {
-  const index = ownerRepo.indexOf("/");
-  return (index < 0 ? ownerRepo : ownerRepo.slice(0, index)) || ownerRepo;
+/** 取り込もうとした名前を既に使っているもの。conflict メッセージの材料にする。 */
+type SkillNameOwner =
+  | { kind: "custom" }
+  | { kind: "vendor" }
+  | {
+      kind: "external";
+      source?: string;
+      aliasOf?: string;
+      registeredAs?: string;
+    }
+  | { kind: "installed"; source?: string }
+  | { kind: "duplicate"; source: string };
+
+function describeSkillNameOwner(owner: SkillNameOwner): string {
+  switch (owner.kind) {
+    case "custom":
+      return "Custom skill";
+    case "vendor":
+      return "Vendor skill";
+    case "external":
+      return describeExternalOwner(owner);
+    case "installed":
+      return owner.source ?? "installed skill";
+    case "duplicate":
+      return `${owner.source} (duplicate path)`;
+  }
 }
 
-export function namespacedExternalName(
-  ownerRepo: string,
-  upstreamName: string
+function describeExternalOwner(
+  owner: Extract<SkillNameOwner, { kind: "external" }>
 ): string {
-  return `${githubOwner(ownerRepo).toLowerCase()}--${upstreamName}`;
+  const source = owner.source ?? "external";
+  if (owner.aliasOf) return `${source} (alias of ${owner.aliasOf})`;
+  if (owner.registeredAs)
+    return `${source} (registered as ${owner.registeredAs})`;
+  return source;
 }
 
-export function matchResolvedCandidate(
+/** owner/repo の表記揺れ（大文字小文字・URL 形式）を吸収して比べる。 */
+function isSameGithubSource(
+  a: string | undefined,
+  b: string | undefined
+): boolean {
+  try {
+    return (
+      normalizeGithubSource(a ?? "").toLowerCase() ===
+      normalizeGithubSource(b ?? "").toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
+
+function matchResolvedCandidate(
   mapping: ResolvedExternalCandidate[],
   selectedName: string
 ): ResolvedExternalCandidate | undefined {
@@ -569,18 +610,30 @@ export function resolveSelectedExternalSkills(
   });
 }
 
+/**
+ * source の候補を、展開名（= 上流名）へ対応付ける。
+ *
+ * 展開名は常に上流名のまま。`owner--name` のような名前空間化はしない。
+ * 名前が変わると管理が追いにくく、skill 同士で名前を指して invoke できなくなるため。
+ * 同じ名前が別 source で使われているときは conflict にして取り込ませない
+ * （必要なら vendor-fork するか、どちらかを外す）。
+ *
+ * 手元にディレクトリがあっても、skills CLI の lock が同じ source を指していれば
+ * 同じ skill の入れ直し・登録し直しとして扱う。
+ */
 export function resolveExternalCandidatesMapping(
   lock: Lock,
   source: string,
   candidates: ExternalCandidate[]
 ): ResolvedExternalCandidate[] {
   const ownerRepo = normalizeGithubSource(source);
-  const namespacedOf = (upstreamName: string) =>
-    namespacedExternalName(ownerRepo, upstreamName);
+  const sameSource = (value: string | undefined) =>
+    isSameGithubSource(value, ownerRepo);
 
   const custom = lock.custom?.skills ?? {};
   const vendor = lock.vendor ?? {};
   const external = lock.external ?? {};
+  const globalLock = loadGlobalLock();
   const onDisk = (name: string): boolean =>
     [activeDir(), archiveDir()].some((dir) => {
       try {
@@ -590,40 +643,76 @@ export function resolveExternalCandidatesMapping(
         return false;
       }
     });
-  const occupied = (name: string): boolean =>
-    name in custom || name in vendor || name in external || onDisk(name);
-  const reserved = new Set(candidates.map((candidate) => candidate.name));
+  const claimed = new Set<string>();
+
+  const externalOwnerOf = (
+    name: string,
+    meta: ExternalSkillMeta
+  ): SkillNameOwner | undefined => {
+    // 旧来の別名エントリ（key と上流名が違う）は、key 側の名前も塞いでいる。
+    if (meta.installSkill && meta.installSkill !== name)
+      return {
+        kind: "external",
+        source: meta.source,
+        aliasOf: meta.installSkill,
+      };
+    return sameSource(meta.source)
+      ? undefined
+      : { kind: "external", source: meta.source };
+  };
+  // 旧来の別名エントリが同じ上流名を別 source から入れていれば、同じ skill の二重管理になる。
+  const aliasOwnerOf = (name: string): SkillNameOwner | undefined => {
+    const aliased = Object.entries(external).find(
+      ([key, entry]) => entry.installSkill === name && key !== name
+    );
+    if (!aliased || sameSource(aliased[1].source)) return undefined;
+    return {
+      kind: "external",
+      source: aliased[1].source,
+      registeredAs: aliased[0],
+    };
+  };
+  const installedOwnerOf = (name: string): SkillNameOwner | undefined => {
+    if (!onDisk(name)) return undefined;
+    const installed = globalLock[name]?.source;
+    return sameSource(installed)
+      ? undefined
+      : { kind: "installed", source: installed };
+  };
+  const ownerOf = (name: string): SkillNameOwner | undefined => {
+    if (claimed.has(name)) return { kind: "duplicate", source: ownerRepo };
+    if (name in custom) return { kind: "custom" };
+    if (name in vendor) return { kind: "vendor" };
+    const meta = external[name];
+    if (meta) return externalOwnerOf(name, meta);
+    return aliasOwnerOf(name) ?? installedOwnerOf(name);
+  };
 
   return candidates.map((candidate) => {
     const upstreamName = candidate.name;
+    // 過去に別名で登録済みのものは、その名前をそのまま使う。
     const existing = Object.entries(external).find(
       ([name, meta]) =>
-        meta.source?.toLowerCase() === ownerRepo.toLowerCase() &&
+        sameSource(meta.source) &&
         (meta.installSkill ?? name) === upstreamName &&
         !(name in custom) &&
         !(name in vendor)
     );
     if (existing) {
+      claimed.add(existing[0]);
+      return { candidate, upstreamName, deployName: existing[0] };
+    }
+    const owner = ownerOf(upstreamName);
+    if (owner) {
       return {
         candidate,
         upstreamName,
-        deployName: existing[0],
-        isColliding: existing[0] !== upstreamName,
+        deployName: upstreamName,
+        conflict: `Skill name already used by ${describeSkillNameOwner(owner)}: ${upstreamName}`,
       };
     }
-    const taken = occupied(upstreamName);
-    const deployName = taken ? namespacedOf(upstreamName) : upstreamName;
-    if (taken && (occupied(deployName) || reserved.has(deployName))) {
-      return {
-        candidate,
-        upstreamName,
-        deployName,
-        isColliding: true,
-        conflict: `Skill already exists: ${deployName}; choose a different alias`,
-      };
-    }
-    reserved.add(deployName);
-    return { candidate, upstreamName, deployName, isColliding: taken };
+    claimed.add(upstreamName);
+    return { candidate, upstreamName, deployName: upstreamName };
   });
 }
 
@@ -668,47 +757,36 @@ export async function runExternalInstall(
     }
   }
 
-  if (standard.length > 0) {
-    const command = ["bash", skillsAddScript(), source, "--no-commit"];
-    for (const name of standard) command.push("--skill", name);
-    const proc = Bun.spawn(command, {
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: 180_000 * standard.length,
-    });
-    const exitCode = await proc.exited;
-    if (exitCode !== 0) {
-      throw new Error(
-        `Command '${command.join(" ")}' returned non-zero exit status ${exitCode}.`
-      );
-    }
-  }
-
-  for (const item of aliased) {
-    const command = [
-      "bash",
-      skillsAddScript(),
-      source,
-      "--skill",
-      item.upstreamName,
-      "--as",
-      item.deployName,
-      "--no-commit",
-    ];
-    const proc = Bun.spawn(command, {
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: 180_000,
-    });
-    const exitCode = await proc.exited;
-    if (exitCode !== 0) {
-      throw new Error(
-        `Command '${command.join(" ")}' returned non-zero exit status ${exitCode}.`
-      );
-    }
-  }
+  if (standard.length > 0) await runSkillsAdd(source, standard);
+  if (aliased.length > 0) reinstallAliases(aliased);
 
   linkAgentSkillDirsMany(deployNames);
+}
+
+async function runSkillsAdd(source: string, names: string[]): Promise<void> {
+  const command = ["bash", skillsAddScript(), source, "--no-commit"];
+  for (const name of names) command.push("--skill", name);
+  const proc = Bun.spawn(command, {
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 180_000 * names.length,
+  });
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    throw new Error(
+      `Command '${command.join(" ")}' returned non-zero exit status ${exitCode}.`
+    );
+  }
+}
+
+// 過去に別名で登録した lock エントリの入れ直しだけがここに来る。新規の別名は作らない。
+function reinstallAliases(aliased: Array<{ deployName: string }>): void {
+  const lock = loadLock();
+  for (const item of aliased) {
+    if (!reinstallAliasedExternal(item.deployName, lock)) {
+      throw new ValueError(`Not a registered alias: ${item.deployName}`);
+    }
+  }
 }
 
 /**
@@ -767,16 +845,18 @@ export function registerInstalledExternalSelection(
   const external = (lock.external ??= {});
   const custom = lock.custom?.skills ?? {};
   const globalSkills = loadGlobalLock();
+  // selection が無くても衝突判定は必ず通す。通さないと別 source の既存エントリを付け替えてしまう。
   const resolved =
     selection ??
-    sortNames(selected).map((name) => ({
-      deployName: name,
-      upstreamName: external[name]?.installSkill ?? name,
-      candidate: {
+    resolveSelectedExternalSkills(
+      lock,
+      ownerRepo,
+      selected,
+      sortNames(selected).map((name) => ({
         name: external[name]?.installSkill ?? name,
         path: external[name]?.skillPath,
-      },
-    }));
+      }))
+    );
   const ignored = new Set<string>();
 
   for (const row of resolved) {

@@ -10,9 +10,9 @@ Skill Loom is a local management engine for an Agent Skills portfolio. It keeps 
 - **Projection**: the runtime subset represented by Active, Archive, the skills CLI Lock, and agent-facing links.
 - **Custom Skill**: a Skill authored in the Catalog.
 - **External Skill**: a registered Skill sourced from another repository.
-- **Namespaced Skill**: an External Skill registered with a namespace prefix or alias (e.g. `owner--name`) to disambiguate sources or resolve name collisions. The separator is `--` because agents require a single-depth folder name and both owners and skills already use kebab-case.
+- **Skill Name Conflict**: an External Skill whose upstream name is already used by a Custom, Vendor, or other-source skill. It is rejected, never renamed; skills keep their upstream names so they can invoke each other (see ADR 0002).
 - **Vendor Skill**: a Catalog-owned customization that overrides an External Skill of the same name.
-- **Upstream Name**: the original Skill name within its source repository before namespacing or aliasing.
+- **Upstream Name**: the original Skill name within its source repository. New External Skills are always registered under it; only legacy lock entries carry a different key with `installSkill`.
 - **Draft Skill**: an authored Skill that joins the Inventory only after promotion.
 - **Core Deck**: the Catalog baseline automatically unioned when a Project Deck is applied.
 - **Project Deck**: a Catalog recipe for a codebase or work area.
