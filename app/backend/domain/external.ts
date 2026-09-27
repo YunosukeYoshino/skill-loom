@@ -268,7 +268,7 @@ function resolveAndUpdateSkillPath(
   return null;
 }
 
-export async function checkInstalledSkillRemoteUpdate(
+async function checkInstalledSkillRemoteUpdate(
   task: UpdateTask
 ): Promise<UpdateResult> {
   const [source, name] = task;
@@ -318,7 +318,7 @@ export async function checkInstalledSkillRemoteUpdate(
 }
 
 /** 並列度を絞って一斉に投げる。返す順は入力どおり。 */
-export async function parallelCheckInstalledSkillUpdates(
+async function parallelCheckInstalledSkillUpdates(
   tasks: UpdateTask[]
 ): Promise<UpdateResult[]> {
   if (tasks.length === 0) return [];
@@ -338,7 +338,7 @@ export async function parallelCheckInstalledSkillUpdates(
   return results;
 }
 
-export async function updatableSkillsForSource(
+async function updatableSkillsForSource(
   lock: Lock,
   source: string,
   candidates: ExternalCandidate[]
@@ -563,7 +563,7 @@ function describeSkillNameOwner(owner: SkillNameOwner): string {
 }
 
 /** owner/repo の表記揺れ（大文字小文字・URL 形式）を吸収して比べる。 */
-export function isSameGithubSource(
+function isSameGithubSource(
   a: string | undefined,
   b: string | undefined
 ): boolean {
@@ -577,7 +577,7 @@ export function isSameGithubSource(
   }
 }
 
-export function matchResolvedCandidate(
+function matchResolvedCandidate(
   mapping: ResolvedExternalCandidate[],
   selectedName: string
 ): ResolvedExternalCandidate | undefined {

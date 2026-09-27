@@ -58,11 +58,11 @@ function shellCommandText(command: string[]): string {
     .join(" ");
 }
 
-export function deckNames(): string[] {
+function deckNames(): string[] {
   return listProjectDecks();
 }
 
-export function countsDict(
+function countsDict(
   mainRows: TristateRow[],
   archivedRows: TristateRow[]
 ): Counts {
