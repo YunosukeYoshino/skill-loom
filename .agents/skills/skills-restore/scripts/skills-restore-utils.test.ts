@@ -72,6 +72,34 @@ describe("restore-lock", () => {
     expect(out.stdout).not.toContain("--skill json-render");
   });
 
+  test("custom / vendor と同名の external は install せず warning を出す", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "restoreconflict-"));
+    const lockFile = path.join(dir, "skills.lock.json");
+    fs.writeFileSync(
+      lockFile,
+      JSON.stringify({
+        custom: { repo: "owner/catalog", skills: { mine: {} } },
+        vendor: { forked: {} },
+        external: {
+          mine: { source: "other/repo" },
+          forked: { source: "other/repo" },
+          defuddle: { source: "kepano/obsidian-skills" },
+        },
+      })
+    );
+
+    const out = run(RESTORE_LOCK, lockFile);
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).not.toContain("other/repo");
+    expect(out.stdout).toContain("--skill defuddle");
+    expect(out.stderr).toContain(
+      "skipping external skill 'mine': name already used by custom skill"
+    );
+    expect(out.stderr).toContain(
+      "skipping external skill 'forked': name already used by vendor skill"
+    );
+  });
+
   test("source が無い external をスキップして warning を stderr に出す", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "restoremiss-"));
     const lockFile = path.join(dir, "skills.lock.json");

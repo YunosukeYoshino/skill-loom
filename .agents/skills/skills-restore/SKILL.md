@@ -42,6 +42,6 @@ bash "$ENGINE_ROOT/.agents/skills/skills-restore/scripts/skills-rollback" <times
 
 ## 処理の流れ
 
-1. **外部スキル**: lock の `external` セクションを source ごとにグループ化し `bunx skills add` で `claude-code`、`codex`、`antigravity` にインストール
+1. **外部スキル**: lock の `external` セクションを source ごとにグループ化し `bunx skills add` で `claude-code`、`codex`、`antigravity` にインストール。custom / vendor と同名の external はスキップして warning を出す（同名 skill は 1 つだけ管理する）
 2. **Custom／Vendor**: Lock の `custom.repo` を `bunx skills add` でインストール（External を上書き）
 3. **Agent 定義**: Catalog の `agents/` を `~/.claude/agents/` にコピー
