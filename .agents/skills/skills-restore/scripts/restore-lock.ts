@@ -21,6 +21,21 @@ interface ExternalSkillMeta {
   installSkill?: unknown;
 }
 
+interface RestoreLock {
+  custom?: { skills?: Record<string, unknown> };
+  vendor?: Record<string, unknown>;
+  external?: Record<string, ExternalSkillMeta>;
+}
+
+function catalogOwnerOf(
+  lock: RestoreLock,
+  name: string
+): "custom" | "vendor" | undefined {
+  if (Object.hasOwn(lock.custom?.skills ?? {}, name)) return "custom";
+  if (Object.hasOwn(lock.vendor ?? {}, name)) return "vendor";
+  return undefined;
+}
+
 const FLAGS = [
   "-g",
   "-a",
@@ -40,11 +55,9 @@ function shellQuote(value: string): string {
 function loadPlans(
   lockPath: string
 ): Array<{ source: string; skills: string[] }> {
-  let lock: { external?: Record<string, ExternalSkillMeta> };
+  let lock: RestoreLock;
   try {
-    lock = JSON.parse(fs.readFileSync(lockPath, "utf-8")) as {
-      external?: Record<string, ExternalSkillMeta>;
-    };
+    lock = JSON.parse(fs.readFileSync(lockPath, "utf-8")) as RestoreLock;
   } catch {
     console.error(`Error: Cannot read or parse lock file: ${lockPath}`);
     process.exit(1);
@@ -56,6 +69,14 @@ function loadPlans(
     if (typeof source !== "string" || source === "") {
       console.error(
         `Warning: skipping external skill '${name}': missing source`
+      );
+      continue;
+    }
+    const owner = catalogOwnerOf(lock, name);
+    if (owner) {
+      // 同じ名前の skill は 1 つしか管理しない（ADR 0002）。Catalog 側を優先する。
+      console.error(
+        `Warning: skipping external skill '${name}': name already used by ${owner} skill`
       );
       continue;
     }
@@ -181,11 +202,9 @@ function placeAliasedSkill(
 function aliasedJobs(
   lockPath: string
 ): Array<{ source: string; deployName: string; installSkill: string }> {
-  let lock: { external?: Record<string, ExternalSkillMeta> };
+  let lock: RestoreLock;
   try {
-    lock = JSON.parse(fs.readFileSync(lockPath, "utf-8")) as {
-      external?: Record<string, ExternalSkillMeta>;
-    };
+    lock = JSON.parse(fs.readFileSync(lockPath, "utf-8")) as RestoreLock;
   } catch {
     return [];
   }
@@ -199,6 +218,7 @@ function aliasedJobs(
     const installSkill =
       typeof meta?.installSkill === "string" ? meta.installSkill : undefined;
     if (typeof source !== "string" || source === "") continue;
+    if (catalogOwnerOf(lock, name)) continue;
     if (installSkill && installSkill !== name) {
       jobs.push({ source, deployName: name, installSkill });
     }
