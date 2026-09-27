@@ -169,9 +169,15 @@ fi
 
 SKILL_ARGS=()
 for skill in "${PLANNED[@]}"; do
+    if [ -d "$ACTIVE_DIR/$skill" ]; then
+        echo "  → Skipping install (already present from $OWNER_REPO)"
+        continue
+    fi
     SKILL_ARGS+=(--skill "$skill")
 done
-skills_cli add "$OWNER_REPO" "${SKILL_ARGS[@]}" -g -a claude-code -a codex -a antigravity -y
+if [ "${#SKILL_ARGS[@]}" -gt 0 ]; then
+    skills_cli add "$OWNER_REPO" "${SKILL_ARGS[@]}" -g -a claude-code -a codex -a antigravity -y
+fi
 for skill in "${PLANNED[@]}"; do
     link_agent_skill_dirs "$skill"
 done

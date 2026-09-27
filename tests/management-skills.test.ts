@@ -680,11 +680,20 @@ printf -- '---\\nname: alpha\\n---\\nincoming\\n' > "$MY_SKILLS_ACTIVE_DIR/alpha
     const f = fixture();
     fs.mkdirSync(path.join(f.active, "alpha"));
     fs.writeFileSync(path.join(f.active, "alpha/SKILL.md"), "original");
+    const argsFile = path.join(f.root, "args.txt");
+    fs.writeFileSync(
+      f.stub,
+      `#!/bin/bash\necho "$@" > '${argsFile}'\nprintf 'overwritten' > "$MY_SKILLS_ACTIVE_DIR/alpha/SKILL.md"\n`
+    );
     fs.writeFileSync(
       path.join(f.root, "home/.agents/.skill-lock.json"),
       JSON.stringify({ skills: { alpha: { source: "owner/Repo" } } })
     );
     expect(f.run([]).exitCode).toBe(0);
+    expect(fs.existsSync(argsFile)).toBe(false);
+    expect(fs.readFileSync(path.join(f.active, "alpha/SKILL.md"), "utf8")).toBe(
+      "original"
+    );
     expect(
       Object.keys(
         JSON.parse(
