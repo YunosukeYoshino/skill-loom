@@ -249,7 +249,8 @@ const en = {
 
   // add skills dialog
   "addSkills.body":
-    "Fetch Skill candidates from a GitHub repository. Nothing is installed until you pick them on the next screen.",
+    "Search skills.sh or enter a GitHub repository to fetch Skill candidates. Nothing is installed until you pick them on the next screen.",
+  "addSkills.orRepo": "Or enter owner/repo or a GitHub URL",
   "addSkills.hint": "e.g. anthropics/skills or https://github.com/owner/repo",
 
   // external preview page
@@ -265,8 +266,7 @@ const en = {
   "sources.overline": "Catalog · external sources",
   "sources.checkAll": "Check all for updates",
   "sources.updateAll": "Update all with updates ({count})",
-  "sources.empty":
-    "No external sources yet. Add an owner/repo from “Add skills”.",
+  "sources.empty": "No external sources yet. Add one from “Add skills”.",
 
   // external source detail page
   "detail.back": "Back to sources",
@@ -442,7 +442,8 @@ const ja: MessageCatalog = {
   "global.backToGlobal": "globalに戻る",
   "global.addSkills": "skillsを追加",
   "addSkills.body":
-    "GitHub リポジトリから Skill 候補を取得します。次の画面で選ぶまで何もインストールされません。",
+    "skills.sh で探すか GitHub リポジトリを指定して Skill 候補を取得します。次の画面で選ぶまで何もインストールされません。",
+  "addSkills.orRepo": "または owner/repo・GitHub URL を入力",
   "addSkills.hint":
     "例: anthropics/skills または https://github.com/owner/repo",
   "global.checkUpdates": "更新を確認",
@@ -460,8 +461,7 @@ const ja: MessageCatalog = {
   "sources.overline": "Catalog · external sources",
   "sources.checkAll": "すべて更新を確認",
   "sources.updateAll": "更新があるものをすべてupdate ({count})",
-  "sources.empty":
-    "外部ソースがありません。「skillsを追加」から owner/repo を追加できます。",
+  "sources.empty": "外部ソースがありません。「skillsを追加」から追加できます。",
 
   "detail.back": "sourcesに戻る",
   "detail.updateAll": "このsourceをすべてupdate ({count})",

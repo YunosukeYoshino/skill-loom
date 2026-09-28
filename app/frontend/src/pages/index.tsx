@@ -950,11 +950,12 @@ function AddSkillsDialog({
           <p className="m-0 mt-1.5 text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
             {t("addSkills.body")}
           </p>
+          {open ? <DiscoverSearch busy={!!busy} onPick={onFetch} /> : null}
           <label
             htmlFor="add-skills-source"
             className="mt-3.5 mb-1.5 block font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase"
           >
-            {t("import.aria")}
+            {t("addSkills.orRepo")}
           </label>
           <input
             id="add-skills-source"
@@ -1660,7 +1661,7 @@ function DiscoverResults({
           {t("discover.empty")}
         </p>
       ) : (
-        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="mt-2 grid max-h-72 gap-2 overflow-y-auto overscroll-contain">
           {cards.map((card) => (
             <DiscoverSkillCard
               key={`${card.source}/${card.skillId}`}
@@ -1675,7 +1676,14 @@ function DiscoverResults({
   );
 }
 
-function DiscoverSearch() {
+/** Registry (skills.sh) 検索。結果を選ぶと onPick(source) で候補取得へ進む */
+function DiscoverSearch({
+  busy,
+  onPick,
+}: {
+  busy: boolean;
+  onPick: (source: string) => void;
+}) {
   const t = useT();
   const [query, setQuery] = useState("");
   const [term, setTerm] = useState("");
@@ -1685,8 +1693,6 @@ function DiscoverSearch() {
     queryFn: () => api.discoverSearch(term),
     enabled: term.length >= 2,
   });
-  const preview = useExternalPreview();
-
   // 入力 debounce: 2文字以上で検索語を確定、未満なら結果を消す
   useEffect(() => {
     const q = query.trim();
@@ -1704,11 +1710,17 @@ function DiscoverSearch() {
   );
 
   return (
-    <div className="mb-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lift)]">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium text-[var(--color-ink-2)]">
-          {t("discover.title")}
-        </span>
+    // 外側の owner/repo フォームに Enter が submit として漏れないようにする
+    <div
+      className="mt-3.5"
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.preventDefault();
+      }}
+    >
+      <p className="m-0 mb-1.5 font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase">
+        {t("discover.title")}
+      </p>
+      <div className="flex">
         <SearchField
           value={query}
           onChange={setQuery}
@@ -1723,8 +1735,8 @@ function DiscoverSearch() {
       <DiscoverResults
         cards={cards}
         searched={search.data !== undefined}
-        busy={preview.isPending}
-        onPreview={preview.mutate}
+        busy={busy}
+        onPreview={onPick}
       />
     </div>
   );
@@ -1753,6 +1765,8 @@ export function ExternalSourcesPage() {
     mutationFn: () => api.updateAll(),
     onSuccess: (data) => qc.setQueryData(["external-sources"], data),
   });
+  const [addOpen, setAddOpen] = useState(false);
+  const externalPreview = useExternalPreview();
 
   if (q.isPending) return <PageLoading variant="cards" />;
   if (q.isError) {
@@ -1790,6 +1804,17 @@ export function ExternalSourcesPage() {
         }
       />
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
+        <Button
+          variant="primary"
+          aria-haspopup="dialog"
+          onClick={() => {
+            externalPreview.reset();
+            setAddOpen(true);
+          }}
+        >
+          <span aria-hidden>+</span>
+          {t("global.addSkills")}
+        </Button>
         <Button onClick={() => checkAll.mutate()} disabled={sourcesBusy}>
           {pendingLabel(
             checkAll.isPending,
@@ -1798,11 +1823,7 @@ export function ExternalSourcesPage() {
           )}
         </Button>
         {data.totalUpdatable > 0 ? (
-          <Button
-            variant="primary"
-            onClick={() => updateAll.mutate()}
-            disabled={sourcesBusy}
-          >
+          <Button onClick={() => updateAll.mutate()} disabled={sourcesBusy}>
             <span className="[font-variant-numeric:tabular-nums]">
               {pendingLabel(
                 updateAll.isPending,
@@ -1814,7 +1835,6 @@ export function ExternalSourcesPage() {
         ) : null}
         <ViewModeToggle value={viewMode} onChange={setViewMode} />
       </div>
-      <DiscoverSearch />
       <BusyRegion busy={sourcesBusy}>
         {data.sources.length === 0 ? (
           <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-4 py-8 text-center text-sm text-[var(--color-ink-2)] [text-wrap:pretty]">
@@ -1854,6 +1874,13 @@ export function ExternalSourcesPage() {
           </div>
         )}
       </BusyRegion>
+      <AddSkillsDialog
+        open={addOpen}
+        busy={externalPreview.isPending}
+        error={errMessage(externalPreview.error)}
+        onClose={() => setAddOpen(false)}
+        onFetch={(source) => externalPreview.mutate(source)}
+      />
     </WorkbenchShell>
   );
 }
