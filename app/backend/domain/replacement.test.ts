@@ -12,7 +12,9 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -20,7 +22,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  commitReplacement,
   finishReplacement,
+  recoverPendingReplacements,
+  replaceWhileInstalling,
   rollbackReplacement,
   setAsideForReplacement,
 } from "./replacement";
@@ -56,6 +61,10 @@ function linked(name: string): boolean {
 function body(where: "active" | "archive", name: string): string | null {
   const path = dir(where, name, "SKILL.md");
   return existsSync(path) ? readFileSync(path, "utf8") : null;
+}
+
+function readJsonFile(path: string) {
+  return JSON.parse(readFileSync(path, "utf8"));
 }
 
 const LOCK = `${JSON.stringify(
@@ -100,40 +109,110 @@ afterEach(() => {
 });
 
 describe("setAsideForReplacement", () => {
-  test("既存を手元から退避し、lock のエントリを外す", () => {
+  test("既存を archive 配下の退避所へ移し、journal を先に書いて lock のエントリを外す", () => {
     place("active", "alpha", "old alpha");
     place("archive", "beta", "old beta");
 
     const handle = setAsideForReplacement(["alpha", "beta"]);
 
-    expect(handle.skills).toEqual([
-      { name: "alpha", state: "active" },
-      { name: "beta", state: "archive" },
+    expect(handle.dir.startsWith(dir("archive", ".replace"))).toBe(true);
+    const journal = readJsonFile(join(handle.dir, "journal.json"));
+    expect(journal.phase).toBe("prepared");
+    expect(journal.rows).toEqual([
+      {
+        name: "alpha",
+        state: "active",
+        lockEntry: { source: "old/repo", sourceUrl: "x", skillPath: "a" },
+        cliLockEntry: { source: "old/repo" },
+      },
+      {
+        name: "beta",
+        state: "archive",
+        lockEntry: { source: "old/repo", sourceUrl: "x", skillPath: "b" },
+        cliLockEntry: null,
+      },
     ]);
     expect(body("active", "alpha")).toBeNull();
     expect(body("archive", "beta")).toBeNull();
+    expect(readFileSync(join(handle.dir, "alpha", "SKILL.md"), "utf8")).toBe(
+      "old alpha"
+    );
     expect(linked("alpha")).toBe(false);
-    const lock = JSON.parse(readFileSync(dir("skills.lock.json"), "utf8"));
+    const lock = readJsonFile(dir("skills.lock.json"));
     expect(Object.keys(lock.external)).toEqual([]);
     rollbackReplacement(handle);
+  });
+
+  test("規約外の名前はファイルに触れる前に拒否する", () => {
+    expect(() => setAsideForReplacement([".."])).toThrow(
+      "Invalid external skill name: .."
+    );
+    expect(existsSync(dir("archive", ".replace"))).toBe(false);
+  });
+
+  test("Active と Archive の両方に同名があれば拒否する", () => {
+    place("active", "alpha", "old alpha");
+    place("archive", "alpha", "older alpha");
+
+    expect(() => setAsideForReplacement(["alpha"])).toThrow(
+      "alpha is in both Active and Archive"
+    );
+    expect(body("active", "alpha")).toBe("old alpha");
+    expect(body("archive", "alpha")).toBe("older alpha");
   });
 });
 
 describe("rollbackReplacement", () => {
-  test("途中まで入った新しい skill を捨てて、既存と lock を元に戻す", () => {
+  test("途中まで入った新しい skill を捨てて、既存と lock のエントリを元に戻す", () => {
     place("active", "alpha", "old alpha");
     place("archive", "beta", "old beta");
     const handle = setAsideForReplacement(["alpha", "beta"]);
     place("active", "alpha", "new alpha");
-    writeFileSync(dir("cli-lock.json"), "{}");
+    writeFileSync(
+      dir("cli-lock.json"),
+      JSON.stringify({
+        version: 1,
+        skills: { alpha: { source: "new/repo" }, beta: { source: "new/repo" } },
+      })
+    );
 
-    rollbackReplacement(handle);
+    expect(rollbackReplacement(handle)).toBe("");
 
     expect(body("active", "alpha")).toBe("old alpha");
     expect(body("archive", "beta")).toBe("old beta");
     expect(linked("alpha")).toBe(true);
-    expect(readFileSync(dir("skills.lock.json"), "utf8")).toBe(LOCK);
-    expect(readFileSync(dir("cli-lock.json"), "utf8")).toBe(CLI_LOCK);
+    expect(readJsonFile(dir("skills.lock.json")).external).toEqual(
+      JSON.parse(LOCK).external
+    );
+    expect(readJsonFile(dir("cli-lock.json")).skills).toEqual({
+      alpha: { source: "old/repo" },
+    });
+    expect(existsSync(handle.dir)).toBe(false);
+  });
+
+  test("置き換え対象以外の lock の変更は消さない", () => {
+    place("active", "alpha", "old alpha");
+    const handle = setAsideForReplacement(["alpha"]);
+    const lock = readJsonFile(dir("skills.lock.json"));
+    lock.external.gamma = {
+      source: "else/repo",
+      sourceUrl: "x",
+      skillPath: "g",
+    };
+    writeFileSync(dir("skills.lock.json"), JSON.stringify(lock));
+    const cli = readJsonFile(dir("cli-lock.json"));
+    cli.skills.gamma = { source: "else/repo" };
+    writeFileSync(dir("cli-lock.json"), JSON.stringify(cli));
+
+    rollbackReplacement(handle);
+
+    expect(
+      Object.keys(readJsonFile(dir("skills.lock.json")).external).sort()
+    ).toEqual(["alpha", "beta", "gamma"]);
+    expect(Object.keys(readJsonFile(dir("cli-lock.json")).skills)).toEqual([
+      "alpha",
+      "gamma",
+    ]);
   });
 });
 
@@ -151,6 +230,7 @@ describe("finishReplacement", () => {
         skills: { alpha: { source: "new/repo" }, beta: { source: "new/repo" } },
       })
     );
+    commitReplacement(handle);
 
     finishReplacement(handle);
 
@@ -159,12 +239,102 @@ describe("finishReplacement", () => {
     expect(body("active", "beta")).toBeNull();
     expect(body("archive", "beta")).toBe("new beta");
     expect(linked("beta")).toBe(false);
-    const cli = JSON.parse(readFileSync(dir("cli-lock.json"), "utf8"));
+    const cli = readJsonFile(dir("cli-lock.json"));
     expect(Object.keys(cli.skills)).toEqual(["alpha"]);
-    const stash = JSON.parse(
-      readFileSync(dir("archive", ".cli-lock-stash.json"), "utf8")
-    );
+    const stash = readJsonFile(dir("archive", ".cli-lock-stash.json"));
     expect(stash.beta).toEqual({ source: "new/repo" });
-    expect(existsSync(handle.stashDir)).toBe(false);
+    expect(existsSync(handle.dir)).toBe(false);
+  });
+});
+
+describe("recoverPendingReplacements", () => {
+  test("commit 前に止まった置き換えは巻き戻す", () => {
+    place("active", "alpha", "old alpha");
+    const handle = setAsideForReplacement(["alpha"]);
+    place("active", "alpha", "half-installed alpha");
+
+    expect(recoverPendingReplacements()).toBe("");
+
+    expect(body("active", "alpha")).toBe("old alpha");
+    expect(linked("alpha")).toBe(true);
+    expect(readJsonFile(dir("skills.lock.json")).external.alpha).toEqual({
+      source: "old/repo",
+      sourceUrl: "x",
+      skillPath: "a",
+    });
+    expect(existsSync(handle.dir)).toBe(false);
+  });
+
+  test("退避の途中で止まっていても、まだ動かしていない既存は捨てない", () => {
+    place("active", "alpha", "old alpha");
+    place("archive", "beta", "old beta");
+    const handle = setAsideForReplacement(["alpha", "beta"]);
+    // beta を退避する前に落ちた状態を作る。
+    renameSync(join(handle.dir, "beta"), dir("archive", "beta"));
+
+    recoverPendingReplacements();
+
+    expect(body("active", "alpha")).toBe("old alpha");
+    expect(body("archive", "beta")).toBe("old beta");
+  });
+
+  test("commit 後に止まった置き換えは後始末を続ける", () => {
+    place("archive", "beta", "old beta");
+    const handle = setAsideForReplacement(["beta"]);
+    place("active", "beta", "new beta");
+    commitReplacement(handle);
+
+    recoverPendingReplacements();
+
+    expect(body("active", "beta")).toBeNull();
+    expect(body("archive", "beta")).toBe("new beta");
+    expect(existsSync(handle.dir)).toBe(false);
+  });
+
+  test("戻し先が埋まっていれば上書きせず、退避分を残して警告する", () => {
+    place("archive", "beta", "old beta");
+    const handle = setAsideForReplacement(["beta"]);
+    place("archive", "beta", "someone else");
+
+    expect(recoverPendingReplacements()).toContain("beta");
+
+    expect(body("archive", "beta")).toBe("someone else");
+    expect(readFileSync(join(handle.dir, "beta", "SKILL.md"), "utf8")).toBe(
+      "old beta"
+    );
+  });
+});
+
+describe("replaceWhileInstalling", () => {
+  test("install が済めば commit して後始末まで進める", async () => {
+    place("archive", "beta", "old beta");
+
+    const [result, warning] = await replaceWhileInstalling(
+      ["beta"],
+      async () => {
+        place("active", "beta", "new beta");
+        return 1;
+      }
+    );
+
+    expect([result, warning]).toEqual([1, ""]);
+    expect(body("archive", "beta")).toBe("new beta");
+    expect(existsSync(dir("archive", ".replace"))).toBe(true);
+    expect(readdirSync(dir("archive", ".replace"))).toEqual([]);
+  });
+
+  test("install が投げたら巻き戻してから同じエラーを投げ直す", async () => {
+    place("active", "alpha", "old alpha");
+
+    await expect(
+      replaceWhileInstalling(["alpha"], async () => {
+        place("active", "alpha", "half alpha");
+        throw new Error("install failed");
+      })
+    ).rejects.toThrow("install failed");
+
+    expect(body("active", "alpha")).toBe("old alpha");
+    expect(linked("alpha")).toBe(true);
+    expect(readdirSync(dir("archive", ".replace"))).toEqual([]);
   });
 });

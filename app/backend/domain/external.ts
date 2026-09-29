@@ -127,7 +127,7 @@ export function externalSourceStatusLabel(
 
 const EXTERNAL_SKILL_NAME_PATTERN = /^[a-z0-9]+(?:--?[a-z0-9]+)*$/;
 
-function assertValidExternalSkillName(name: string): void {
+export function assertValidExternalSkillName(name: string): void {
   if (!EXTERNAL_SKILL_NAME_PATTERN.test(name))
     throw new ValueError(`Invalid external skill name: ${name}`);
 }

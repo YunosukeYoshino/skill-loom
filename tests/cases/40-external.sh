@@ -689,6 +689,88 @@ JSON
   fi
 }
 
+test_external_replacement_recovers_after_crash_mid_install() {
+  local name=test_external_replacement_recovers_after_crash_mid_install
+  echo "Running $name..."
+  local port=18983
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  TMP_DIRS+=("$tmp_dir")
+  local stub="$tmp_dir/skills-add-stub"
+  local trash_stub="$tmp_dir/trash-stub"
+  local lock_file="$tmp_dir/skills.lock.json"
+  mkdir -p "$tmp_dir/active/alpha" "$tmp_dir/archive" \
+    "$tmp_dir/claude" "$tmp_dir/gemini"
+  printf 'old alpha\n' > "$tmp_dir/active/alpha/SKILL.md"
+  ln -s "$tmp_dir/active/alpha" "$tmp_dir/claude/alpha"
+
+  # install の途中でサーバごと落ちる代役。親（= サーバ）を殺す。
+  cat > "$stub" <<'SH'
+#!/bin/bash
+mkdir -p "$MY_SKILLS_ACTIVE_DIR/alpha"
+printf 'half alpha\n' > "$MY_SKILLS_ACTIVE_DIR/alpha/SKILL.md"
+kill -9 "$PPID"
+sleep 5
+SH
+  cat > "$trash_stub" <<'SH'
+#!/bin/bash
+rm -rf -- "$@"
+SH
+  chmod +x "$stub" "$trash_stub"
+  cat > "$lock_file" <<'JSON'
+{
+  "version": 1,
+  "custom": {"repo": "owner/catalog", "skills": {}},
+  "external": {
+    "alpha": {"source": "old-owner/repo", "sourceUrl": "https://github.com/old-owner/repo.git", "skillPath": "skills/alpha/SKILL.md"}
+  },
+  "vendor": {}
+}
+JSON
+  printf '[{"name":"alpha","path":"skills/alpha/SKILL.md"}]\n' > "$tmp_dir/candidates.json"
+
+  start_ui() {
+    MY_SKILLS_ADD_SCRIPT="$stub" MY_SKILLS_TRASH_BIN="$trash_stub" \
+      MY_SKILLS_LOCK_FILE="$lock_file" \
+      MY_SKILLS_PROJECT_DECKS_DIR="$tmp_dir/project-decks" \
+      MY_SKILLS_IGNORE_FILE="$tmp_dir/.skills-ignore.json" \
+      MY_SKILLS_GLOBAL_LOCK_FILE="$tmp_dir/.skill-lock.json" \
+      MY_SKILLS_EXTERNAL_CANDIDATES_FILE="$tmp_dir/candidates.json" \
+      MY_SKILLS_ACTIVE_DIR="$tmp_dir/active" \
+      MY_SKILLS_ARCHIVE_DIR="$tmp_dir/archive" \
+      MY_SKILLS_CLAUDE_SKILLS_DIR="$tmp_dir/claude" \
+      MY_SKILLS_GEMINI_SKILLS_DIR="$tmp_dir/gemini" \
+      ./skill-loom ui --port "$port" > /dev/null 2>&1 &
+    UI_PIDS+=($!)
+  }
+
+  start_ui
+  if wait_for_port "$port"; then
+    curl -s -o /dev/null -X POST "http://localhost:${port}/api/external/install" \
+      -H "Content-Type: application/json" \
+      -d '{"source":"new-owner/repo","skills":["alpha"],"replace":["alpha"]}' \
+      2>/dev/null || true
+    [ "$(cat "$tmp_dir/active/alpha/SKILL.md" 2>/dev/null)" = "half alpha" ] \
+      && pass "$name: server died mid-install" \
+      || fail "$name: crash was not reproduced"
+
+    start_ui
+    if wait_for_port "$port"; then
+      local source_of='console.log((await Bun.file(process.argv[1]).json()).external.alpha?.source)'
+      [ "$(cat "$tmp_dir/active/alpha/SKILL.md" 2>/dev/null)" = "old alpha" ] \
+        && [ -L "$tmp_dir/claude/alpha" ] \
+        && [ "$(bun -e "$source_of" "$lock_file")" = "old-owner/repo" ] \
+        && [ -z "$(ls -A "$tmp_dir/archive/.replace" 2>/dev/null)" ] \
+        && pass "$name: restart restores the replaced skill" \
+        || fail "$name: recovery left $(ls -A "$tmp_dir/active" "$tmp_dir/archive")"
+    else
+      fail "$name: server did not restart"
+    fi
+  else
+    fail "$name: server did not start"
+  fi
+}
+
 register_cases \
 test_external_update_posts_to_skills_update_command \
 test_external_remove_posts_to_remove_command_and_updates_lock \
@@ -699,4 +781,5 @@ test_external_check_all_updates_shows_status_on_sources_page \
 test_external_update_all_posts_multiple_skills \
 test_external_install_posts_to_skills_add_script \
 test_external_install_posts_bulk_selection_to_one_skills_add_command \
-test_external_install_replaces_archived_skill_after_approval
+test_external_install_replaces_archived_skill_after_approval \
+test_external_replacement_recovers_after_crash_mid_install

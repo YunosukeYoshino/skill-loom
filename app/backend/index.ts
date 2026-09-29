@@ -79,9 +79,8 @@ import {
   restorePreviousPreset,
 } from "./domain/projection";
 import {
-  finishReplacement,
-  rollbackReplacement,
-  setAsideForReplacement,
+  recoverPendingReplacements,
+  replaceWhileInstalling,
 } from "./domain/replacement";
 import {
   computeTristateApplyDelta,
@@ -1344,15 +1343,7 @@ async function installReplacing(
   install: () => Promise<number>
 ): Promise<[number, string]> {
   if (replaced.length === 0) return [await install(), ""];
-  const handle = setAsideForReplacement(replaced);
-  let unignored: number;
-  try {
-    unignored = await install();
-  } catch (error) {
-    rollbackReplacement(handle);
-    throw error;
-  }
-  const warning = finishReplacement(handle);
+  const [unignored, warning] = await replaceWhileInstalling(replaced, install);
   return [
     unignored,
     ` / 置き換え ${sortNames(replaced).join(", ")}${warning ? ` / ${warning}` : ""}`,
@@ -1626,6 +1617,14 @@ app.on(["GET", "HEAD"], "*", async (c) => {
 app.all("*", () =>
   jsonResponse({ detail: "Method Not Allowed" }, 405, { allow: "HEAD, GET" })
 );
+
+// 前回、置き換えの途中でプロセスが止まっていれば、ここで片付けてから受け付ける。
+try {
+  const warning = recoverPendingReplacements();
+  if (warning) console.warn(warning);
+} catch (error) {
+  console.warn(`置き換えの復旧に失敗しました: ${errorText(error)}`);
+}
 
 const server = Bun.serve({
   hostname: args.host,
