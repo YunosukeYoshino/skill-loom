@@ -182,6 +182,12 @@ export const api = {
       body: JSON.stringify({ skill }),
     }),
 
+  removeSource: (source: string) =>
+    request<ExternalSourcesPayload>("/api/external-sources/remove-source", {
+      method: "POST",
+      body: JSON.stringify({ source }),
+    }),
+
   previewExternal: (source: string, deck = "") =>
     request<ExternalPreviewPayload>("/api/external/preview", {
       method: "POST",

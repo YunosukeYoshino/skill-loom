@@ -135,6 +135,8 @@ export type ExternalSourceDetailPayload = {
   installed: InstalledExternal[];
   available: SkillRow[];
   updatable: string[];
+  /** source ごと外すときの内訳。`keepVendor` は Vendor 版が残る skill。 */
+  removal: { remove: string[]; keepVendor: string[]; decks: number };
 };
 
 export type DraftsPayload = {

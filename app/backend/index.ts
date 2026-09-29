@@ -40,6 +40,7 @@ import {
   collectUpdatableSkillNames,
   externalRemoveCommand,
   externalSkillStillUpdatable,
+  externalSourceRemovalPlan,
   formatExternalUpdateMessage,
   isArgvSafeSkillName,
   registerInstalledExternalSelection,
@@ -988,6 +989,66 @@ app.post("/api/external-sources/remove", async (c) => {
     releaseApply();
   }
   const message = `removed: ${skill} (project decks ${removedDecks})${commitNote}`;
+  return jsonResponse(externalSourcesPayload(loadLock(), message), 200);
+});
+
+/**
+ * External Source ごと管理から外す。skill ごとに CLI で消して lock を保存していくので、
+ * 途中で失敗しても、そこまでに外した分は lock と commit に残り、実体と食い違わない。
+ * Vendor で上書きしている skill は external 登録だけ外す（`externalSourceRemovalPlan` 参照）。
+ */
+app.post("/api/external-sources/remove-source", async (c) => {
+  const raw = bodyString(await readJson(c.req.raw), "source");
+  const base = externalSourcesPayload(loadLock());
+  if (!raw)
+    return errorResponse("管理から外すsourceを選択してください", 400, base);
+  let source: string;
+  try {
+    source = normalizeGithubSource(raw);
+  } catch (error) {
+    return errorResponse(errorText(error), 400, base);
+  }
+  const plan = externalSourceRemovalPlan(loadLock(), source);
+  if (plan.remove.length === 0 && plan.keepVendor.length === 0)
+    return errorResponse(`登録されていないsourceです: ${source}`, 404, base);
+  if (!tryAcquireApply()) return errorResponse(REMOVE_BUSY_MESSAGE, 409, base);
+
+  let removedDecks = 0;
+  let failure = "";
+  let commitNote = "";
+  try {
+    try {
+      for (const skill of plan.remove) {
+        runExternalCommand(externalRemoveCommand(skill));
+        const currentLock = loadLock();
+        removedDecks += removeExternalSkillFromManagement(currentLock, skill);
+        saveLock(currentLock);
+      }
+      const currentLock = loadLock();
+      for (const skill of plan.keepVendor) delete currentLock.external?.[skill];
+      saveLock(currentLock);
+    } catch (error) {
+      failure = errorText(error);
+    }
+    commitNote = commitRepoChanges(
+      `chore: remove ${source} from skills.lock.json`,
+      [lockFile(), projectDecksDir()]
+    );
+  } catch (error) {
+    failure ||= errorText(error);
+  } finally {
+    releaseApply();
+  }
+  if (failure)
+    return errorResponse(
+      `source の remove に失敗: ${failure}`,
+      500,
+      externalSourcesPayload(loadLock())
+    );
+  const kept = plan.keepVendor.length
+    ? ` · vendor kept: ${plan.keepVendor.join(", ")}`
+    : "";
+  const message = `removed: ${source} (skills ${plan.remove.length}, project decks ${removedDecks})${kept}${commitNote}`;
   return jsonResponse(externalSourcesPayload(loadLock(), message), 200);
 });
 

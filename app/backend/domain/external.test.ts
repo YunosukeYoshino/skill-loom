@@ -24,6 +24,7 @@ import {
   collectExternalUpdateStatus,
   collectUpdatableSkillNames,
   externalRemoveCommand,
+  externalSourceRemovalPlan,
   externalSourceStatusLabel,
   externalSourceSummary,
   externalUpdateCommand,
@@ -412,6 +413,39 @@ describe("removeExternalSkillFromManagement", () => {
       removeExternalSkillFromManagement(target, "alpha", dir("no-such-dir"))
     ).toBe(0);
     expect(target.external).toEqual({});
+  });
+});
+
+describe("externalSourceRemovalPlan", () => {
+  test("source の skill を外す側と Vendor で残す側に分け、影響する deck を数える", () => {
+    const decks = dir("decks");
+    writeFileSync(
+      join(decks, "api.json"),
+      JSON.stringify({ skills: ["alpha", "beta"] })
+    );
+    writeFileSync(
+      join(decks, "web.json"),
+      JSON.stringify({ skills: ["beta"] })
+    );
+    writeFileSync(
+      join(decks, "backend.json"),
+      JSON.stringify({ skills: ["gamma"] })
+    );
+    const target: Lock = {
+      ...lock,
+      vendor: { beta: { source: "owner-one/repo-one" } },
+    };
+
+    // beta は Vendor 版が同じ名前で展開されているので、deck からは外れない。
+    expect(
+      externalSourceRemovalPlan(target, "owner-one/repo-one", decks)
+    ).toEqual({ remove: ["alpha"], keepVendor: ["beta"], decks: 1 });
+  });
+
+  test("登録の無い source は空の計画になる", () => {
+    expect(
+      externalSourceRemovalPlan(lock, "nobody/none", dir("no-such-dir"))
+    ).toEqual({ remove: [], keepVendor: [], decks: 0 });
   });
 });
 

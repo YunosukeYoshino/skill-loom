@@ -168,6 +168,80 @@ JSON
   fi
 }
 
+test_external_remove_source_removes_every_skill_but_keeps_vendor() {
+  local name=test_external_remove_source_removes_every_skill_but_keeps_vendor
+  echo "Running $name..."
+  local port=18981
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  TMP_DIRS+=("$tmp_dir")
+  local stub="$tmp_dir/bunx-stub"
+  local args_file="$tmp_dir/remove-args.txt"
+  local lock_file="$tmp_dir/skills.lock.json"
+  local decks_dir="$tmp_dir/project-decks"
+  mkdir -p "$decks_dir"
+
+  cat > "$stub" <<'SH'
+#!/bin/bash
+printf '%s\n' "$@" >> "$MY_SKILLS_REMOVE_ARGS_FILE"
+exit 0
+SH
+  chmod +x "$stub"
+
+  cat > "$lock_file" <<'JSON'
+{
+  "version": 1,
+  "custom": {"repo": "owner/catalog", "skills": {}},
+  "external": {
+    "alpha": {"source": "owner-one/repo-one", "sourceUrl": "https://github.com/owner-one/repo-one.git", "skillPath": "skills/alpha/SKILL.md"},
+    "beta": {"source": "owner-one/repo-one", "sourceUrl": "https://github.com/owner-one/repo-one.git", "skillPath": "skills/beta/SKILL.md"},
+    "gamma": {"source": "owner-two/repo-two", "sourceUrl": "https://github.com/owner-two/repo-two.git", "skillPath": "skills/gamma/SKILL.md"}
+  },
+  "vendor": {"beta": {"source": "owner-one/repo-one"}}
+}
+JSON
+  cat > "$decks_dir/api.json" <<'JSON'
+{"skills":["alpha","beta","gamma"]}
+JSON
+
+  MY_SKILLS_LOCK_FILE="$lock_file" MY_SKILLS_PROJECT_DECKS_DIR="$decks_dir" \
+    MY_SKILLS_REMOVE_BIN="$stub" MY_SKILLS_REMOVE_ARGS_FILE="$args_file" \
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
+  UI_PIDS+=($!)
+  sleep 2
+
+  if wait_for_port "$port"; then
+    local http_code
+    http_code=$(curl -s -o "$tmp_dir/response.json" -w "%{http_code}" \
+      -X POST "http://localhost:${port}/api/external-sources/remove-source" \
+      -H "Content-Type: application/json" \
+      -d '{"source":"owner-one/repo-one"}' 2>/dev/null || echo "000")
+
+    [ "$http_code" = "200" ] \
+      && pass "$name: HTTP 200" \
+      || fail "$name: got HTTP $http_code"
+
+    local args lock deck
+    args=$(cat "$args_file" 2>/dev/null || true)
+    lock=$(bun -e 'const l = await Bun.file(process.argv[1]).json(); console.log(JSON.stringify({external: Object.keys(l.external), vendor: Object.keys(l.vendor)}))' "$lock_file")
+    deck=$(bun -e 'console.log(JSON.stringify((await Bun.file(process.argv[1]).json()).skills))' "$decks_dir/api.json")
+
+    assert_contains "$args" "alpha" && ! assert_contains "$args" "beta" \
+      && pass "$name: removes only the non-vendor skill via CLI" \
+      || fail "$name: unexpected remove args: $args"
+
+    [ "$lock" = '{"external":["gamma"],"vendor":["beta"]}' ] \
+      && pass "$name: drops the source from external and keeps vendor" \
+      || fail "$name: unexpected lock: $lock"
+
+    [ "$deck" = '["beta","gamma"]' ] \
+      && pass "$name: vendor skill stays in the deck" \
+      || fail "$name: unexpected deck: $deck"
+  else
+    fail "$name: server did not start"
+  fi
+}
+
 test_external_source_detail_route_uses_candidate_fixture() {
   echo "Running test_external_source_detail_route_uses_candidate_fixture..."
   local port=18804
@@ -507,6 +581,7 @@ SH
 register_cases \
 test_external_update_posts_to_skills_update_command \
 test_external_remove_posts_to_remove_command_and_updates_lock \
+test_external_remove_source_removes_every_skill_but_keeps_vendor \
 test_external_source_detail_route_uses_candidate_fixture \
 test_external_check_updates_post_opens_source_detail \
 test_external_check_all_updates_shows_status_on_sources_page \
