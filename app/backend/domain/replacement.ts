@@ -2,7 +2,8 @@
  * Skill Replacement — 同じ名前の既存 skill を、別 source の skill へ入れ替える（ADR 0003）。
  *
  * 名前は変わらないので、deck の所属はそのまま残る。Active/Archive の状態は
- * 退避前に覚えておき、新しい skill の install 後に同じ状態へ戻す。
+ * 退避前に覚えておき、新しい skill の install 後に同じ状態へ戻す。Off の既存は
+ * 手元に実体が無いので退避も install もせず、lock の取得元だけ付け替える。
  *
  * 手順は「journal を書く → 既存を退避 → 新しい方を install → commit → 後始末」。
  * commit より前に失敗したら退避した実体と lock のエントリを戻し、後なら後始末を
@@ -25,7 +26,13 @@ import {
 import { join } from "node:path";
 import { activeDir, archiveDir } from "./config";
 import { ValueError } from "./errors";
-import { assertValidExternalSkillName } from "./external";
+import {
+  assertValidExternalSkillName,
+  registerInstalledExternalSelection,
+  type ResolvedExternalCandidate,
+  retargetExternalEntries,
+  runExternalInstall,
+} from "./external";
 import {
   type ExternalSkillMeta,
   type GlobalLockEntry,
@@ -35,7 +42,6 @@ import {
 } from "./inventory";
 import {
   archiveInstalledSkills,
-  deregisterFromCliLock,
   linkAgentSkillDirs,
   movePath,
   setCliLockEntries,
@@ -43,7 +49,7 @@ import {
   unlinkAgentSkillDirs,
 } from "./projection";
 
-type ReplacedState = "active" | "archive" | "off";
+type ReplacedState = "active" | "archive";
 
 /** 置き換える 1 件ぶんの、元に戻すための記録。lock のエントリは無ければ null。 */
 type ReplacedRow = {
@@ -74,6 +80,10 @@ function replaceRoot(): string {
   return join(archiveDir(), ".replace");
 }
 
+function isPlaced(name: string): boolean {
+  return present(join(activeDir(), name)) || present(join(archiveDir(), name));
+}
+
 function stateOf(name: string): ReplacedState {
   const active = present(join(activeDir(), name));
   const archived = present(join(archiveDir(), name));
@@ -82,13 +92,11 @@ function stateOf(name: string): ReplacedState {
     throw new ValueError(`${name} is in both Active and Archive`);
   if (active) return "active";
   if (archived) return "archive";
-  return "off";
+  throw new ValueError(`${name} is not installed`);
 }
 
-function dirOf(state: ReplacedState): string | null {
-  if (state === "active") return activeDir();
-  if (state === "archive") return archiveDir();
-  return null;
+function dirOf(state: ReplacedState): string {
+  return state === "active" ? activeDir() : archiveDir();
 }
 
 function writeJournal(
@@ -118,9 +126,8 @@ export function setAsideForReplacement(names: string[]): ReplacementHandle {
   writeJournal(handle, "prepared");
 
   for (const { name, state } of rows) {
-    const base = dirOf(state);
     if (state === "active") unlinkAgentSkillDirs(name);
-    if (base) movePath(join(base, name), join(handle.dir, name));
+    movePath(join(dirOf(state), name), join(handle.dir, name));
     if (lock.external) delete lock.external[name];
   }
   saveLock(lock);
@@ -165,7 +172,7 @@ function restoreFiles(handle: ReplacementHandle, row: ReplacedRow): string {
     trashPath(join(activeDir(), name));
   }
   const base = dirOf(state);
-  if (!base || !present(stashed)) return "";
+  if (!present(stashed)) return "";
   if (present(join(base, name)))
     return `置き換え前の ${name} を戻せませんでした（戻し先が使用中）: ${stashed}`;
   movePath(stashed, join(base, name));
@@ -174,27 +181,18 @@ function restoreFiles(handle: ReplacementHandle, row: ReplacedRow): string {
 }
 
 /**
- * commit 後。新しい skill を元の状態（Archive / Off）へ合わせ、退避所を捨てる。
+ * commit 後。Archive にあった分は新しい skill も Archive へ送り、退避所を捨てる。
  * 起動時の復旧からも呼ぶので、既に済んだ手順は飛ばす。戻り値は警告文。
  */
 export function finishReplacement(handle: ReplacementHandle): string {
-  const namesIn = (state: ReplacedState) =>
-    new Set(
-      handle.rows
-        .filter(
-          (row) => row.state === state && present(join(activeDir(), row.name))
-        )
-        .map((row) => row.name)
-    );
-  const warnings = [archiveInstalledSkills(namesIn("archive"))];
-  const off = namesIn("off");
-  for (const name of off) {
-    unlinkAgentSkillDirs(name);
-    trashPath(join(activeDir(), name));
-  }
-  warnings.push(deregisterFromCliLock(off));
+  const archived = handle.rows
+    .filter(
+      (row) => row.state === "archive" && present(join(activeDir(), row.name))
+    )
+    .map((row) => row.name);
+  const warning = archiveInstalledSkills(new Set(archived));
   trashPath(handle.dir);
-  return warnings.filter(Boolean).join("\n");
+  return warning;
 }
 
 /**
@@ -225,6 +223,35 @@ export async function replaceWhileInstalling<T>(
       `置き換えの後始末が途中で止まりました（次回起動時に再開）: ${error instanceof Error ? error.message : String(error)}`,
     ];
   }
+}
+
+/**
+ * 選んだ候補を取り込む。置き換える行のうち手元に実体があるものは退避してから入れ、
+ * Off の既存は lock の付け替えだけで済ませる。戻り値は [ignore 解除数, 警告文]。
+ */
+export async function installExternalSelection(
+  source: string,
+  resolved: ResolvedExternalCandidate[]
+): Promise<[number, string]> {
+  const off = resolved.filter(
+    (row) => row.conflict && !isPlaced(row.deployName)
+  );
+  const toInstall = resolved.filter((row) => !off.includes(row));
+  const placed = toInstall
+    .filter((row) => row.conflict)
+    .map((row) => row.deployName);
+  const install = async () => {
+    if (toInstall.length === 0) return 0;
+    const names = new Set(toInstall.map((row) => row.deployName));
+    await runExternalInstall(source, names, toInstall);
+    return registerInstalledExternalSelection(source, names, toInstall)[1];
+  };
+  const [unignored, warning] =
+    placed.length === 0
+      ? [await install(), ""]
+      : await replaceWhileInstalling(placed, install);
+  retargetExternalEntries(source, off);
+  return [unignored, warning];
 }
 
 function readJournal(dir: string): Journal | null {

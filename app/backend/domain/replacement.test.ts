@@ -23,6 +23,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   commitReplacement,
+  installExternalSelection,
   finishReplacement,
   recoverPendingReplacements,
   replaceWhileInstalling,
@@ -336,5 +337,37 @@ describe("replaceWhileInstalling", () => {
     expect(body("active", "alpha")).toBe("old alpha");
     expect(linked("alpha")).toBe(true);
     expect(readdirSync(dir("archive", ".replace"))).toEqual([]);
+  });
+});
+
+describe("installExternalSelection", () => {
+  test("Off の既存は install せず、lock の取得元だけ付け替える", async () => {
+    const marker = dir("install-ran");
+    writeFileSync(dir("add-stub"), `#!/bin/sh\ntouch '${marker}'\n`);
+    chmodSync(dir("add-stub"), 0o755);
+    setEnv("MY_SKILLS_ADD_SCRIPT", dir("add-stub"));
+    setEnv("MY_SKILLS_IGNORE_FILE", dir("ignore.json"));
+    const candidate = { name: "beta", path: "skills/beta/SKILL.md" };
+
+    const [unignored, warning] = await installExternalSelection("new/repo", [
+      {
+        candidate,
+        upstreamName: "beta",
+        deployName: "beta",
+        conflict: "Skill name already used by old/repo: beta",
+        replaces: { source: "old/repo" },
+      },
+    ]);
+
+    expect([unignored, warning]).toEqual([0, ""]);
+    expect(existsSync(marker)).toBe(false);
+    const lock = readJsonFile(dir("skills.lock.json"));
+    expect(lock.external.beta).toEqual({
+      source: "new/repo",
+      sourceUrl: "https://github.com/new/repo.git",
+      skillPath: "skills/beta/SKILL.md",
+    });
+    expect(lock.external.alpha.source).toBe("old/repo");
+    expect(body("active", "beta")).toBeNull();
   });
 });
