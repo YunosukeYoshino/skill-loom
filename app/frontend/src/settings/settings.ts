@@ -1,5 +1,5 @@
 /**
- * Web UI Settings — locale と External 表示既定をまとめて持つブラウザローカルな設定。
+ * Web UI Settings — locale・External 表示既定・Pin をまとめて持つブラウザローカルな設定。
  * 永続化は単一 localStorage キー (`skill-loom.settings`) の JSON blob。
  * 旧 `external-sources-view-mode` は最初の読み込み時に blob へ移行して削除する。
  * storage は注入可能で、このモジュールは React なしで単体テストできる。
@@ -10,6 +10,8 @@ export type ExternalViewMode = "grid" | "list";
 export type UiSettings = {
   locale: UiLocale;
   externalViewMode: ExternalViewMode;
+  /** External 一覧で先頭に寄せる source。表示の好みなので Catalog ではなく端末に持つ。 */
+  pinnedSources: string[];
 };
 
 export const SETTINGS_STORAGE_KEY = "skill-loom.settings";
@@ -18,6 +20,7 @@ export const LEGACY_VIEW_MODE_KEY = "external-sources-view-mode";
 export const DEFAULT_SETTINGS: UiSettings = {
   locale: "en",
   externalViewMode: "grid",
+  pinnedSources: [],
 };
 
 export interface SettingsStorage {
@@ -30,6 +33,8 @@ const toLocale = (v: unknown): UiLocale | undefined =>
   v === "en" || v === "ja" ? v : undefined;
 const toViewMode = (v: unknown): ExternalViewMode | undefined =>
   v === "grid" || v === "list" ? v : undefined;
+const toStrings = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 
 function readItem(storage: SettingsStorage, key: string): string | null {
   try {
@@ -61,6 +66,7 @@ export function loadSettings(storage: SettingsStorage): UiSettings {
       toViewMode(parsed.externalViewMode) ??
       toViewMode(legacy) ??
       DEFAULT_SETTINGS.externalViewMode,
+    pinnedSources: toStrings(parsed.pinnedSources),
   };
 
   // 旧キーが残っていれば新 blob を書き戻してから削除し、二重管理を残さない。
@@ -96,6 +102,21 @@ export function resolveExternalView(
   settings: UiSettings
 ): ExternalViewMode {
   return toViewMode(urlView) ?? settings.externalViewMode;
+}
+
+/**
+ * Pin した source を先頭に寄せる。どちらの側も元の並び（名前順）を保つ。
+ * 外した source の Pin は storage に残っていても、ここで一致しないだけで害はない。
+ */
+export function pinnedFirst<T extends { source: string }>(
+  rows: T[],
+  pinned: string[]
+): T[] {
+  const set = new Set(pinned);
+  return [
+    ...rows.filter((row) => set.has(row.source)),
+    ...rows.filter((row) => !set.has(row.source)),
+  ];
 }
 
 /* ======================================================================
@@ -267,6 +288,8 @@ const en = {
   "sources.checkAll": "Check all for updates",
   "sources.updateAll": "Update all with updates ({count})",
   "sources.empty": "No external sources yet. Add one from “Add skills”.",
+  "sources.pin": "Pin {source} to the top",
+  "sources.unpin": "Unpin {source}",
 
   // external source detail page
   "detail.back": "Back to sources",
@@ -462,6 +485,8 @@ const ja: MessageCatalog = {
   "sources.checkAll": "すべて更新を確認",
   "sources.updateAll": "更新があるものをすべてupdate ({count})",
   "sources.empty": "外部ソースがありません。「skillsを追加」から追加できます。",
+  "sources.pin": "{source} を先頭にPin",
+  "sources.unpin": "{source} のPinを外す",
 
   "detail.back": "sourcesに戻る",
   "detail.updateAll": "このsourceをすべてupdate ({count})",

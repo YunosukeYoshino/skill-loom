@@ -11,6 +11,7 @@ import {
   MESSAGES,
   SETTINGS_STORAGE_KEY,
   loadSettings,
+  pinnedFirst,
   resolveExternalView,
   saveSettings,
   translate,
@@ -32,7 +33,11 @@ function memoryStorage(initial: Record<string, string> = {}): SettingsStorage {
   };
 }
 
-const base: UiSettings = { locale: "en", externalViewMode: "grid" };
+const base: UiSettings = {
+  locale: "en",
+  externalViewMode: "grid",
+  pinnedSources: [],
+};
 
 describe("loadSettings", () => {
   test("空の storage は English + grid に縮退する", () => {
@@ -61,13 +66,18 @@ describe("loadSettings", () => {
     expect(loadSettings(storage)).toEqual({
       locale: "ja",
       externalViewMode: "grid",
+      pinnedSources: [],
     });
   });
 
   test("旧 external-sources-view-mode を移行して削除する", () => {
     const storage = memoryStorage({ [LEGACY_VIEW_MODE_KEY]: "list" });
     const settings = loadSettings(storage);
-    expect(settings).toEqual({ locale: "en", externalViewMode: "list" });
+    expect(settings).toEqual({
+      locale: "en",
+      externalViewMode: "list",
+      pinnedSources: [],
+    });
     expect(storage.getItem(LEGACY_VIEW_MODE_KEY)).toBeNull();
     expect(JSON.parse(storage.getItem(SETTINGS_STORAGE_KEY)!)).toEqual(
       settings
@@ -83,19 +93,71 @@ describe("loadSettings", () => {
       [LEGACY_VIEW_MODE_KEY]: "list",
     });
     const settings = loadSettings(storage);
-    expect(settings).toEqual({ locale: "ja", externalViewMode: "grid" });
+    expect(settings).toEqual({
+      locale: "ja",
+      externalViewMode: "grid",
+      pinnedSources: [],
+    });
     expect(storage.getItem(LEGACY_VIEW_MODE_KEY)).toBeNull();
+  });
+});
+
+describe("pinnedSources", () => {
+  test("文字列配列として読み込む", () => {
+    const storage = memoryStorage({
+      [SETTINGS_STORAGE_KEY]: JSON.stringify({ pinnedSources: ["a/b", "c/d"] }),
+    });
+    expect(loadSettings(storage).pinnedSources).toEqual(["a/b", "c/d"]);
+  });
+
+  test("配列でなければ空、文字列以外の要素は捨てる", () => {
+    expect(
+      loadSettings(
+        memoryStorage({
+          [SETTINGS_STORAGE_KEY]: JSON.stringify({ pinnedSources: "a/b" }),
+        })
+      ).pinnedSources
+    ).toEqual([]);
+    expect(
+      loadSettings(
+        memoryStorage({
+          [SETTINGS_STORAGE_KEY]: JSON.stringify({ pinnedSources: ["a/b", 1] }),
+        })
+      ).pinnedSources
+    ).toEqual(["a/b"]);
+  });
+});
+
+describe("pinnedFirst", () => {
+  const rows = [{ source: "a/x" }, { source: "b/y" }, { source: "c/z" }];
+
+  test("Pin したものを先頭に寄せ、それぞれの中では元の順を保つ", () => {
+    expect(pinnedFirst(rows, ["c/z", "b/y"]).map((r) => r.source)).toEqual([
+      "b/y",
+      "c/z",
+      "a/x",
+    ]);
+  });
+
+  test("存在しない Pin は無視する", () => {
+    expect(pinnedFirst(rows, ["gone/repo"]).map((r) => r.source)).toEqual([
+      "a/x",
+      "b/y",
+      "c/z",
+    ]);
   });
 });
 
 describe("saveSettings", () => {
   test("loadSettings と往復できる", () => {
     const storage = memoryStorage();
-    saveSettings(storage, { locale: "ja", externalViewMode: "list" });
-    expect(loadSettings(storage)).toEqual({
+    const settings: UiSettings = {
       locale: "ja",
       externalViewMode: "list",
-    });
+      pinnedSources: ["a/b"],
+    };
+    saveSettings(storage, settings);
+    expect(loadSettings(storage)).toEqual(settings);
   });
 });
 
