@@ -151,7 +151,10 @@ describe("externalSourceStatusLabel", () => {
       "確認失敗"
     );
     expect(
-      externalSourceStatusLabel({ checked: true, updatable: ["alpha", "beta"] })
+      externalSourceStatusLabel({
+        checked: true,
+        updatable: ["alpha", "beta"],
+      })
     ).toBe("更新あり 2");
     expect(externalSourceStatusLabel({ checked: true, updatable: [] })).toBe(
       "最新"
@@ -554,6 +557,19 @@ describe("runExternalInstall", () => {
     ).rejects.toThrow("Invalid external skill name: --all");
     expect(existsSync(marker)).toBe(false);
   });
+
+  test("skills-add が何も入れずに正常終了したら失敗として扱う", async () => {
+    const script = dir("skills-add-stub");
+    writeFileSync(script, `#!/bin/sh\necho "No new skills registered."\n`);
+    setEnv("MY_SKILLS_ADD_SCRIPT", script);
+    const candidate = { name: "alpha", path: "skills/alpha/SKILL.md" };
+
+    await expect(
+      runExternalInstall("owner/repo", new Set(["alpha"]), [
+        { candidate, upstreamName: "alpha", deployName: "alpha" },
+      ])
+    ).rejects.toThrow("Skill was not installed: alpha");
+  });
 });
 
 describe("registerInstalledExternalSelection", () => {
@@ -769,6 +785,33 @@ describe("resolveExternalCandidatesMapping", () => {
     ]);
   });
 
+  test("規約に合わない上流名はディスクを見ずに置き換え不可の conflict になる", () => {
+    place("archive", "foo", "old foo");
+    const candidates = [
+      { name: "../archive/foo", path: "skills/foo/SKILL.md" },
+      { name: "..", path: "skills/up/SKILL.md" },
+    ];
+    const mapping = resolveExternalCandidatesMapping(
+      { external: {} },
+      "owner/repo",
+      candidates
+    );
+    expect(mapping).toEqual([
+      {
+        candidate: candidates[0]!,
+        upstreamName: "../archive/foo",
+        deployName: "../archive/foo",
+        conflict: "Invalid external skill name: ../archive/foo",
+      },
+      {
+        candidate: candidates[1]!,
+        upstreamName: "..",
+        deployName: "..",
+        conflict: "Invalid external skill name: ..",
+      },
+    ]);
+  });
+
   test("Custom スキルと名前が衝突する場合は conflict になる", () => {
     const testLock: Lock = {
       custom: {
@@ -814,6 +857,7 @@ describe("resolveExternalCandidatesMapping", () => {
         upstreamName: "alpha",
         deployName: "alpha",
         conflict: "Skill name already used by first-owner/repo: alpha",
+        replaces: { source: "first-owner/repo" },
       },
     ]);
   });
@@ -885,6 +929,7 @@ describe("resolveExternalCandidatesMapping", () => {
         upstreamName: "alpha",
         deployName: "alpha",
         conflict: "Skill name already used by first-owner/repo: alpha",
+        replaces: { source: "first-owner/repo" },
       },
     ]);
   });
@@ -937,6 +982,97 @@ describe("resolveExternalCandidatesMapping", () => {
     expect(mapping[0]?.conflict).toBe(
       "Skill name already used by first/repo (registered as first--alpha): alpha"
     );
+  });
+
+  test("置き換えられる衝突には既存側の source を載せる", () => {
+    place("archive", "alpha", "local");
+    place("active", "beta", "local");
+    writeFileSync(
+      dir("skill-lock.json"),
+      JSON.stringify({ skills: { beta: { source: "other/repo" } } })
+    );
+    const mapping = resolveExternalCandidatesMapping(
+      {
+        external: {
+          gamma: { source: "owner/repo", installSkill: "delta" },
+        },
+      },
+      "owner/repo",
+      [{ name: "alpha" }, { name: "beta" }, { name: "gamma" }]
+    );
+    expect(mapping.map((row) => row.replaces)).toEqual([
+      { source: null },
+      { source: "other/repo" },
+      { source: "owner/repo" },
+    ]);
+  });
+
+  test("Custom・Vendor・同 source 内重複・別名登録済みの衝突は置き換えられない", () => {
+    const mapping = resolveExternalCandidatesMapping(
+      {
+        custom: { skills: { alpha: { repoPath: "custom/alpha" } } },
+        vendor: { beta: { source: "other/repo" } },
+        external: {
+          "first--delta": { source: "first/repo", installSkill: "delta" },
+        },
+      },
+      "owner/repo",
+      [
+        { name: "alpha" },
+        { name: "beta" },
+        { name: "gamma", path: "a/gamma/SKILL.md" },
+        { name: "gamma", path: "b/gamma/SKILL.md" },
+        { name: "delta" },
+      ]
+    );
+    expect(mapping.map((row) => Boolean(row.conflict))).toEqual([
+      true,
+      true,
+      false,
+      true,
+      true,
+    ]);
+    expect(mapping.map((row) => row.replaces)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  test("置き換えを承認した名前だけ衝突を通す", () => {
+    const lock: Lock = {
+      custom: { skills: { beta: { repoPath: "custom/beta" } } },
+      external: { alpha: { source: "first/repo" } },
+    };
+    const candidates = [{ name: "alpha" }, { name: "beta" }];
+    expect(() =>
+      resolveSelectedExternalSkills(
+        lock,
+        "second/repo",
+        new Set(["alpha"]),
+        candidates
+      )
+    ).toThrow("Skill name already used by first/repo: alpha");
+    expect(
+      resolveSelectedExternalSkills(
+        lock,
+        "second/repo",
+        new Set(["alpha"]),
+        candidates,
+        new Set(["alpha"])
+      ).map((row) => row.deployName)
+    ).toEqual(["alpha"]);
+    expect(() =>
+      resolveSelectedExternalSkills(
+        lock,
+        "second/repo",
+        new Set(["beta"]),
+        candidates,
+        new Set(["beta"])
+      )
+    ).toThrow("Skill name already used by Custom skill: beta");
   });
 
   test("source の大文字小文字違いは同じ source とみなす", () => {
@@ -1002,6 +1138,63 @@ describe("externalPreviewPayload with collision", () => {
   });
 });
 
+describe("置き換えを承認できる衝突", () => {
+  test("既存と取り込み側を並べた行で返し、メッセージには出さない", async () => {
+    setEnv("MY_SKILLS_PROJECT_DECKS_DIR", dir("decks"));
+    writeFileSync(
+      dir("decks", "web.json"),
+      JSON.stringify({ skills: ["alpha", "other"] })
+    );
+    place(
+      "archive",
+      "alpha",
+      "---\nname: alpha\ndescription: Old alpha\n---\n"
+    );
+    const testLock: Lock = {
+      external: { alpha: { source: "first/repo" } },
+    };
+    const candidates = [
+      {
+        name: "alpha",
+        path: "skills/alpha/SKILL.md",
+        description: "New alpha",
+      },
+    ];
+    const expected = [
+      {
+        name: "alpha",
+        category: "skills/alpha/SKILL.md",
+        description: "New alpha",
+        existing: {
+          source: "first/repo",
+          state: "archive" as const,
+          decks: 1,
+          description: "Old alpha",
+        },
+      },
+    ];
+
+    const preview = externalPreviewPayload(
+      testLock,
+      "",
+      "second/repo",
+      candidates
+    );
+    expect(preview.rows).toEqual([]);
+    expect(preview.replaceable).toEqual(expected);
+    expect(preview.message).toBe("");
+
+    const detail = await externalSourceDetailPayload(
+      testLock,
+      "second/repo",
+      candidates
+    );
+    expect(detail.available).toEqual([]);
+    expect(detail.replaceable).toEqual(expected);
+    expect(detail.message).toBe("");
+  });
+});
+
 describe("PR 6 import regressions", () => {
   beforeEach(() => {
     setEnv("MY_SKILLS_LOCK_FILE", dir("skills.lock.json"));
@@ -1056,7 +1249,7 @@ describe("PR 6 import regressions", () => {
     expect(Object.keys(updated.external ?? {})).toEqual(["alpha"]);
   });
 
-  test("an alias named beta blocks the upstream beta candidate", async () => {
+  test("an alias named beta makes the upstream beta candidate a replacement", async () => {
     const lock: Lock = {
       external: { beta: { source: "owner/repo", installSkill: "alpha" } },
     };
@@ -1065,9 +1258,9 @@ describe("PR 6 import regressions", () => {
       { name: "beta" },
     ]);
     expect(detail.available).toEqual([]);
-    expect(detail.message).toContain(
-      "Skill name already used by owner/repo (alias of alpha): beta"
-    );
+    expect(detail.replaceable.map((row) => row.existing.source)).toEqual([
+      "owner/repo",
+    ]);
   });
 
   test("a freshly renamed skill is current, but a body change is detected", async () => {

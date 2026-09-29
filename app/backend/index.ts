@@ -43,10 +43,8 @@ import {
   externalSourceRemovalPlan,
   formatExternalUpdateMessage,
   isArgvSafeSkillName,
-  registerInstalledExternalSelection,
   removeExternalSkillFromManagement,
   resolveSelectedExternalSkills,
-  runExternalInstall,
   runExternalSkillUpdate,
 } from "./domain/external";
 import { commitRepoChanges } from "./infrastructure/git";
@@ -78,6 +76,10 @@ import {
   planRestoreAll,
   restorePreviousPreset,
 } from "./domain/projection";
+import {
+  installExternalSelection,
+  recoverPendingReplacements,
+} from "./domain/replacement";
 import {
   computeTristateApplyDelta,
   formatTristateApplySummary,
@@ -514,6 +516,11 @@ app.post("/api/all", async (c) => {
 function bodyString(body: unknown, key: string): string {
   const value = (body as Record<string, unknown> | null)?.[key];
   return String(value ?? "").trim();
+}
+
+function bodyNames(body: unknown, key: string): Set<string> {
+  const value = (body as Record<string, unknown> | null)?.[key];
+  return new Set(Array.isArray(value) ? value.map((name) => String(name)) : []);
 }
 
 function bodyFlag(body: unknown, key: string): boolean {
@@ -1325,6 +1332,10 @@ function catalogPayload(deckName: string, message = ""): object {
     : globalPayload(lock, message, { showCatalog: true });
 }
 
+/**
+ * 承認済みの衝突（ADR 0003）があれば既存を退避してから install する。失敗したら退避分を戻す。
+ * 戻り値は [ignore 解除数, 画面に足すメッセージ]。
+ */
 /** source から取り込める skill の一覧を出すだけ。ここでは何も入れない。 */
 app.post("/api/external/preview", async (c) => {
   const body = await readJson(c.req.raw);
@@ -1363,10 +1374,8 @@ app.post("/api/external/install", async (c) => {
   const body = await readJson(c.req.raw);
   const deckName = bodyString(body, "deck");
   const source = bodyString(body, "source");
-  const requested = (body as Record<string, unknown> | null)?.skills;
-  const selected = new Set(
-    Array.isArray(requested) ? requested.map((name) => String(name)) : []
-  );
+  const selected = bodyNames(body, "skills");
+  const replace = bodyNames(body, "replace");
 
   let ownerRepo: string;
   let deck: ReturnType<typeof loadOptionalProjectDeck>[0];
@@ -1387,18 +1396,29 @@ app.post("/api/external/install", async (c) => {
   if (!tryAcquireApply())
     return errorResponse(IMPORT_BUSY_MESSAGE, 409, catalogPayload(deckName));
 
-  let resolved: ReturnType<typeof resolveSelectedExternalSkills>;
   let deploySelected: Set<string>;
+  let unignoredCount: number;
+  let replacedMessage = "";
   try {
     const candidates = externalSkillCandidates(ownerRepo);
-    resolved = resolveSelectedExternalSkills(
+    const resolved = resolveSelectedExternalSkills(
       loadLock(),
       ownerRepo,
       selected,
-      candidates
+      candidates,
+      replace
     );
     deploySelected = new Set(resolved.map((row) => row.deployName));
-    await runExternalInstall(ownerRepo, deploySelected, resolved);
+    const replaced = resolved
+      .filter((row) => row.conflict)
+      .map((row) => row.deployName);
+    let warning: string;
+    [unignoredCount, warning] = await installExternalSelection(
+      ownerRepo,
+      resolved
+    );
+    if (replaced.length > 0)
+      replacedMessage = ` / 置き換え ${sortNames(replaced).join(", ")}${warning ? ` / ${warning}` : ""}`;
   } catch (error) {
     return errorResponse(
       `取り込みに失敗: ${errorText(error)}`,
@@ -1410,14 +1430,7 @@ app.post("/api/external/install", async (c) => {
   }
 
   const names = sortNames(deploySelected).join(", ");
-  const [, unignoredCount] = registerInstalledExternalSelection(
-    ownerRepo,
-    deploySelected,
-    resolved
-  );
-  const unignoredMessage = unignoredCount
-    ? ` / ignored解除 ${unignoredCount}`
-    : "";
+  const unignoredMessage = `${unignoredCount ? ` / ignored解除 ${unignoredCount}` : ""}${replacedMessage}`;
   const commitNote = commitRepoChanges(
     `chore: add ${names} to skills.lock.json`,
     [lockFile(), ignoreFile()]
@@ -1586,6 +1599,14 @@ app.on(["GET", "HEAD"], "*", async (c) => {
 app.all("*", () =>
   jsonResponse({ detail: "Method Not Allowed" }, 405, { allow: "HEAD, GET" })
 );
+
+// 前回、置き換えの途中でプロセスが止まっていれば、ここで片付けてから受け付ける。
+try {
+  const warning = recoverPendingReplacements();
+  if (warning) console.warn(warning);
+} catch (error) {
+  console.warn(`置き換えの復旧に失敗しました: ${errorText(error)}`);
+}
 
 const server = Bun.serve({
   hostname: args.host,

@@ -126,6 +126,19 @@ export type InstalledExternal = {
   managed: boolean;
 };
 
+/** 承認すれば既存と置き換えて取り込める衝突（ADR 0003）。`existing.source: null` は取得元不明。 */
+export type ReplaceableSkill = {
+  name: string;
+  category: string;
+  description: string;
+  existing: {
+    source: string | null;
+    state: Tristate;
+    decks: number;
+    description: string;
+  };
+};
+
 export type ExternalSourceDetailPayload = {
   page: string;
   title: string;
@@ -134,6 +147,7 @@ export type ExternalSourceDetailPayload = {
   source: string;
   installed: InstalledExternal[];
   available: SkillRow[];
+  replaceable: ReplaceableSkill[];
   updatable: string[];
   /** source ごと外すときの内訳。`keepVendor` は Vendor 版が残る skill。 */
   removal: { remove: string[]; keepVendor: string[]; decks: number };
@@ -168,4 +182,5 @@ export type ExternalPreviewPayload = {
   deckName: string;
   source: string;
   rows: SkillRow[];
+  replaceable: ReplaceableSkill[];
 };

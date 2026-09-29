@@ -14,6 +14,7 @@ import type {
   GlobalPayload,
   ProjectDeckPayload,
   InstalledExternal,
+  ReplaceableSkill,
   SkillRow,
 } from "@shared/api-types";
 import {
@@ -28,7 +29,9 @@ import {
   externalSourceStatusLabel,
   externalSourceSummary,
   externalSkillUpdateCommand,
+  projectDeckCount,
   resolveExternalCandidatesMapping,
+  type ResolvedExternalCandidate,
   skillHasRemoteUpdate,
   type SourceUpdateStatus,
 } from "./domain/external";
@@ -38,6 +41,7 @@ import { normalizeGithubSource } from "./infrastructure/github";
 import {
   allSkillNames,
   globalTristateRows,
+  installedNames,
   type Lock,
   managedActiveSkills,
   skillDescription,
@@ -126,6 +130,46 @@ export function globalPayload(
 }
 
 // ---- 外部 source（#70 で移植）----
+
+/** 置き換えられない衝突だけをメッセージにする。置き換えられるものは行として別に出す。 */
+function blockedConflictMessage(mapping: ResolvedExternalCandidate[]): string {
+  const blocked = mapping.flatMap((row) =>
+    row.conflict && !row.replaces ? [row.conflict] : []
+  );
+  return blocked.length
+    ? `同名の skill が既にあるため取り込めません（vendor-fork するか既存を外してください）: ${blocked.join(", ")}`
+    : "";
+}
+
+/**
+ * 承認待ちの置き換え行。既存側は手元の実体と deck から、取り込み側は候補から組み立てる。
+ * 名前は変わらないので、既存側の状態と deck 所属は置き換え後もそのまま引き継がれる。
+ */
+function replaceableRows(
+  lock: Lock,
+  ownerRepo: string,
+  mapping: ResolvedExternalCandidate[]
+): ReplaceableSkill[] {
+  const active = installedNames(activeDir());
+  const archived = installedNames(archiveDir());
+  return mapping.flatMap(({ candidate, deployName, replaces }) =>
+    replaces
+      ? [
+          {
+            name: deployName,
+            category: candidate.path || ownerRepo,
+            description: candidate.description ?? "",
+            existing: {
+              source: replaces.source,
+              state: skillProjectionState(deployName, active, archived),
+              decks: projectDeckCount(deployName),
+              description: skillDescription(lock, deployName),
+            },
+          },
+        ]
+      : []
+  );
+}
 
 /**
  * source 一覧。更新確認は済んでいるものだけ `checked` が立ち、バッジもそこから決まる。
@@ -229,9 +273,6 @@ export async function externalSourceDetailPayload(
       .filter((name) => !matchedUpstreams.has(name))
       .map((name) => candidateByUpstream.get(name) as ExternalCandidate)
   );
-  const conflicts = availableMapping.flatMap((row) =>
-    row.conflict ? [row.conflict] : []
-  );
   for (const { candidate, deployName, conflict } of availableMapping) {
     if (conflict) continue;
     availableRows.push({
@@ -247,18 +288,14 @@ export async function externalSourceDetailPayload(
   return {
     page: "external-source-detail",
     title: ownerRepo,
-    message: [
-      message,
-      conflicts.length
-        ? `同名の skill が既にあるため取り込めません（vendor-fork するか既存を外してください）: ${conflicts.join(", ")}`
-        : "",
-    ]
+    message: [message, blockedConflictMessage(availableMapping)]
       .filter(Boolean)
       .join(" / "),
     decks: deckNames(),
     source: ownerRepo,
     installed: installedSkills,
     available: availableRows,
+    replaceable: replaceableRows(lock, ownerRepo, availableMapping),
     updatable: updatableSkills,
     removal: externalSourceRemovalPlan(lock, ownerRepo),
   };
@@ -354,15 +391,7 @@ export function externalPreviewPayload(
   return {
     page: "external-preview",
     title: `外部skillsを取り込む - ${ownerRepo}`,
-    message: [
-      message,
-      ...resolved
-        .filter((row) => row.conflict)
-        .map(
-          (row) =>
-            `同名の skill が既にあるため取り込めません（vendor-fork するか既存を外してください）: ${row.conflict}`
-        ),
-    ]
+    message: [message, blockedConflictMessage(resolved)]
       .filter(Boolean)
       .join(" / "),
     decks: deckNames(),
@@ -382,6 +411,7 @@ export function externalPreviewPayload(
             : "missing",
         checked: false,
       })),
+    replaceable: replaceableRows(lock, ownerRepo, resolved),
   };
 }
 

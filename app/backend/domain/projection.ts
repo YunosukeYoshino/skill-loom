@@ -136,8 +136,23 @@ export function unlinkAgentSkillDirsMany(names: Iterable<string>): void {
  * 呼び出し側は処理を続ける（projection 自体は既に正しいため）。
  */
 export function deregisterFromCliLock(names: Set<string>): string {
+  if (names.size === 0) return "";
+  return editCliLock((entries) => {
+    const dropped = sortNames(names).filter((name) => name in entries);
+    for (const name of dropped) delete entries[name];
+    return dropped.length > 0;
+  });
+}
+
+/**
+ * CLI lock の `skills` を edit で書き換えて保存する。edit が false を返せば書かない。
+ * 読めない・想定外の構造・書き込み失敗は警告文で返す（CLI lock は外部ツールの形式なので落とさない）。
+ */
+function editCliLock(
+  edit: (entries: Record<string, unknown>) => boolean
+): string {
   const lockPath = globalLockFile();
-  if (names.size === 0 || !exists(lockPath)) return "";
+  if (!exists(lockPath)) return "";
 
   let data: unknown;
   try {
@@ -146,22 +161,10 @@ export function deregisterFromCliLock(names: Set<string>): string {
     return `CLI lock を更新できませんでした（読めない形式）: ${lockPath}`;
   }
 
-  const skills = (data as { skills?: unknown } | null)?.skills;
-  if (
-    !data ||
-    typeof data !== "object" ||
-    Array.isArray(data) ||
-    !skills ||
-    typeof skills !== "object" ||
-    Array.isArray(skills)
-  ) {
+  const skills = cliLockSkills(data);
+  if (!skills)
     return `CLI lock を更新できませんでした（想定外の構造）: ${lockPath}`;
-  }
-
-  const entries = skills as Record<string, unknown>;
-  const dropped = sortNames(names).filter((name) => name in entries);
-  if (dropped.length === 0) return "";
-  for (const name of dropped) delete entries[name];
+  if (!edit(skills)) return "";
 
   // tmp へ書いてから rename。途中で落ちても CLI lock が壊れた状態で残らない。
   const tmp = `${lockPath}.tmp`;
@@ -172,6 +175,28 @@ export function deregisterFromCliLock(names: Set<string>): string {
     return `CLI lock を更新できませんでした（書き込み失敗: ${error instanceof Error ? error.message : String(error)}）: ${lockPath}`;
   }
   return "";
+}
+
+/** `{ skills: {...} }` の skills 部分。形が違えば null。 */
+function cliLockSkills(data: unknown): Record<string, unknown> | null {
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  if (!isRecord(data) || !isRecord(data.skills)) return null;
+  return data.skills;
+}
+
+/** 名前ごとに CLI lock のエントリを指定の値へ戻す。null はエントリ無し（消す）。 */
+export function setCliLockEntries(
+  entries: Record<string, GlobalLockEntry | null>
+): string {
+  if (Object.keys(entries).length === 0) return "";
+  return editCliLock((current) => {
+    for (const [name, entry] of Object.entries(entries)) {
+      if (entry === null) delete current[name];
+      else current[name] = entry;
+    }
+    return true;
+  });
 }
 
 // ---- CLI lock エントリの預かり（archive 行き ⇄ 戻り）----
@@ -252,42 +277,14 @@ function popCliLockStash(names: Set<string>): Record<string, GlobalLockEntry> {
 function restoreCliLockEntries(
   entries: Record<string, GlobalLockEntry>
 ): string {
-  const lockPath = globalLockFile();
-  if (Object.keys(entries).length === 0 || !exists(lockPath)) return "";
-
-  let data: unknown;
-  try {
-    data = JSON.parse(readFileSync(lockPath, "utf8"));
-  } catch {
-    return `CLI lock を更新できませんでした（読めない形式）: ${lockPath}`;
-  }
-
-  const skills = (data as { skills?: unknown } | null)?.skills;
-  if (
-    !data ||
-    typeof data !== "object" ||
-    Array.isArray(data) ||
-    !skills ||
-    typeof skills !== "object" ||
-    Array.isArray(skills)
-  ) {
-    return `CLI lock を更新できませんでした（想定外の構造）: ${lockPath}`;
-  }
-
-  const current = skills as Record<string, unknown>;
-  for (const [name, entry] of Object.entries(entries)) {
-    // 既にエントリがあればその方が新しい（別経路で入り直した）。預かり分は上書きしない。
-    if (!(name in current)) current[name] = entry;
-  }
-
-  const tmp = `${lockPath}.tmp`;
-  try {
-    writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`);
-    renameSync(tmp, lockPath);
-  } catch (error) {
-    return `CLI lock を更新できませんでした（書き込み失敗: ${error instanceof Error ? error.message : String(error)}）: ${lockPath}`;
-  }
-  return "";
+  if (Object.keys(entries).length === 0) return "";
+  return editCliLock((current) => {
+    for (const [name, entry] of Object.entries(entries)) {
+      // 既にエントリがあればその方が新しい（別経路で入り直した）。預かり分は上書きしない。
+      if (!(name in current)) current[name] = entry;
+    }
+    return true;
+  });
 }
 
 /** 外部 skill の install コマンド。source ごとに 1 コマンドへまとめる。 */
@@ -379,7 +376,7 @@ export function installCustomFromRepo(names: Set<string>, lock: Lock): void {
  * ディレクトリを移す。`shutil.move` と同じく、跨ぐファイルシステムでは
  * コピーしてから元を捨てる。
  */
-function movePath(src: string, dst: string): void {
+export function movePath(src: string, dst: string): void {
   try {
     renameSync(src, dst);
   } catch (error) {
@@ -527,16 +524,7 @@ export function applyDeck(
     [...externalInstall].filter((name) => exists(join(activeDir(), name)))
   );
 
-  for (const name of sortNames(extra)) {
-    const src = join(activeDir(), name);
-    const dst = join(archiveDir(), name);
-    if (!exists(src)) continue;
-    if (exists(dst)) {
-      trashPath(src);
-      continue;
-    }
-    movePath(src, dst);
-  }
+  moveActiveToArchive(extra);
 
   // archive 直行の skill は上の install で symlink を張られている。張り直しではなく外す。
   unlinkAgentSkillDirsMany([...extra].filter((name) => install.has(name)));
@@ -548,6 +536,31 @@ export function applyDeck(
   return [deregisterFromCliLock(deregistered), restoreCliLockEntries(unstashed)]
     .filter((warning) => warning)
     .join("\n");
+}
+
+/** active の実体を archive へ移す。archive 側に既にあれば active 側を捨てる。 */
+function moveActiveToArchive(names: Set<string>): void {
+  for (const name of sortNames(names)) {
+    const src = join(activeDir(), name);
+    const dst = join(archiveDir(), name);
+    if (!exists(src)) continue;
+    if (exists(dst)) {
+      trashPath(src);
+      continue;
+    }
+    movePath(src, dst);
+  }
+}
+
+/**
+ * install したばかりの skill を archive へ送る。applyDeck の extra と同じく、
+ * symlink を外し、CLI lock のエントリを預かってから落とす。戻り値は警告文。
+ */
+export function archiveInstalledSkills(names: Set<string>): string {
+  unlinkAgentSkillDirsMany(names);
+  moveActiveToArchive(names);
+  stashCliLockEntries(names);
+  return deregisterFromCliLock(names);
 }
 
 /**
