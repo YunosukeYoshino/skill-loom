@@ -4,38 +4,62 @@
  * 名前は変わらないので、deck の所属はそのまま残る。Active/Archive の状態は
  * 退避前に覚えておき、新しい skill の install 後に同じ状態へ戻す。
  *
- * 手順は「既存を退避 → 新しい方を install → 後始末」。install が失敗したら
- * 退避した実体と lock を丸ごと戻す。既存を先に消してしまうと、失敗時に何も残らない。
+ * 手順は「journal を書く → 既存を退避 → 新しい方を install → commit → 後始末」。
+ * commit より前に失敗したら退避した実体と lock のエントリを戻し、後なら後始末を
+ * 最後までやり切る。途中でプロセスが落ちても、起動時に journal から同じ判断で続きを行う。
+ *
+ * 退避所は archive 直下の `.replace/<id>/`。同じ FS 上なので rename で済み、
+ * dot で始まるので Projection からは見えない。
  */
 
 import {
   existsSync,
   lstatSync,
+  mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
+  renameSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { activeDir, archiveDir, globalLockFile, lockFile } from "./config";
-import { loadLock, saveLock } from "./inventory";
+import { activeDir, archiveDir } from "./config";
+import { ValueError } from "./errors";
+import { assertValidExternalSkillName } from "./external";
+import {
+  type ExternalSkillMeta,
+  type GlobalLockEntry,
+  loadGlobalLock,
+  loadLock,
+  saveLock,
+} from "./inventory";
 import {
   archiveInstalledSkills,
   deregisterFromCliLock,
   linkAgentSkillDirs,
   movePath,
+  setCliLockEntries,
   trashPath,
   unlinkAgentSkillDirs,
 } from "./projection";
 
 type ReplacedState = "active" | "archive" | "off";
 
-export type ReplacementHandle = {
-  stashDir: string;
-  skills: Array<{ name: string; state: ReplacedState }>;
-  lockText: string | null;
-  cliLockText: string | null;
+/** 置き換える 1 件ぶんの、元に戻すための記録。lock のエントリは無ければ null。 */
+type ReplacedRow = {
+  name: string;
+  state: ReplacedState;
+  lockEntry: ExternalSkillMeta | null;
+  cliLockEntry: GlobalLockEntry | null;
 };
+
+type Journal = {
+  version: 1;
+  phase: "prepared" | "committed";
+  rows: ReplacedRow[];
+};
+
+export type ReplacementHandle = { dir: string; rows: ReplacedRow[] };
 
 function present(path: string): boolean {
   try {
@@ -46,13 +70,18 @@ function present(path: string): boolean {
   }
 }
 
-function readText(path: string): string | null {
-  return existsSync(path) ? readFileSync(path, "utf8") : null;
+function replaceRoot(): string {
+  return join(archiveDir(), ".replace");
 }
 
 function stateOf(name: string): ReplacedState {
-  if (present(join(activeDir(), name))) return "active";
-  if (present(join(archiveDir(), name))) return "archive";
+  const active = present(join(activeDir(), name));
+  const archived = present(join(archiveDir(), name));
+  // どちらを残すべきか決められない。退避・巻き戻しの前提が崩れるので入口で止める。
+  if (active && archived)
+    throw new ValueError(`${name} is in both Active and Archive`);
+  if (active) return "active";
+  if (archived) return "archive";
   return "off";
 }
 
@@ -62,58 +91,173 @@ function dirOf(state: ReplacedState): string | null {
   return null;
 }
 
-/** 既存の実体を一時ディレクトリへ移し、Inventory Lock から外す。 */
+function writeJournal(
+  handle: ReplacementHandle,
+  phase: Journal["phase"]
+): void {
+  const journal: Journal = { version: 1, phase, rows: handle.rows };
+  const path = join(handle.dir, "journal.json");
+  writeFileSync(`${path}.tmp`, `${JSON.stringify(journal, null, 2)}\n`);
+  renameSync(`${path}.tmp`, path);
+}
+
+/** 既存の実体を退避所へ移し、Inventory Lock から外す。何か動かす前に journal を書く。 */
 export function setAsideForReplacement(names: string[]): ReplacementHandle {
-  const handle: ReplacementHandle = {
-    stashDir: mkdtempSync(join(tmpdir(), "skill-loom-replace-")),
-    skills: [],
-    lockText: readText(lockFile()),
-    cliLockText: readText(globalLockFile()),
-  };
+  for (const name of names) assertValidExternalSkillName(name);
   const lock = loadLock();
-  for (const name of names) {
-    const state = stateOf(name);
-    handle.skills.push({ name, state });
+  const cliLock = loadGlobalLock();
+  const rows = names.map((name) => ({
+    name,
+    state: stateOf(name),
+    lockEntry: lock.external?.[name] ?? null,
+    cliLockEntry: cliLock[name] ?? null,
+  }));
+
+  mkdirSync(replaceRoot(), { recursive: true });
+  const handle = { dir: mkdtempSync(join(replaceRoot(), "r-")), rows };
+  writeJournal(handle, "prepared");
+
+  for (const { name, state } of rows) {
     const base = dirOf(state);
     if (state === "active") unlinkAgentSkillDirs(name);
-    if (base) movePath(join(base, name), join(handle.stashDir, name));
+    if (base) movePath(join(base, name), join(handle.dir, name));
     if (lock.external) delete lock.external[name];
   }
   saveLock(lock);
   return handle;
 }
 
-/** install が失敗したとき。新しく入りかけた分を捨て、退避した実体と lock を戻す。 */
-export function rollbackReplacement(handle: ReplacementHandle): void {
-  for (const { name, state } of handle.skills) {
-    unlinkAgentSkillDirs(name);
-    for (const base of [activeDir(), archiveDir()]) trashPath(join(base, name));
-    const base = dirOf(state);
-    if (base) movePath(join(handle.stashDir, name), join(base, name));
-    if (state === "active") linkAgentSkillDirs(name);
-  }
-  if (handle.lockText !== null) writeFileSync(lockFile(), handle.lockText);
-  if (handle.cliLockText !== null)
-    writeFileSync(globalLockFile(), handle.cliLockText);
-  trashPath(handle.stashDir);
+/** 新しい skill が入ったことを確かめた時点。以降は巻き戻さず後始末を進める。 */
+export function commitReplacement(handle: ReplacementHandle): void {
+  writeJournal(handle, "committed");
 }
 
 /**
- * install が済んだあと。新しい skill を元の状態（Archive / Off）へ合わせ、退避分を捨てる。
- * 戻り値は CLI lock を書き換えられなかったときの警告文。
+ * commit 前の失敗。新しく入りかけた分を捨て、退避した実体と lock のエントリを戻す。
+ * 戻し先が既に埋まっていれば上書きせず、退避所を残して警告文を返す。
+ */
+export function rollbackReplacement(handle: ReplacementHandle): string {
+  const warnings = handle.rows.map((row) => restoreFiles(handle, row));
+  const lock = loadLock();
+  const external = (lock.external ??= {});
+  for (const { name, lockEntry } of handle.rows) {
+    if (lockEntry) external[name] = lockEntry;
+    else delete external[name];
+  }
+  saveLock(lock);
+  warnings.push(
+    setCliLockEntries(
+      Object.fromEntries(handle.rows.map((row) => [row.name, row.cliLockEntry]))
+    )
+  );
+  if (!handle.rows.some((row) => present(join(handle.dir, row.name))))
+    trashPath(handle.dir);
+  return warnings.filter(Boolean).join("\n");
+}
+
+/** 1 件ぶんの実体を置き換え前へ戻す。戻せなければ警告文を返す。 */
+function restoreFiles(handle: ReplacementHandle, row: ReplacedRow): string {
+  const { name, state } = row;
+  const stashed = join(handle.dir, name);
+  // 退避前に止まった Active の既存は、まだ activeDir に居る。それは捨てない。
+  if (state !== "active" || present(stashed)) {
+    unlinkAgentSkillDirs(name);
+    trashPath(join(activeDir(), name));
+  }
+  const base = dirOf(state);
+  if (!base || !present(stashed)) return "";
+  if (present(join(base, name)))
+    return `置き換え前の ${name} を戻せませんでした（戻し先が使用中）: ${stashed}`;
+  movePath(stashed, join(base, name));
+  if (state === "active") linkAgentSkillDirs(name);
+  return "";
+}
+
+/**
+ * commit 後。新しい skill を元の状態（Archive / Off）へ合わせ、退避所を捨てる。
+ * 起動時の復旧からも呼ぶので、既に済んだ手順は飛ばす。戻り値は警告文。
  */
 export function finishReplacement(handle: ReplacementHandle): string {
-  const byState = (state: ReplacedState) =>
+  const namesIn = (state: ReplacedState) =>
     new Set(
-      handle.skills.filter((row) => row.state === state).map((row) => row.name)
+      handle.rows
+        .filter(
+          (row) => row.state === state && present(join(activeDir(), row.name))
+        )
+        .map((row) => row.name)
     );
-  const warnings = [archiveInstalledSkills(byState("archive"))];
-  const off = byState("off");
+  const warnings = [archiveInstalledSkills(namesIn("archive"))];
+  const off = namesIn("off");
   for (const name of off) {
     unlinkAgentSkillDirs(name);
     trashPath(join(activeDir(), name));
   }
   warnings.push(deregisterFromCliLock(off));
-  trashPath(handle.stashDir);
+  trashPath(handle.dir);
+  return warnings.filter(Boolean).join("\n");
+}
+
+/**
+ * 退避 → install → commit → 後始末 を通す。install が投げたら巻き戻してから投げ直す。
+ * 後始末の失敗は投げない（新しい skill は入っている）。journal が残り、次回起動時に続きを行う。
+ */
+export async function replaceWhileInstalling<T>(
+  names: string[],
+  install: () => Promise<T>
+): Promise<[T, string]> {
+  const handle = setAsideForReplacement(names);
+  let installed: T;
+  try {
+    installed = await install();
+  } catch (error) {
+    const warning = rollbackReplacement(handle);
+    if (!warning) throw error;
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)} / ${warning}`
+    );
+  }
+  commitReplacement(handle);
+  try {
+    return [installed, finishReplacement(handle)];
+  } catch (error) {
+    return [
+      installed,
+      `置き換えの後始末が途中で止まりました（次回起動時に再開）: ${error instanceof Error ? error.message : String(error)}`,
+    ];
+  }
+}
+
+function readJournal(dir: string): Journal | null {
+  try {
+    const journal = JSON.parse(
+      readFileSync(join(dir, "journal.json"), "utf8")
+    ) as Journal;
+    return journal.version === 1 && Array.isArray(journal.rows)
+      ? journal
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 起動時に、途中で止まった置き換えを journal の phase に従って片付ける。戻り値は警告文。 */
+export function recoverPendingReplacements(): string {
+  const root = replaceRoot();
+  if (!existsSync(root)) return "";
+  const warnings: string[] = [];
+  for (const entry of readdirSync(root)) {
+    const dir = join(root, entry);
+    const journal = readJournal(dir);
+    if (!journal) {
+      warnings.push(`置き換えの記録を読めませんでした: ${dir}`);
+      continue;
+    }
+    const handle = { dir, rows: journal.rows };
+    warnings.push(
+      journal.phase === "committed"
+        ? finishReplacement(handle)
+        : rollbackReplacement(handle)
+    );
+  }
   return warnings.filter(Boolean).join("\n");
 }
