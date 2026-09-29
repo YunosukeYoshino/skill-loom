@@ -9,6 +9,7 @@
  */
 
 import {
+  existsSync,
   readdirSync,
   lstatSync,
   readFileSync,
@@ -786,6 +787,11 @@ export async function runExternalInstall(
   }
 
   if (standard.length > 0) await runSkillsAdd(source, standard);
+  // skills-add は候補を飛ばしても exit 0 で終わる。入っていないものを登録しないよう実体で確かめる。
+  for (const name of standard) {
+    if (!existsSync(join(activeDir(), name)))
+      throw new Error(`Skill was not installed: ${name}`);
+  }
   if (aliased.length > 0) reinstallAliases(aliased);
 
   linkAgentSkillDirsMany(deployNames);

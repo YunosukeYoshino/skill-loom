@@ -453,6 +453,10 @@ JSON
   cat > "$stub" <<'SH'
 #!/bin/bash
 printf '%s\n' "$@" > "$MY_SKILLS_ADD_ARGS_FILE"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--skill" ]; then mkdir -p "$MY_SKILLS_ACTIVE_DIR/$2"; shift; fi
+  shift
+done
 exit 0
 SH
   chmod +x "$stub"
@@ -532,6 +536,10 @@ JSON
   cat > "$stub" <<'SH'
 #!/bin/bash
 printf '%s\n' "$@" > "$MY_SKILLS_ADD_ARGS_FILE"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--skill" ]; then mkdir -p "$MY_SKILLS_ACTIVE_DIR/$2"; shift; fi
+  shift
+done
 exit 0
 SH
   chmod +x "$stub"

@@ -557,6 +557,19 @@ describe("runExternalInstall", () => {
     ).rejects.toThrow("Invalid external skill name: --all");
     expect(existsSync(marker)).toBe(false);
   });
+
+  test("skills-add が何も入れずに正常終了したら失敗として扱う", async () => {
+    const script = dir("skills-add-stub");
+    writeFileSync(script, `#!/bin/sh\necho "No new skills registered."\n`);
+    setEnv("MY_SKILLS_ADD_SCRIPT", script);
+    const candidate = { name: "alpha", path: "skills/alpha/SKILL.md" };
+
+    await expect(
+      runExternalInstall("owner/repo", new Set(["alpha"]), [
+        { candidate, upstreamName: "alpha", deployName: "alpha" },
+      ])
+    ).rejects.toThrow("Skill was not installed: alpha");
+  });
 });
 
 describe("registerInstalledExternalSelection", () => {
