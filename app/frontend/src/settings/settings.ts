@@ -300,6 +300,13 @@ const en = {
   "detail.removeConfirm":
     "Remove from management? Applies to global remove, skills.lock.json, and project-decks.",
   "detail.removeTitle": "Remove “{name}” from management?",
+  "detail.removeSource": "Remove this source",
+  "detail.removeSourceTitle": "Remove “{source}” from management?",
+  "detail.removeSourceConfirm":
+    "Every skill from this source is removed: global remove, skills.lock.json, and project-decks.",
+  "detail.removeSourceSkills": "Skills to remove",
+  "detail.removeSourceDecks": "Project decks affected",
+  "detail.removeSourceVendor": "Vendor skills kept",
   "detail.remove": "Remove from management",
   "detail.available": "Available to install",
   "detail.installSelected": "Install selected",
@@ -496,6 +503,13 @@ const ja: MessageCatalog = {
   "detail.removeConfirm":
     "管理から外しますか？ global remove、skills.lock.json、project-decks に反映します。",
   "detail.removeTitle": "“{name}” を管理から外しますか？",
+  "detail.removeSource": "このsourceを外す",
+  "detail.removeSourceTitle": "“{source}” を管理から外しますか？",
+  "detail.removeSourceConfirm":
+    "このsourceのskillをすべて外します。global remove、skills.lock.json、project-decks に反映します。",
+  "detail.removeSourceSkills": "外すskill",
+  "detail.removeSourceDecks": "影響するproject deck",
+  "detail.removeSourceVendor": "残るVendor skill",
   "detail.remove": "管理から外す",
   "detail.available": "install 可能",
   "detail.installSelected": "選択してinstall",

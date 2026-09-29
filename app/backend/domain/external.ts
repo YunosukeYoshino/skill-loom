@@ -891,19 +891,17 @@ export function registerInstalledExternalSelection(
   return [loadLock(), removedIgnored];
 }
 
-export function removeExternalSkillFromManagement(
-  lock: Lock,
-  skill: string,
-  decksDir = projectDecksDir()
-): number {
-  delete lock.external?.[skill];
-  let removedFromDecks = 0;
+/** project deck の JSON を名前順に読む。deck ディレクトリが無ければ空。 */
+function readProjectDecks(
+  decksDir: string
+): Array<{ path: string; deck: { skills?: string[] } }> {
   let entries: string[];
   try {
     entries = readdirSync(decksDir, { recursive: true }) as string[];
   } catch {
-    return removedFromDecks;
+    return [];
   }
+  const decks: Array<{ path: string; deck: { skills?: string[] } }> = [];
   for (const entry of entries.filter((name) => name.endsWith(".json")).sort()) {
     const path = join(decksDir, entry);
     try {
@@ -911,9 +909,46 @@ export function removeExternalSkillFromManagement(
     } catch {
       continue;
     }
-    const deck = JSON.parse(readFileSync(path, "utf-8")) as {
-      skills?: string[];
-    };
+    decks.push({ path, deck: JSON.parse(readFileSync(path, "utf-8")) });
+  }
+  return decks;
+}
+
+/**
+ * External Source ごと管理から外すときの内訳。
+ *
+ * Vendor で上書きしている skill は、同じ名前で Vendor 版が展開されている。
+ * CLI で remove すると Vendor 版まで消え、deck から外すと Vendor 版が deck から落ちるので、
+ * これらは lock の external 登録だけを外す（`keepVendor`）。
+ * `decks` は `remove` のどれかを含む deck の数で、確認ダイアログに出す。
+ */
+export function externalSourceRemovalPlan(
+  lock: Lock,
+  source: string,
+  decksDir = projectDecksDir()
+): { remove: string[]; keepVendor: string[]; decks: number } {
+  const vendor = lock.vendor ?? {};
+  const names = sortNames(
+    Object.entries(lock.external ?? {})
+      .filter(([, meta]) => meta.source === source)
+      .map(([name]) => name)
+  );
+  const remove = names.filter((name) => !(name in vendor));
+  const keepVendor = names.filter((name) => name in vendor);
+  const decks = readProjectDecks(decksDir).filter(({ deck }) =>
+    (deck.skills ?? []).some((name) => remove.includes(name))
+  ).length;
+  return { remove, keepVendor, decks };
+}
+
+export function removeExternalSkillFromManagement(
+  lock: Lock,
+  skill: string,
+  decksDir = projectDecksDir()
+): number {
+  delete lock.external?.[skill];
+  let removedFromDecks = 0;
+  for (const { path, deck } of readProjectDecks(decksDir)) {
     const skills = deck.skills ?? [];
     if (!skills.includes(skill)) continue;
     deck.skills = skills.filter((name) => name !== skill);

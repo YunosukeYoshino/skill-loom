@@ -5,7 +5,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useIsMutating,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ApiError, api } from "@/api/client";
 import type {
@@ -1940,6 +1945,54 @@ export function ExternalSourcesPage() {
   );
 }
 
+/** source ごと外す。何が外れて何が残るかを確認ダイアログに並べてから実行する。 */
+function RemoveSourceButton({
+  source,
+  removal,
+  disabled,
+  pending,
+  onConfirm,
+}: {
+  source: string;
+  removal: ExternalSourceDetailPayload["removal"];
+  disabled: boolean;
+  pending: boolean;
+  onConfirm: () => void;
+}) {
+  const t = useT();
+  const confirm = useConfirm();
+  const details = [
+    {
+      label: t("detail.removeSourceSkills"),
+      value: removal.remove.join(", ") || "—",
+    },
+    { label: t("detail.removeSourceDecks"), value: removal.decks },
+  ];
+  if (removal.keepVendor.length)
+    details.push({
+      label: t("detail.removeSourceVendor"),
+      value: removal.keepVendor.join(", "),
+    });
+  return (
+    <Button
+      className="ml-auto"
+      disabled={disabled}
+      onClick={async () => {
+        const ok = await confirm({
+          title: t("detail.removeSourceTitle", { source }),
+          body: t("detail.removeSourceConfirm"),
+          details,
+          confirmLabel: t("detail.removeSource"),
+          tone: "danger",
+        });
+        if (ok) onConfirm();
+      }}
+    >
+      {pendingLabel(pending, t("detail.removeSource"), t("common.processing"))}
+    </Button>
+  );
+}
+
 export function ExternalSourceDetailPage({ source }: { source: string }) {
   const t = useT();
   const confirm = useConfirm();
@@ -1950,6 +2003,8 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
     queryFn: () => api.externalSource(source),
   });
   const allGlobalRef = useRef<HTMLInputElement>(null);
+  // このページの update / remove / install / apply のどれかが走っている間は操作を止める。
+  const detailBusy = useIsMutating() > 0;
 
   const updateOne = useMutation({
     mutationFn: (skill: string) => api.updateSkill(skill),
@@ -1978,6 +2033,14 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       } catch {
         navigate({ to: "/external-sources" });
       }
+    },
+  });
+  const removeSource = useMutation({
+    mutationFn: () => api.removeSource(source),
+    onSuccess: (data) => {
+      qc.setQueryData(["external-sources"], data);
+      qc.removeQueries({ queryKey: ["external-source", source] });
+      navigate({ to: "/external-sources" });
     },
   });
   const install = useMutation({
@@ -2045,12 +2108,6 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
     );
   }
   const data = q.data;
-  const detailBusy =
-    updateAll.isPending ||
-    updateOne.isPending ||
-    remove.isPending ||
-    install.isPending ||
-    applyGlobal.isPending;
 
   const setGlobal = (name: string, on: boolean) => {
     applyGlobal.mutate({ [name]: on ? "active" : "off" });
@@ -2078,14 +2135,20 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       current="external-sources"
       decks={data.decks}
     >
-      <Message text={data.message || errMessage(applyGlobal.error)} />
+      <Message
+        text={
+          data.message ||
+          errMessage(applyGlobal.error) ||
+          errMessage(removeSource.error)
+        }
+      />
       <ActionStatus
         text={
           updateAll.isPending
             ? t("status.updateSource")
             : updateOne.isPending
               ? t("status.updateSkill")
-              : remove.isPending
+              : remove.isPending || removeSource.isPending
                 ? t("status.removing")
                 : install.isPending
                   ? t("status.installing")
@@ -2117,6 +2180,13 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             </span>
           </Button>
         ) : null}
+        <RemoveSourceButton
+          source={source}
+          removal={data.removal}
+          disabled={detailBusy}
+          pending={removeSource.isPending}
+          onConfirm={() => removeSource.mutate()}
+        />
       </div>
       {installed.length ? (
         <label className="mb-3 flex min-h-10 cursor-pointer items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2.5 text-sm">
