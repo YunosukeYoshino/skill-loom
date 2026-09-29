@@ -43,10 +43,8 @@ import {
   externalSourceRemovalPlan,
   formatExternalUpdateMessage,
   isArgvSafeSkillName,
-  registerInstalledExternalSelection,
   removeExternalSkillFromManagement,
   resolveSelectedExternalSkills,
-  runExternalInstall,
   runExternalSkillUpdate,
 } from "./domain/external";
 import { commitRepoChanges } from "./infrastructure/git";
@@ -79,8 +77,8 @@ import {
   restorePreviousPreset,
 } from "./domain/projection";
 import {
+  installExternalSelection,
   recoverPendingReplacements,
-  replaceWhileInstalling,
 } from "./domain/replacement";
 import {
   computeTristateApplyDelta,
@@ -1338,18 +1336,6 @@ function catalogPayload(deckName: string, message = ""): object {
  * 承認済みの衝突（ADR 0003）があれば既存を退避してから install する。失敗したら退避分を戻す。
  * 戻り値は [ignore 解除数, 画面に足すメッセージ]。
  */
-async function installReplacing(
-  replaced: string[],
-  install: () => Promise<number>
-): Promise<[number, string]> {
-  if (replaced.length === 0) return [await install(), ""];
-  const [unignored, warning] = await replaceWhileInstalling(replaced, install);
-  return [
-    unignored,
-    ` / 置き換え ${sortNames(replaced).join(", ")}${warning ? ` / ${warning}` : ""}`,
-  ];
-}
-
 /** source から取り込める skill の一覧を出すだけ。ここでは何も入れない。 */
 app.post("/api/external/preview", async (c) => {
   const body = await readJson(c.req.raw);
@@ -1426,17 +1412,13 @@ app.post("/api/external/install", async (c) => {
     const replaced = resolved
       .filter((row) => row.conflict)
       .map((row) => row.deployName);
-    [unignoredCount, replacedMessage] = await installReplacing(
-      replaced,
-      async () => {
-        await runExternalInstall(ownerRepo, deploySelected, resolved);
-        return registerInstalledExternalSelection(
-          ownerRepo,
-          deploySelected,
-          resolved
-        )[1];
-      }
+    let warning: string;
+    [unignoredCount, warning] = await installExternalSelection(
+      ownerRepo,
+      resolved
     );
+    if (replaced.length > 0)
+      replacedMessage = ` / 置き換え ${sortNames(replaced).join(", ")}${warning ? ` / ${warning}` : ""}`;
   } catch (error) {
     return errorResponse(
       `取り込みに失敗: ${errorText(error)}`,

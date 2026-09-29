@@ -848,18 +848,43 @@ export function addExternalToLock(
   const ignored = new Set<string>();
 
   for (const row of resolved) {
-    const { candidate, deployName, upstreamName } = row;
-    if (deployName in custom) continue;
-    ignored.add(deployName);
-    external[deployName] = {
-      source: ownerRepo,
-      sourceUrl: `https://github.com/${ownerRepo}.git`,
-      skillPath: candidate.path ?? `skills/${upstreamName}/SKILL.md`,
-      ...(deployName !== upstreamName ? { installSkill: upstreamName } : {}),
-    };
+    if (row.deployName in custom) continue;
+    ignored.add(row.deployName);
+    external[row.deployName] = externalLockEntry(ownerRepo, row);
   }
   saveLock(lock);
   removeIgnoredSkills(ignored.size > 0 ? ignored : selected);
+}
+
+function externalLockEntry(
+  ownerRepo: string,
+  { candidate, deployName, upstreamName }: ResolvedExternalCandidate
+): ExternalSkillMeta {
+  return {
+    source: ownerRepo,
+    sourceUrl: `https://github.com/${ownerRepo}.git`,
+    skillPath: candidate.path ?? `skills/${upstreamName}/SKILL.md`,
+    ...(deployName !== upstreamName ? { installSkill: upstreamName } : {}),
+  };
+}
+
+/**
+ * Off の既存を別 source の skill へ置き換える（ADR 0003）。手元に実体が無いので
+ * install はせず、lock の取得元だけ付け替える。次に Active へ出すときに新しい方が入る。
+ */
+export function retargetExternalEntries(
+  source: string,
+  rows: ResolvedExternalCandidate[]
+): void {
+  if (rows.length === 0) return;
+  const ownerRepo = normalizeGithubSource(source);
+  const lock = loadLock();
+  const external = (lock.external ??= {});
+  for (const row of rows) {
+    assertValidExternalSkillName(row.deployName);
+    external[row.deployName] = externalLockEntry(ownerRepo, row);
+  }
+  saveLock(lock);
 }
 
 /**
