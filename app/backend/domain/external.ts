@@ -707,6 +707,14 @@ export function resolveExternalCandidatesMapping(
 
   return candidates.map((candidate) => {
     const upstreamName = candidate.name;
+    // 上流名は repo の frontmatter そのまま。規約外の名前はパスに使う前にここで止める。
+    if (!EXTERNAL_SKILL_NAME_PATTERN.test(upstreamName))
+      return {
+        candidate,
+        upstreamName,
+        deployName: upstreamName,
+        conflict: `Invalid external skill name: ${upstreamName}`,
+      };
     // 過去に別名で登録済みのものは、その名前をそのまま使う。
     const existing = Object.entries(external).find(
       ([name, meta]) =>

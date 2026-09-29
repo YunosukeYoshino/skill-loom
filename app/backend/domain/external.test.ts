@@ -772,6 +772,33 @@ describe("resolveExternalCandidatesMapping", () => {
     ]);
   });
 
+  test("規約に合わない上流名はディスクを見ずに置き換え不可の conflict になる", () => {
+    place("archive", "foo", "old foo");
+    const candidates = [
+      { name: "../archive/foo", path: "skills/foo/SKILL.md" },
+      { name: "..", path: "skills/up/SKILL.md" },
+    ];
+    const mapping = resolveExternalCandidatesMapping(
+      { external: {} },
+      "owner/repo",
+      candidates
+    );
+    expect(mapping).toEqual([
+      {
+        candidate: candidates[0]!,
+        upstreamName: "../archive/foo",
+        deployName: "../archive/foo",
+        conflict: "Invalid external skill name: ../archive/foo",
+      },
+      {
+        candidate: candidates[1]!,
+        upstreamName: "..",
+        deployName: "..",
+        conflict: "Invalid external skill name: ..",
+      },
+    ]);
+  });
+
   test("Custom スキルと名前が衝突する場合は conflict になる", () => {
     const testLock: Lock = {
       custom: {
