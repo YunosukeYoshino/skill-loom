@@ -1714,7 +1714,10 @@ function DiscoverSearch({
     <div
       className="mt-3.5"
       onKeyDown={(e) => {
-        if (e.key === "Enter") e.preventDefault();
+        // 結果カード (button) の Enter による選択は残す
+        if (e.key === "Enter" && e.target instanceof HTMLInputElement) {
+          e.preventDefault();
+        }
       }}
     >
       <p className="m-0 mb-1.5 font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase">
