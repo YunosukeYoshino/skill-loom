@@ -12,7 +12,7 @@ ADR 0002 rejects every Skill Name Conflict and asks the user to remove the exist
 
 ## Decision
 
-A conflict can be resolved by **Skill Replacement**, chosen explicitly per skill (off by default) when adding.
+A conflict can be resolved by **Skill Replacement**. When adding, a replaceable conflict is not silently skipped: it needs approval. Each selected conflicting skill must be resolved to either "keep existing" or "replace" — neither is preselected — before the add can proceed. To support the choice, both sides are shown with their source (an unmanaged directory shows as unknown), state, Project Deck count, and description.
 
 - Replaceable owners: an External Skill from another source, and an on-disk directory that is not in the Inventory. Custom and Vendor Skills stay non-replaceable: they are Catalog-authored and must not disappear as a side effect of adding something.
 - The name does not change, so the Active / Archive state and Project Deck membership carry over.
