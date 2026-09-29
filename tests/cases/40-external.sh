@@ -578,6 +578,109 @@ SH
   fi
 }
 
+test_external_install_replaces_archived_skill_after_approval() {
+  local name=test_external_install_replaces_archived_skill_after_approval
+  echo "Running $name..."
+  local port=18982
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  TMP_DIRS+=("$tmp_dir")
+  local stub="$tmp_dir/skills-add-stub"
+  local trash_stub="$tmp_dir/trash-stub"
+  local lock_file="$tmp_dir/skills.lock.json"
+  local decks_dir="$tmp_dir/project-decks"
+  local candidates_file="$tmp_dir/candidates.json"
+  mkdir -p "$decks_dir" "$tmp_dir/active" "$tmp_dir/archive/alpha" \
+    "$tmp_dir/claude" "$tmp_dir/gemini"
+  printf 'old alpha\n' > "$tmp_dir/archive/alpha/SKILL.md"
+
+  # install の代役。fail フラグがあれば途中まで置いてから失敗する。
+  cat > "$stub" <<'SH'
+#!/bin/bash
+mkdir -p "$MY_SKILLS_ACTIVE_DIR/alpha"
+printf 'new alpha\n' > "$MY_SKILLS_ACTIVE_DIR/alpha/SKILL.md"
+[ -e "$MY_SKILLS_ADD_FAIL_FLAG" ] && exit 1
+exit 0
+SH
+  cat > "$trash_stub" <<'SH'
+#!/bin/bash
+rm -rf -- "$@"
+SH
+  chmod +x "$stub" "$trash_stub"
+  touch "$tmp_dir/fail"
+
+  cat > "$lock_file" <<'JSON'
+{
+  "version": 1,
+  "custom": {"repo": "owner/catalog", "skills": {}},
+  "external": {
+    "alpha": {"source": "old-owner/repo", "sourceUrl": "https://github.com/old-owner/repo.git", "skillPath": "skills/alpha/SKILL.md"}
+  },
+  "vendor": {}
+}
+JSON
+  cat > "$decks_dir/api.json" <<'JSON'
+{"skills":["alpha"]}
+JSON
+  cat > "$candidates_file" <<'JSON'
+[{"name":"alpha","path":"skills/alpha/SKILL.md"}]
+JSON
+
+  MY_SKILLS_ADD_SCRIPT="$stub" MY_SKILLS_ADD_FAIL_FLAG="$tmp_dir/fail" \
+    MY_SKILLS_TRASH_BIN="$trash_stub" \
+    MY_SKILLS_LOCK_FILE="$lock_file" MY_SKILLS_PROJECT_DECKS_DIR="$decks_dir" \
+    MY_SKILLS_IGNORE_FILE="$tmp_dir/.skills-ignore.json" \
+    MY_SKILLS_GLOBAL_LOCK_FILE="$tmp_dir/.skill-lock.json" \
+    MY_SKILLS_EXTERNAL_CANDIDATES_FILE="$candidates_file" \
+    MY_SKILLS_ACTIVE_DIR="$tmp_dir/active" \
+    MY_SKILLS_ARCHIVE_DIR="$tmp_dir/archive" \
+    MY_SKILLS_CLAUDE_SKILLS_DIR="$tmp_dir/claude" \
+    MY_SKILLS_GEMINI_SKILLS_DIR="$tmp_dir/gemini" \
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
+  UI_PIDS+=($!)
+  sleep 2
+
+  if wait_for_port "$port"; then
+    local url="http://localhost:${port}/api/external/install"
+    local body='{"source":"new-owner/repo","skills":["alpha"],"replace":["alpha"]}'
+    local source_of='console.log((await Bun.file(process.argv[1]).json()).external.alpha?.source)'
+    local http_code
+
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$url" \
+      -H "Content-Type: application/json" \
+      -d '{"source":"new-owner/repo","skills":["alpha"]}' 2>/dev/null || echo "000")
+    [ "$http_code" = "500" ] \
+      && pass "$name: refuses a conflict without approval" \
+      || fail "$name: unapproved conflict got HTTP $http_code"
+
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$url" \
+      -H "Content-Type: application/json" -d "$body" 2>/dev/null || echo "000")
+    [ "$http_code" = "500" ] \
+      && [ "$(cat "$tmp_dir/archive/alpha/SKILL.md" 2>/dev/null)" = "old alpha" ] \
+      && [ ! -e "$tmp_dir/active/alpha" ] \
+      && [ "$(bun -e "$source_of" "$lock_file")" = "old-owner/repo" ] \
+      && pass "$name: failed install restores the existing skill" \
+      || fail "$name: rollback left HTTP $http_code / $(ls "$tmp_dir/active" "$tmp_dir/archive")"
+
+    rm -f "$tmp_dir/fail"
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$url" \
+      -H "Content-Type: application/json" -d "$body" 2>/dev/null || echo "000")
+    [ "$http_code" = "200" ] \
+      && [ "$(cat "$tmp_dir/archive/alpha/SKILL.md" 2>/dev/null)" = "new alpha" ] \
+      && [ ! -e "$tmp_dir/active/alpha" ] \
+      && [ ! -L "$tmp_dir/claude/alpha" ] \
+      && [ "$(bun -e "$source_of" "$lock_file")" = "new-owner/repo" ] \
+      && pass "$name: replaces and keeps the skill archived" \
+      || fail "$name: replacement left HTTP $http_code / $(ls "$tmp_dir/active" "$tmp_dir/archive")"
+
+    assert_contains "$(cat "$decks_dir/api.json")" '"alpha"' \
+      && pass "$name: deck membership carries over" \
+      || fail "$name: alpha dropped from the deck"
+  else
+    fail "$name: server did not start"
+  fi
+}
+
 register_cases \
 test_external_update_posts_to_skills_update_command \
 test_external_remove_posts_to_remove_command_and_updates_lock \
@@ -587,4 +690,5 @@ test_external_check_updates_post_opens_source_detail \
 test_external_check_all_updates_shows_status_on_sources_page \
 test_external_update_all_posts_multiple_skills \
 test_external_install_posts_to_skills_add_script \
-test_external_install_posts_bulk_selection_to_one_skills_add_command
+test_external_install_posts_bulk_selection_to_one_skills_add_command \
+test_external_install_replaces_archived_skill_after_approval

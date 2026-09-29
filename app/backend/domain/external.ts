@@ -529,6 +529,8 @@ export type ResolvedExternalCandidate = {
   upstreamName: string;
   deployName: string;
   conflict?: string;
+  /** 承認すれば置き換えられる衝突だけに付く。`source: null` は取得元の分からない手元のディレクトリ。 */
+  replaces?: { source: string | null };
 };
 
 /** 取り込もうとした名前を既に使っているもの。conflict メッセージの材料にする。 */
@@ -570,6 +572,19 @@ function describeExternalOwner(
 }
 
 /** owner/repo の表記揺れ（大文字小文字・URL 形式）を吸収して比べる。 */
+/**
+ * 置き換えを承認できる持ち主か（ADR 0003）。Custom・Vendor・同 source 内の重複・
+ * 別 key で登録済みの旧別名は、置き換えると管理の筋が崩れるので対象外。
+ */
+function replaceableOwner(
+  owner: SkillNameOwner
+): { source: string | null } | undefined {
+  if (owner.kind === "installed") return { source: owner.source ?? null };
+  if (owner.kind === "external" && !owner.registeredAs)
+    return { source: owner.source ?? null };
+  return undefined;
+}
+
 function isSameGithubSource(
   a: string | undefined,
   b: string | undefined
@@ -599,13 +614,15 @@ export function resolveSelectedExternalSkills(
   lock: Lock,
   source: string,
   selected: Set<string>,
-  candidates: ExternalCandidate[]
+  candidates: ExternalCandidate[],
+  replace: Set<string> = new Set()
 ): ResolvedExternalCandidate[] {
   const mapping = resolveExternalCandidatesMapping(lock, source, candidates);
   return sortNames(selected).map((name) => {
     const resolved = matchResolvedCandidate(mapping, name);
     if (!resolved) throw new ValueError(`Skill not found in source: ${name}`);
-    if (resolved.conflict) throw new ValueError(resolved.conflict);
+    const approved = resolved.replaces && replace.has(resolved.deployName);
+    if (resolved.conflict && !approved) throw new ValueError(resolved.conflict);
     return resolved;
   });
 }
@@ -615,8 +632,8 @@ export function resolveSelectedExternalSkills(
  *
  * 展開名は常に上流名のまま。`owner--name` のような名前空間化はしない。
  * 名前が変わると管理が追いにくく、skill 同士で名前を指して invoke できなくなるため。
- * 同じ名前が別 source で使われているときは conflict にして取り込ませない
- * （必要なら vendor-fork するか、どちらかを外す）。
+ * 同じ名前が別 source で使われているときは conflict にする。別 source の External と
+ * 手元のディレクトリだけは `replaces` を付け、承認があれば置き換えて取り込める（ADR 0003）。
  *
  * 手元にディレクトリがあっても、skills CLI の lock が同じ source を指していれば
  * 同じ skill の入れ直し・登録し直しとして扱う。
@@ -704,11 +721,14 @@ export function resolveExternalCandidatesMapping(
     }
     const owner = ownerOf(upstreamName);
     if (owner) {
+      const replaces = replaceableOwner(owner);
+      if (replaces) claimed.add(upstreamName);
       return {
         candidate,
         upstreamName,
         deployName: upstreamName,
         conflict: `Skill name already used by ${describeSkillNameOwner(owner)}: ${upstreamName}`,
+        ...(replaces ? { replaces } : {}),
       };
     }
     claimed.add(upstreamName);
@@ -939,6 +959,16 @@ export function externalSourceRemovalPlan(
     (deck.skills ?? []).some((name) => remove.includes(name))
   ).length;
   return { remove, keepVendor, decks };
+}
+
+/** skill を含む project deck の数。置き換え確認で「どれだけの deck に効くか」を見せる。 */
+export function projectDeckCount(
+  name: string,
+  decksDir = projectDecksDir()
+): number {
+  return readProjectDecks(decksDir).filter(({ deck }) =>
+    (deck.skills ?? []).includes(name)
+  ).length;
 }
 
 export function removeExternalSkillFromManagement(

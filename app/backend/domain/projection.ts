@@ -379,7 +379,7 @@ export function installCustomFromRepo(names: Set<string>, lock: Lock): void {
  * ディレクトリを移す。`shutil.move` と同じく、跨ぐファイルシステムでは
  * コピーしてから元を捨てる。
  */
-function movePath(src: string, dst: string): void {
+export function movePath(src: string, dst: string): void {
   try {
     renameSync(src, dst);
   } catch (error) {
@@ -527,16 +527,7 @@ export function applyDeck(
     [...externalInstall].filter((name) => exists(join(activeDir(), name)))
   );
 
-  for (const name of sortNames(extra)) {
-    const src = join(activeDir(), name);
-    const dst = join(archiveDir(), name);
-    if (!exists(src)) continue;
-    if (exists(dst)) {
-      trashPath(src);
-      continue;
-    }
-    movePath(src, dst);
-  }
+  moveActiveToArchive(extra);
 
   // archive 直行の skill は上の install で symlink を張られている。張り直しではなく外す。
   unlinkAgentSkillDirsMany([...extra].filter((name) => install.has(name)));
@@ -548,6 +539,31 @@ export function applyDeck(
   return [deregisterFromCliLock(deregistered), restoreCliLockEntries(unstashed)]
     .filter((warning) => warning)
     .join("\n");
+}
+
+/** active の実体を archive へ移す。archive 側に既にあれば active 側を捨てる。 */
+function moveActiveToArchive(names: Set<string>): void {
+  for (const name of sortNames(names)) {
+    const src = join(activeDir(), name);
+    const dst = join(archiveDir(), name);
+    if (!exists(src)) continue;
+    if (exists(dst)) {
+      trashPath(src);
+      continue;
+    }
+    movePath(src, dst);
+  }
+}
+
+/**
+ * install したばかりの skill を archive へ送る。applyDeck の extra と同じく、
+ * symlink を外し、CLI lock のエントリを預かってから落とす。戻り値は警告文。
+ */
+export function archiveInstalledSkills(names: Set<string>): string {
+  unlinkAgentSkillDirsMany(names);
+  moveActiveToArchive(names);
+  stashCliLockEntries(names);
+  return deregisterFromCliLock(names);
 }
 
 /**

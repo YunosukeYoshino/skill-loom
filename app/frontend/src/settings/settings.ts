@@ -310,6 +310,16 @@ const en = {
   "detail.remove": "Remove from management",
   "detail.available": "Available to install",
   "detail.installSelected": "Install selected",
+  "replace.title": "Approval needed ({count})",
+  "replace.body":
+    "An existing skill already uses these names. Choose which one to keep for each selected skill. State (Active/Archive) and deck membership carry over.",
+  "replace.keep": "Keep existing",
+  "replace.replace": "Replace",
+  "replace.existing": "Existing",
+  "replace.incoming": "Incoming",
+  "replace.unknownSource": "Unknown (outside Inventory)",
+  "replace.decks": "decks: {count}",
+  "replace.submit": "Apply choices",
 
   // drafts page
   "drafts.overline": "Catalog · drafts",
@@ -513,6 +523,16 @@ const ja: MessageCatalog = {
   "detail.remove": "管理から外す",
   "detail.available": "install 可能",
   "detail.installSelected": "選択してinstall",
+  "replace.title": "承認が必要 ({count})",
+  "replace.body":
+    "同じ名前の skill が既にあります。選んだ skill ごとに、どちらを残すか選んでください。状態（Active/Archive）と deck の所属は引き継ぎます。",
+  "replace.keep": "既存を残す",
+  "replace.replace": "置き換える",
+  "replace.existing": "既存",
+  "replace.incoming": "取り込み側",
+  "replace.unknownSource": "不明（Inventory 外）",
+  "replace.decks": "deck {count} 件",
+  "replace.submit": "選択を反映して取り込む",
 
   "drafts.overline": "Catalog · drafts",
   "drafts.help":

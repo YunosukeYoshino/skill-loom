@@ -20,6 +20,7 @@ import type {
   InstalledExternal,
   PresetPreview,
   PresetSummary,
+  ReplaceableSkill,
   SkillRow,
   Tristate,
 } from "@shared/api-types";
@@ -1416,7 +1417,13 @@ export function ExternalPreviewPage({
   });
 
   const install = useMutation({
-    mutationFn: (skills: string[]) => api.installExternal(source, skills, deck),
+    mutationFn: ({
+      skills,
+      replace,
+    }: {
+      skills: string[];
+      replace?: string[];
+    }) => api.installExternal(source, skills, deck, replace),
     onSuccess: (data) => {
       if (deck) {
         qc.setQueryData(["project-deck", deck, true], data);
@@ -1498,6 +1505,12 @@ export function ExternalPreviewPage({
           </Link>
         )}
       </div>
+      <ReplacementPanel
+        rows={data.replaceable}
+        source={data.source}
+        busy={previewBusy}
+        onSubmit={(replace) => install.mutate({ skills: replace, replace })}
+      />
       <SelectableSkills
         rows={data.rows}
         busy={install.isPending || addDeck.isPending}
@@ -1511,14 +1524,14 @@ export function ExternalPreviewPage({
                 {
                   label: t("preview.installAdd"),
                   primary: true,
-                  onClick: (skills) => install.mutate(skills),
+                  onClick: (skills) => install.mutate({ skills }),
                 },
               ]
             : [
                 {
                   label: t("preview.installGlobal"),
                   primary: true,
-                  onClick: (skills) => install.mutate(skills),
+                  onClick: (skills) => install.mutate({ skills }),
                 },
               ]
         }
@@ -1627,6 +1640,148 @@ function SelectableSkills({
         </div>
       )}
     </div>
+  );
+}
+
+type ReplaceChoice = "keep" | "replace";
+
+/** 置き換え行の片側（既存 / 取り込み側）。 */
+function ReplaceSide({
+  label,
+  source,
+  meta,
+  description,
+}: {
+  label: string;
+  source: string;
+  meta?: string;
+  description: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-[var(--radius-sm)] bg-[var(--color-paper-2)] px-2.5 py-2">
+      <div className="font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase">
+        {label}
+      </div>
+      <div className="mt-0.5 break-all text-xs font-medium">{source}</div>
+      {meta ? (
+        <div className="text-xs text-[var(--color-ink-2)]">{meta}</div>
+      ) : null}
+      <p className="m-0 mt-1 line-clamp-2 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
+        {description}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * 同名の既存 skill がある候補（ADR 0003）。選んだ行は「既存を残す / 置き換える」を
+ * 選ぶまで取り込めない。どちらも既定にはしない（黙って既存を消さないため）。
+ */
+function ReplacementPanel({
+  rows,
+  source,
+  busy,
+  onSubmit,
+}: {
+  rows: ReplaceableSkill[];
+  source: string;
+  busy?: boolean;
+  onSubmit: (replace: string[]) => void;
+}) {
+  const t = useT();
+  const [choices, setChoices] = useState<Record<string, ReplaceChoice | null>>(
+    {}
+  );
+  const selected = Object.keys(choices);
+  const replace = selected.filter((name) => choices[name] === "replace");
+  const unresolved = selected.some((name) => choices[name] === null);
+  const toggle = (name: string, on: boolean) =>
+    setChoices((prev) => {
+      const next = { ...prev };
+      if (on) next[name] = null;
+      else delete next[name];
+      return next;
+    });
+
+  if (rows.length === 0) return null;
+  return (
+    <section className="my-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="m-0 text-sm font-semibold">
+          {t("replace.title", { count: rows.length })}
+        </h2>
+        <Button
+          variant="primary"
+          disabled={busy || unresolved || replace.length === 0}
+          onClick={() => onSubmit(replace)}
+        >
+          {pendingLabel(!!busy, t("replace.submit"), t("common.processing"))}
+        </Button>
+      </div>
+      <p className="m-0 mt-1 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
+        {t("replace.body")}
+      </p>
+      <div className="mt-2 divide-y divide-[var(--color-rule)]">
+        {rows.map((row) => {
+          const choice = choices[row.name];
+          const checked = choice !== undefined;
+          return (
+            <div key={row.name} className="py-2.5">
+              <label className="flex cursor-pointer items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={busy}
+                  onChange={(e) => toggle(row.name, e.target.checked)}
+                />
+                <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
+                  {row.name}
+                </code>
+              </label>
+              <div className="mt-2 grid gap-2 pl-7 sm:grid-cols-2">
+                <ReplaceSide
+                  label={t("replace.existing")}
+                  source={row.existing.source ?? t("replace.unknownSource")}
+                  meta={`${row.existing.state} · ${t("replace.decks", { count: row.existing.decks })}`}
+                  description={row.existing.description}
+                />
+                <ReplaceSide
+                  label={t("replace.incoming")}
+                  source={source}
+                  meta={row.category}
+                  description={row.description}
+                />
+              </div>
+              {checked ? (
+                <div
+                  role="radiogroup"
+                  aria-label={row.name}
+                  className="mt-2 flex gap-4 pl-7 text-sm"
+                >
+                  {(["keep", "replace"] as const).map((value) => (
+                    <label
+                      key={value}
+                      className="flex cursor-pointer items-center gap-1.5"
+                    >
+                      <input
+                        type="radio"
+                        name={`replace-${row.name}`}
+                        checked={choice === value}
+                        disabled={busy}
+                        onChange={() =>
+                          setChoices((prev) => ({ ...prev, [row.name]: value }))
+                        }
+                      />
+                      {t(value === "keep" ? "replace.keep" : "replace.replace")}
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -2044,7 +2199,13 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
     },
   });
   const install = useMutation({
-    mutationFn: (skills: string[]) => api.installExternal(source, skills, ""),
+    mutationFn: ({
+      skills,
+      replace,
+    }: {
+      skills: string[];
+      replace?: string[];
+    }) => api.installExternal(source, skills, "", replace),
     onSuccess: () => q.refetch(),
   });
   const applyGlobal = useMutation({
@@ -2276,10 +2437,16 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             rows={data.available}
             submitLabel={t("detail.installSelected")}
             busy={install.isPending}
-            onSubmit={(skills) => install.mutate(skills)}
+            onSubmit={(skills) => install.mutate({ skills })}
           />
         </>
       ) : null}
+      <ReplacementPanel
+        rows={data.replaceable}
+        source={data.source}
+        busy={install.isPending}
+        onSubmit={(replace) => install.mutate({ skills: replace, replace })}
+      />
     </WorkbenchShell>
   );
 }
