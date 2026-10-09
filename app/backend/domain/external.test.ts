@@ -869,6 +869,53 @@ describe("resolveExternalCandidatesMapping", () => {
     ]);
   });
 
+  test("別名登録があっても上流名が別 source の実体なら conflict になる", () => {
+    place("active", "alpha", "---\nname: alpha\n---\n");
+    writeFileSync(
+      dir("skill-lock.json"),
+      JSON.stringify({ skills: { alpha: { source: "other/repo" } } })
+    );
+    const testLock: Lock = {
+      external: {
+        "deploy-alpha": { source: "owner/repo", installSkill: "alpha" },
+      },
+    };
+    const candidates = [{ name: "alpha", path: "skills/alpha/SKILL.md" }];
+    expect(
+      resolveExternalCandidatesMapping(testLock, "owner/repo", candidates)
+    ).toEqual([
+      {
+        candidate: candidates[0]!,
+        upstreamName: "alpha",
+        deployName: "alpha",
+        conflict: "Skill name already used by other/repo: alpha",
+      },
+    ]);
+  });
+
+  test("別名登録と同じ source の実体なら別名のまま使う", () => {
+    place("active", "deploy-alpha", "---\nname: alpha\n---\n");
+    writeFileSync(
+      dir("skill-lock.json"),
+      JSON.stringify({ skills: { "deploy-alpha": { source: "owner/repo" } } })
+    );
+    const testLock: Lock = {
+      external: {
+        "deploy-alpha": { source: "owner/repo", installSkill: "alpha" },
+      },
+    };
+    const candidates = [{ name: "alpha", path: "skills/alpha/SKILL.md" }];
+    expect(
+      resolveExternalCandidatesMapping(testLock, "owner/repo", candidates)
+    ).toEqual([
+      {
+        candidate: candidates[0]!,
+        upstreamName: "alpha",
+        deployName: "deploy-alpha",
+      },
+    ]);
+  });
+
   test("取得元の分からない手元のディレクトリとは conflict になる", () => {
     place("archive", "alpha", "local");
     const mapping = resolveExternalCandidatesMapping({}, "owner/repo", [

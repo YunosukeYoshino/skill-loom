@@ -699,6 +699,17 @@ export function resolveExternalCandidatesMapping(
         !(name in vendor)
     );
     if (existing) {
+      // 別名登録があっても上流名そのものの所有は別途調べる。放置すると別 source の
+      // 実体の上にこの source の登録だけが重なり、再 install で中身を取り違える。
+      const owner = ownerOf(upstreamName);
+      if (owner) {
+        return {
+          candidate,
+          upstreamName,
+          deployName: upstreamName,
+          conflict: `Skill name already used by ${describeSkillNameOwner(owner)}: ${upstreamName}`,
+        };
+      }
       claimed.add(existing[0]);
       return { candidate, upstreamName, deployName: existing[0] };
     }
