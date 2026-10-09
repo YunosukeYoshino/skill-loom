@@ -447,6 +447,15 @@ describe("externalSourceRemovalPlan", () => {
       externalSourceRemovalPlan(lock, "nobody/none", dir("no-such-dir"))
     ).toEqual({ remove: [], keepVendor: [], decks: 0 });
   });
+
+  test("deck ディレクトリが読めないときは空へ倒さず失敗させる", () => {
+    // 読み取りエラーを「deck なし」と誤認すると、deck に skill 名が残ったまま外し進む。
+    const notDir = dir("decks-file");
+    writeFileSync(notDir, "{}");
+    expect(() =>
+      externalSourceRemovalPlan(lock, "owner-one/repo-one", notDir)
+    ).toThrow();
+  });
 });
 
 describe("addExternalToLock", () => {

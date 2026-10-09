@@ -898,8 +898,10 @@ function readProjectDecks(
   let entries: string[];
   try {
     entries = readdirSync(decksDir, { recursive: true }) as string[];
-  } catch {
-    return [];
+  } catch (error) {
+    // 無いだけなら空。読めないのに空へ倒すと、deck に残った skill を外し残す。
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
   }
   const decks: Array<{ path: string; deck: { skills?: string[] } }> = [];
   for (const entry of entries.filter((name) => name.endsWith(".json")).sort()) {

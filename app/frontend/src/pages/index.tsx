@@ -2042,6 +2042,13 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       qc.removeQueries({ queryKey: ["external-source", source] });
       navigate({ to: "/external-sources" });
     },
+    // 途中まで外れた 500 は lock 済みの一覧 body を持つ。捨てると一覧と実態がずれる。
+    onError: (err) => {
+      applyErrorBody(err, (body) =>
+        qc.setQueryData(["external-sources"], body)
+      );
+      void q.refetch();
+    },
   });
   const install = useMutation({
     mutationFn: (skills: string[]) => api.installExternal(source, skills, ""),
