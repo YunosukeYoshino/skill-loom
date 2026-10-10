@@ -38,6 +38,7 @@ import {
   addExternalToLock,
   collectExternalUpdateStatus,
   collectUpdatableSkillNames,
+  externalCliRemoveName,
   externalRemoveCommand,
   externalSkillStillUpdatable,
   externalSourceRemovalPlan,
@@ -73,6 +74,7 @@ import {
   applyNamedPreset,
   applyRestoreAllPlan,
   bulkOffActive,
+  discardDeployedSkill,
   formatRestoreAllPreview,
   installCustomFromRepo,
   planRestoreAll,
@@ -971,8 +973,11 @@ app.post("/api/external-sources/remove", async (c) => {
   let removedDecks = 0;
   let commitNote = "";
   try {
-    runExternalCommand(externalRemoveCommand(skill));
     const currentLock = loadLock();
+    // 別名登録は CLI lock が上流名で持つので、上流名で外して展開名の実体はこちらで落とす。
+    const cliName = externalCliRemoveName(skill, currentLock);
+    runExternalCommand(externalRemoveCommand(cliName));
+    if (cliName !== skill) discardDeployedSkill(skill);
     removedDecks = removeExternalSkillFromManagement(currentLock, skill);
     saveLock(currentLock);
     commitNote = commitRepoChanges(
@@ -1019,8 +1024,10 @@ app.post("/api/external-sources/remove-source", async (c) => {
   try {
     try {
       for (const skill of plan.remove) {
-        runExternalCommand(externalRemoveCommand(skill));
         const currentLock = loadLock();
+        const cliName = externalCliRemoveName(skill, currentLock);
+        runExternalCommand(externalRemoveCommand(cliName));
+        if (cliName !== skill) discardDeployedSkill(skill);
         removedDecks += removeExternalSkillFromManagement(currentLock, skill);
         saveLock(currentLock);
       }

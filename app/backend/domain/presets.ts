@@ -294,8 +294,11 @@ export function computePresetApplyPlan(
   const visibleArchive = visibleInstalledNames(lock, archiveDir());
   const managed = trackedSkills(lock);
   const unmanaged = ignoredSkills();
+  // vendor は管理対象だがこの経路では install できない。known に入れると
+  // ディスクに無いのに解決済み扱いになるので、unresolved 側へ残す。
+  const vendor = new Set(Object.keys(lock.vendor ?? {}));
   const known = union(
-    managed,
+    difference(managed, vendor),
     unmanaged,
     visibleActive,
     visibleArchive,
@@ -308,7 +311,7 @@ export function computePresetApplyPlan(
       ? difference(union(diskActive, diskArchive), target)
       : difference(intersection(diskActive, managed), target),
     restore: difference(intersection(target, diskArchive), diskActive),
-    install: difference(target, diskActive, diskArchive, unmanaged),
+    install: difference(target, diskActive, diskArchive, unmanaged, vendor),
     unresolved: difference(target, known),
     becomeActive: difference(target, diskActive),
     extra: new Set(),
@@ -336,6 +339,7 @@ export function computeSnapshotPlan(
   const diskArchive = installedNames(archiveDir());
   const managed = trackedSkills(lock);
   const ignored = ignoredSkills();
+  const vendor = new Set(Object.keys(lock.vendor ?? {}));
   const wanted = union(targetActive, targetArchive);
 
   // archive 行きの管理下 skill がディスクから消えていれば、install してから archive へ戻す。
@@ -343,13 +347,20 @@ export function computeSnapshotPlan(
     union(targetActive, intersection(targetArchive, managed)),
     diskActive,
     diskArchive,
-    ignored
+    ignored,
+    vendor
   );
   return {
     remove: difference(intersection(diskActive, managed), wanted),
     restore: difference(intersection(targetActive, diskArchive), diskActive),
     install,
-    unresolved: difference(wanted, managed, ignored, diskActive, diskArchive),
+    unresolved: difference(
+      wanted,
+      difference(managed, vendor),
+      ignored,
+      diskActive,
+      diskArchive
+    ),
     becomeActive: difference(targetActive, diskActive),
     extra: intersection(targetArchive, union(diskActive, install)),
   };

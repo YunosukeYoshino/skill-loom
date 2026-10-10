@@ -129,6 +129,18 @@ export function unlinkAgentSkillDirsMany(names: Iterable<string>): void {
 }
 
 /**
+ * 展開名で置いた実体とリンクを捨てる。別名登録を上流名で `skills remove` すると
+ * CLI は上流名側しか外せないので、展開名の後始末はこちらで行う。
+ */
+export function discardDeployedSkill(name: string): void {
+  unlinkAgentSkillDirs(name);
+  for (const base of [activeDir(), archiveDir()]) {
+    const path = join(base, name);
+    if (exists(path) || isSymlink(path)) trashPath(path);
+  }
+}
+
+/**
  * skills CLI の lock から名前を落とす。
  *
  * CLI は実体の有無を見ずに自分の lock を辿るので、ここに残った skill は
@@ -753,10 +765,13 @@ export function planProjectDeckSelection(
       : new Set([...loadDeck("core")[1], ...selected]);
   const managed = trackedSkills(lock);
   const unmanaged = ignoredSkills();
+  // vendor skill は管理対象だがこの経路では install できない。ディスクに無いまま
+  // install 行きにすると installCustomFromRepo が素通りして、無いのに適用成功になる。
+  const vendor = new Set(Object.keys(lock.vendor ?? {}));
   const unresolved = new Set(
     [...target].filter(
       (name) =>
-        !managed.has(name) &&
+        (!managed.has(name) || vendor.has(name)) &&
         !unmanaged.has(name) &&
         !active.has(name) &&
         !archived.has(name)
@@ -772,7 +787,8 @@ export function planProjectDeckSelection(
         !active.has(name) &&
         !archived.has(name) &&
         !unmanaged.has(name) &&
-        managed.has(name)
+        managed.has(name) &&
+        !vendor.has(name)
     )
   );
   return { target, unresolved, extra, restore, install };
@@ -819,10 +835,14 @@ export function installProjectDeck(
   const archived = visibleInstalledNames(lock, archiveDir());
   const managed = trackedSkills(lock);
   const alreadyActive = new Set([...target].filter((name) => active.has(name)));
+  const vendor = new Set(Object.keys(lock.vendor ?? {}));
 
   const unresolved = new Set(
     [...target].filter(
-      (name) => !managed.has(name) && !active.has(name) && !archived.has(name)
+      (name) =>
+        (!managed.has(name) || vendor.has(name)) &&
+        !active.has(name) &&
+        !archived.has(name)
     )
   );
   if (unresolved.size > 0) {
@@ -839,7 +859,11 @@ export function installProjectDeck(
   );
   const install = new Set(
     [...target].filter(
-      (name) => !active.has(name) && !archived.has(name) && managed.has(name)
+      (name) =>
+        !active.has(name) &&
+        !archived.has(name) &&
+        managed.has(name) &&
+        !vendor.has(name)
     )
   );
   applyDeck(new Set(), restore, install, lock);
@@ -862,13 +886,14 @@ export function planRestoreAll(lock: Lock): RestoreAllPlan {
   const target = trackedSkills(lock);
   const active = visibleInstalledNames(lock, activeDir());
   const archived = visibleInstalledNames(lock, archiveDir());
+  const vendor = new Set(Object.keys(lock.vendor ?? {}));
   return {
     extra: difference(active, target),
     restore: difference(
       new Set([...target].filter((name) => archived.has(name))),
       active
     ),
-    install: difference(target, active, archived),
+    install: difference(target, active, archived, vendor),
   };
 }
 

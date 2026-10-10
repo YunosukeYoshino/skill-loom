@@ -13,7 +13,6 @@ import {
   lstatSync,
   readFileSync,
   renameSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -180,6 +179,14 @@ export function externalRemoveCommand(skillName: string): string[] {
   if (!isArgvSafeSkillName(skillName))
     throw new ValueError(`Invalid external skill name: ${skillName}`);
   return [skillsRemoveBin(), "skills", "remove", skillName, "-g", "-y"];
+}
+
+/**
+ * 管理から外すとき CLI に渡す名前。別名登録は CLI lock が上流名で持っているので、
+ * 展開名を渡すと登録だけが残って「外したのに復活する」状態になる。
+ */
+export function externalCliRemoveName(name: string, lock: Lock): string {
+  return lock.external?.[name]?.installSkill ?? name;
 }
 
 // ---- 更新確認 ----
@@ -907,11 +914,18 @@ function readProjectDecks(
   for (const entry of entries.filter((name) => name.endsWith(".json")).sort()) {
     const path = join(decksDir, entry);
     try {
-      if (!statSync(path).isFile()) continue;
+      // lstat で symlink 自体を見る。statSync だと symlink 先の任意ファイルを deck として読んでしまう。
+      if (!lstatSync(path).isFile()) continue;
     } catch {
       continue;
     }
-    decks.push({ path, deck: JSON.parse(readFileSync(path, "utf-8")) });
+    // 1 枚の壊れた JSON で詳細表示も remove も止めない。parse できない deck は
+    // 中身を書き換えられないので、外す対象の抽出にも使えない。
+    try {
+      decks.push({ path, deck: JSON.parse(readFileSync(path, "utf-8")) });
+    } catch {
+      continue;
+    }
   }
   return decks;
 }

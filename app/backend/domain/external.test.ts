@@ -23,6 +23,7 @@ import {
   addExternalToLock,
   collectExternalUpdateStatus,
   collectUpdatableSkillNames,
+  externalCliRemoveName,
   externalRemoveCommand,
   externalSourceRemovalPlan,
   externalSourceStatusLabel,
@@ -355,6 +356,18 @@ describe("外部 CLI のコマンド", () => {
     expect(isArgvSafeSkillName("skill.v2")).toBe(true);
     expect(externalUpdateCommand("my_skill")[3]).toBe("my_skill");
     expect(externalRemoveCommand("my_skill")[3]).toBe("my_skill");
+  });
+
+  test("別名登録の remove は CLI が知っている上流名を渡す", () => {
+    const lock: Lock = {
+      external: {
+        "deploy-alpha": { source: "owner/repo", installSkill: "alpha" },
+        beta: { source: "owner/repo" },
+      },
+    };
+    expect(externalCliRemoveName("deploy-alpha", lock)).toBe("alpha");
+    expect(externalCliRemoveName("beta", lock)).toBe("beta");
+    expect(externalCliRemoveName("missing", lock)).toBe("missing");
   });
 });
 
