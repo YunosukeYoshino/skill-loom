@@ -739,6 +739,8 @@ export function resolveExternalCandidatesMapping(
       // 実体の上にこの source の登録だけが重なり、再 install で中身を取り違える。
       const owner = ownerOf(upstreamName);
       if (owner) {
+        // 別名の展開名と上流名の両方へ登録が広がるので、ここは承認置換にしない。
+        // 先に別名を管理から外してから取り込めば、通常の置き換えとして扱える。
         return {
           candidate,
           upstreamName,

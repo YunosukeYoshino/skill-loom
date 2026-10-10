@@ -38,10 +38,13 @@ import {
   type GlobalLockEntry,
   loadGlobalLock,
   loadLock,
+  removeIgnoredSkills,
   saveLock,
 } from "./inventory";
 import {
   archiveInstalledSkills,
+  deregisterFromCliLock,
+  discardDeployedSkill,
   linkAgentSkillDirs,
   movePath,
   setCliLockEntries,
@@ -125,12 +128,23 @@ export function setAsideForReplacement(names: string[]): ReplacementHandle {
   const handle = { dir: mkdtempSync(join(replaceRoot(), "r-")), rows };
   writeJournal(handle, "prepared");
 
-  for (const { name, state } of rows) {
-    if (state === "active") unlinkAgentSkillDirs(name);
-    movePath(join(dirOf(state), name), join(handle.dir, name));
-    if (lock.external) delete lock.external[name];
+  try {
+    for (const { name, state } of rows) {
+      if (state === "active") unlinkAgentSkillDirs(name);
+      movePath(join(dirOf(state), name), join(handle.dir, name));
+      if (lock.external) delete lock.external[name];
+    }
+    saveLock(lock);
+  } catch (error) {
+    // 退避の途中で止まった分はすぐ戻す。戻しきれなくても journal が残り、
+    // 起動時の復旧が同じ判断で続きを行う。
+    try {
+      rollbackReplacement(handle);
+    } catch {
+      // 起動時の復旧に任せる。
+    }
+    throw error;
   }
-  saveLock(lock);
   return handle;
 }
 
@@ -172,7 +186,12 @@ function restoreFiles(handle: ReplacementHandle, row: ReplacedRow): string {
     trashPath(join(activeDir(), name));
   }
   const base = dirOf(state);
-  if (!present(stashed)) return "";
+  if (!present(stashed)) {
+    // 退避に失敗して残った Active の既存は、unlink した分を張り直す。
+    if (state === "active" && present(join(base, name)))
+      linkAgentSkillDirs(name);
+    return "";
+  }
   if (present(join(base, name)))
     return `置き換え前の ${name} を戻せませんでした（戻し先が使用中）: ${stashed}`;
   movePath(stashed, join(base, name));
@@ -190,9 +209,13 @@ export function finishReplacement(handle: ReplacementHandle): string {
       (row) => row.state === "archive" && present(join(activeDir(), row.name))
     )
     .map((row) => row.name);
-  const warning = archiveInstalledSkills(new Set(archived));
+  const warnings = [archiveInstalledSkills(new Set(archived))];
+  // archive への移動が途中で止まっても CLI lock 側はここで収束させる。
+  // journal を捨てる前に行わないと、中途半端なエントリが残り続ける。
+  if (archived.length > 0)
+    warnings.push(deregisterFromCliLock(new Set(archived)));
   trashPath(handle.dir);
-  return warning;
+  return warnings.filter(Boolean).join("\n");
 }
 
 /**
@@ -240,17 +263,34 @@ export async function installExternalSelection(
   const placed = toInstall
     .filter((row) => row.conflict)
     .map((row) => row.deployName);
+  // 置き換え以外で新たに入る分。install の途中失敗は巻き戻しの対象外なので、
+  // 入りかけた実体・lock・CLI 登録をここで落とす。
+  const added = new Set(
+    toInstall.filter((row) => !row.conflict).map((row) => row.deployName)
+  );
   const install = async () => {
     if (toInstall.length === 0) return 0;
     const names = new Set(toInstall.map((row) => row.deployName));
-    await runExternalInstall(source, names, toInstall);
-    return registerInstalledExternalSelection(source, names, toInstall)[1];
+    try {
+      await runExternalInstall(source, names, toInstall);
+      return registerInstalledExternalSelection(source, names, toInstall)[1];
+    } catch (error) {
+      const current = loadLock();
+      for (const name of added) delete current.external?.[name];
+      saveLock(current);
+      for (const name of added) discardDeployedSkill(name);
+      deregisterFromCliLock(added);
+      throw error;
+    }
   };
   const [unignored, warning] =
     placed.length === 0
       ? [await install(), ""]
       : await replaceWhileInstalling(placed, install);
   retargetExternalEntries(source, off);
+  // 取り込んだ source の管理対象になるので、ignore に残したままにすると見えなくなる。
+  if (off.length > 0)
+    removeIgnoredSkills(new Set(off.map((row) => row.deployName)));
   return [unignored, warning];
 }
 
