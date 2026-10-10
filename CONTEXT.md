@@ -12,7 +12,8 @@ Skill Loom is a local management engine for an Agent Skills portfolio. It keeps 
 - **External Skill**: a registered Skill sourced from another repository.
 - **External Source**: a repository registered in the Catalog as the origin of one or more External Skills.
 - **Registry**: a public index (currently skills.sh) for discovering External Sources not yet registered. It is outside the Inventory; its results carry no state until registered.
-- **Skill Name Conflict**: an External Skill whose upstream name is already used by a Custom, Vendor, or other-source skill. It is rejected, never renamed; skills keep their upstream names so they can invoke each other (see ADR 0002).
+- **Skill Name Conflict**: an External Skill whose upstream name is already used by another skill. It is never renamed; skills keep their upstream names so they can invoke each other (see ADR 0002). A conflict with a Custom or Vendor Skill is rejected; a conflict with an other-source External Skill or an unmanaged directory can be resolved by Skill Replacement (see ADR 0003).
+- **Skill Replacement**: resolving a Skill Name Conflict by swapping the existing skill for the incoming one under the same Upstream Name. The Active / Archive state and Project Deck membership carry over; only the source changes.
 - **Vendor Skill**: a Catalog-owned customization that overrides an External Skill of the same name.
 - **Upstream Name**: the original Skill name within its source repository. New External Skills are always registered under it; only legacy lock entries carry a different key with `installSkill`.
 - **Draft Skill**: an authored Skill that joins the Inventory only after promotion.
