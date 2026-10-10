@@ -30,6 +30,7 @@ import { DialogFrame, useConfirm } from "@/components/dialog";
 import { useListViewSearch } from "@/router-search";
 import { useT, useUiSettings } from "@/settings/react";
 import {
+  pinnedFirst,
   resolveExternalView,
   type ExternalViewMode,
 } from "@/settings/settings";
@@ -252,6 +253,52 @@ function OgpPreview({
         />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * source カードの Pin 切り替え。カードは全体が Link なので、中に入れず兄弟として重ねる
+ * （a の中に button を置くと入れ子の対話要素になる）。
+ */
+function PinToggle({ source }: { source: string }) {
+  const t = useT();
+  const { settings, update } = useUiSettings();
+  const pinned = settings.pinnedSources.includes(source);
+  const label = t(pinned ? "sources.unpin" : "sources.pin", { source });
+  return (
+    <button
+      type="button"
+      aria-pressed={pinned}
+      aria-label={label}
+      title={label}
+      onClick={() =>
+        update({
+          pinnedSources: pinned
+            ? settings.pinnedSources.filter((name) => name !== source)
+            : [...settings.pinnedSources, source],
+        })
+      }
+      className={`absolute top-2 right-2 z-10 inline-flex size-8 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] transition-[transform,color,background] duration-100 ease-out hover:bg-[var(--color-paper-2)] active:scale-[0.96] ${
+        pinned
+          ? "text-[var(--color-ink)]"
+          : "text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
+      }`}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        fill={pinned ? "currentColor" : "none"}
+        aria-hidden="true"
+      >
+        <path
+          d="M5 1.5h4l-.5 4 2 2v1h-7v-1l2-2-.5-4ZM7 8.5v4"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
   );
 }
 
@@ -1781,6 +1828,7 @@ export function ExternalSourcesPage() {
     );
   }
   const data = q.data;
+  const sources = pinnedFirst(data.sources, settings.pinnedSources);
   const sourcesBusy = checkAll.isPending || updateAll.isPending;
 
   return (
@@ -1845,34 +1893,38 @@ export function ExternalSourcesPage() {
           </div>
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-            {data.sources.map((src) => (
-              <Link
-                key={src.source}
-                to="/external-sources/$source"
-                params={{ source: src.source }}
-                className="block overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)] transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-1 hover:shadow-[0_12px_32px_oklch(20%_0.02_260/0.1)]"
-              >
-                <OgpPreview source={src.source} variant="grid" />
-                <div className="p-3">
-                  <ExternalSourceMeta src={src} />
-                </div>
-              </Link>
+            {sources.map((src) => (
+              <div key={src.source} className="relative">
+                <PinToggle source={src.source} />
+                <Link
+                  to="/external-sources/$source"
+                  params={{ source: src.source }}
+                  className="block h-full overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)] transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-1 hover:shadow-[0_12px_32px_oklch(20%_0.02_260/0.1)]"
+                >
+                  <OgpPreview source={src.source} variant="grid" />
+                  <div className="p-3">
+                    <ExternalSourceMeta src={src} />
+                  </div>
+                </Link>
+              </div>
             ))}
           </div>
         ) : (
           <div className="grid gap-3">
-            {data.sources.map((src) => (
-              <Link
-                key={src.source}
-                to="/external-sources/$source"
-                params={{ source: src.source }}
-                className="flex gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 transition-colors duration-200 hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
-              >
-                <OgpPreview source={src.source} variant="list" />
-                <div className="min-w-0 flex-1">
-                  <ExternalSourceMeta src={src} />
-                </div>
-              </Link>
+            {sources.map((src) => (
+              <div key={src.source} className="relative">
+                <PinToggle source={src.source} />
+                <Link
+                  to="/external-sources/$source"
+                  params={{ source: src.source }}
+                  className="flex gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 pr-12 transition-colors duration-200 hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
+                >
+                  <OgpPreview source={src.source} variant="list" />
+                  <div className="min-w-0 flex-1">
+                    <ExternalSourceMeta src={src} />
+                  </div>
+                </Link>
+              </div>
             ))}
           </div>
         )}
