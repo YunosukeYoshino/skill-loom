@@ -662,10 +662,13 @@ export function resolveExternalCandidatesMapping(
   };
   // 旧来の別名エントリが同じ上流名を別 source から入れていれば、同じ skill の二重管理になる。
   const aliasOwnerOf = (name: string): SkillNameOwner | undefined => {
+    // 同一上流名の別名が複数 source にまたがることがある。同じ source の別名が
+    // 先に見つかっても他を調べないと別 source 側を取りこぼすので、違うものを優先する。
     const aliased = Object.entries(external).find(
-      ([key, entry]) => entry.installSkill === name && key !== name
+      ([key, entry]) =>
+        entry.installSkill === name && key !== name && !sameSource(entry.source)
     );
-    if (!aliased || sameSource(aliased[1].source)) return undefined;
+    if (!aliased) return undefined;
     return {
       kind: "external",
       source: aliased[1].source,

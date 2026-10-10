@@ -893,6 +893,27 @@ describe("resolveExternalCandidatesMapping", () => {
     ]);
   });
 
+  test("同じ上流名の別名が複数 source にあれば別 source 側を衝突とみなす", () => {
+    const testLock: Lock = {
+      external: {
+        "our--alpha": { source: "owner/repo", installSkill: "alpha" },
+        "their--alpha": { source: "other/repo", installSkill: "alpha" },
+      },
+    };
+    const candidates = [{ name: "alpha", path: "skills/alpha/SKILL.md" }];
+    expect(
+      resolveExternalCandidatesMapping(testLock, "owner/repo", candidates)
+    ).toEqual([
+      {
+        candidate: candidates[0]!,
+        upstreamName: "alpha",
+        deployName: "alpha",
+        conflict:
+          "Skill name already used by other/repo (registered as their--alpha): alpha",
+      },
+    ]);
+  });
+
   test("別名登録と同じ source の実体なら別名のまま使う", () => {
     place("active", "deploy-alpha", "---\nname: alpha\n---\n");
     writeFileSync(

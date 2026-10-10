@@ -658,7 +658,7 @@ printf -- '---\\nname: alpha\\n---\\nincoming\\n' > "$MY_SKILLS_ACTIVE_DIR/alpha
     const argsFile = path.join(f.root, "args.txt");
     fs.writeFileSync(
       f.stub,
-      `#!/bin/bash\necho "$@" > '${argsFile}'\nmkdir -p "$MY_SKILLS_ACTIVE_DIR/beta"\n`
+      `#!/bin/bash\necho "$@" > '${argsFile}'\nmkdir -p "$MY_SKILLS_ACTIVE_DIR/beta"\nprintf 'new' > "$MY_SKILLS_ACTIVE_DIR/beta/SKILL.md"\n`
     );
     expect(f.runUnfiltered().exitCode).toBe(0);
     const args = fs.readFileSync(argsFile, "utf8");
