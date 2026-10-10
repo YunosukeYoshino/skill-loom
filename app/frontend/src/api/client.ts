@@ -194,10 +194,15 @@ export const api = {
       body: JSON.stringify({ source, deck }),
     }),
 
-  installExternal: (source: string, skills: string[], deck = "") =>
+  installExternal: (
+    source: string,
+    skills: string[],
+    deck = "",
+    replace: string[] = []
+  ) =>
     request<GlobalPayload | ProjectDeckPayload>("/api/external/install", {
       method: "POST",
-      body: JSON.stringify({ source, skills, deck }),
+      body: JSON.stringify({ source, skills, deck, replace }),
     }),
 
   addToDeck: (source: string, skills: string[], deck: string) =>

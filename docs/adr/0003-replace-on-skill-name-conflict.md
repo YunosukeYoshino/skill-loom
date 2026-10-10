@@ -17,7 +17,11 @@ A conflict can be resolved by **Skill Replacement**. When adding, a replaceable 
 - Replaceable owners: an External Skill from another source, and an on-disk directory that is not in the Inventory. Custom and Vendor Skills stay non-replaceable: they are Catalog-authored and must not disappear as a side effect of adding something.
 - The name does not change, so the Active / Archive state and Project Deck membership carry over.
 - The old skill is set aside before installing and restored if the install or registration fails. Only after success is the old External Skill removed from management, or the unmanaged directory moved to the trash (it may not be re-fetchable).
-- A legacy alias entry (`installSkill`) holding the name counts as an other-source External Skill and is replaceable.
+- The set-aside survives a crash. A journal holding each name's prior state and lock entries is written next to the stashed copy (inside Archive, hidden) before anything moves. Confirming that the new skill is on disk is the commit point: a failure before it rolls back, a failure after it keeps finishing, and on startup a leftover journal is rolled back or finished by the same rule. Lock entries are restored per name, never as whole files, so unrelated changes made in the meantime survive. A restore target that is already taken is left alone with a warning.
+- An Off skill has nothing on disk to swap, so its replacement only points the lock entry at the new source; the next activation installs it.
+- A name present in both Active and Archive is not replaced: it is unclear which copy to keep.
+- A legacy alias entry (`installSkill`) whose key is the name counts as an other-source External Skill and is replaceable.
+- A legacy alias registered under a different key that installs the same upstream name from another source is not replaceable; it stays rejected. Nothing sits at that name to swap out, and replacing it would leave two entries managing the same upstream skill.
 - A name provided twice within the same source (duplicate path) is not replaceable; it stays rejected.
 - Replacement is offered in the Web UI only. `skills-add` gets no `--replace` until there is a need for it.
 
