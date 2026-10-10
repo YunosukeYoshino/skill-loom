@@ -662,10 +662,13 @@ export function resolveExternalCandidatesMapping(
   };
   // 旧来の別名エントリが同じ上流名を別 source から入れていれば、同じ skill の二重管理になる。
   const aliasOwnerOf = (name: string): SkillNameOwner | undefined => {
+    // 同一上流名の別名が複数 source にまたがることがある。同じ source の別名が
+    // 先に見つかっても他を調べないと別 source 側を取りこぼすので、違うものを優先する。
     const aliased = Object.entries(external).find(
-      ([key, entry]) => entry.installSkill === name && key !== name
+      ([key, entry]) =>
+        entry.installSkill === name && key !== name && !sameSource(entry.source)
     );
-    if (!aliased || sameSource(aliased[1].source)) return undefined;
+    if (!aliased) return undefined;
     return {
       kind: "external",
       source: aliased[1].source,
@@ -699,6 +702,17 @@ export function resolveExternalCandidatesMapping(
         !(name in vendor)
     );
     if (existing) {
+      // 別名登録があっても上流名そのものの所有は別途調べる。放置すると別 source の
+      // 実体の上にこの source の登録だけが重なり、再 install で中身を取り違える。
+      const owner = ownerOf(upstreamName);
+      if (owner) {
+        return {
+          candidate,
+          upstreamName,
+          deployName: upstreamName,
+          conflict: `Skill name already used by ${describeSkillNameOwner(owner)}: ${upstreamName}`,
+        };
+      }
       claimed.add(existing[0]);
       return { candidate, upstreamName, deployName: existing[0] };
     }
