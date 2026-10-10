@@ -23,7 +23,9 @@ import {
   addExternalToLock,
   collectExternalUpdateStatus,
   collectUpdatableSkillNames,
+  externalCliRemoveName,
   externalRemoveCommand,
+  externalSourceRemovalPlan,
   externalSourceStatusLabel,
   externalSourceSummary,
   externalUpdateCommand,
@@ -355,6 +357,18 @@ describe("外部 CLI のコマンド", () => {
     expect(externalUpdateCommand("my_skill")[3]).toBe("my_skill");
     expect(externalRemoveCommand("my_skill")[3]).toBe("my_skill");
   });
+
+  test("別名登録の remove は CLI が知っている上流名を渡す", () => {
+    const lock: Lock = {
+      external: {
+        "deploy-alpha": { source: "owner/repo", installSkill: "alpha" },
+        beta: { source: "owner/repo" },
+      },
+    };
+    expect(externalCliRemoveName("deploy-alpha", lock)).toBe("alpha");
+    expect(externalCliRemoveName("beta", lock)).toBe("beta");
+    expect(externalCliRemoveName("missing", lock)).toBe("missing");
+  });
 });
 
 describe("formatExternalUpdateMessage", () => {
@@ -412,6 +426,48 @@ describe("removeExternalSkillFromManagement", () => {
       removeExternalSkillFromManagement(target, "alpha", dir("no-such-dir"))
     ).toBe(0);
     expect(target.external).toEqual({});
+  });
+});
+
+describe("externalSourceRemovalPlan", () => {
+  test("source の skill を外す側と Vendor で残す側に分け、影響する deck を数える", () => {
+    const decks = dir("decks");
+    writeFileSync(
+      join(decks, "api.json"),
+      JSON.stringify({ skills: ["alpha", "beta"] })
+    );
+    writeFileSync(
+      join(decks, "web.json"),
+      JSON.stringify({ skills: ["beta"] })
+    );
+    writeFileSync(
+      join(decks, "backend.json"),
+      JSON.stringify({ skills: ["gamma"] })
+    );
+    const target: Lock = {
+      ...lock,
+      vendor: { beta: { source: "owner-one/repo-one" } },
+    };
+
+    // beta は Vendor 版が同じ名前で展開されているので、deck からは外れない。
+    expect(
+      externalSourceRemovalPlan(target, "owner-one/repo-one", decks)
+    ).toEqual({ remove: ["alpha"], keepVendor: ["beta"], decks: 1 });
+  });
+
+  test("登録の無い source は空の計画になる", () => {
+    expect(
+      externalSourceRemovalPlan(lock, "nobody/none", dir("no-such-dir"))
+    ).toEqual({ remove: [], keepVendor: [], decks: 0 });
+  });
+
+  test("deck ディレクトリが読めないときは空へ倒さず失敗させる", () => {
+    // 読み取りエラーを「deck なし」と誤認すると、deck に skill 名が残ったまま外し進む。
+    const notDir = dir("decks-file");
+    writeFileSync(notDir, "{}");
+    expect(() =>
+      externalSourceRemovalPlan(lock, "owner-one/repo-one", notDir)
+    ).toThrow();
   });
 });
 

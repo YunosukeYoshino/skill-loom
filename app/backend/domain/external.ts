@@ -13,7 +13,6 @@ import {
   lstatSync,
   readFileSync,
   renameSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -180,6 +179,14 @@ export function externalRemoveCommand(skillName: string): string[] {
   if (!isArgvSafeSkillName(skillName))
     throw new ValueError(`Invalid external skill name: ${skillName}`);
   return [skillsRemoveBin(), "skills", "remove", skillName, "-g", "-y"];
+}
+
+/**
+ * 管理から外すとき CLI に渡す名前。別名登録は CLI lock が上流名で持っているので、
+ * 展開名を渡すと登録だけが残って「外したのに復活する」状態になる。
+ */
+export function externalCliRemoveName(name: string, lock: Lock): string {
+  return lock.external?.[name]?.installSkill ?? name;
 }
 
 // ---- 更新確認 ----
@@ -905,6 +912,65 @@ export function registerInstalledExternalSelection(
   return [loadLock(), removedIgnored];
 }
 
+/** project deck の JSON を名前順に読む。deck ディレクトリが無ければ空。 */
+function readProjectDecks(
+  decksDir: string
+): Array<{ path: string; deck: { skills?: string[] } }> {
+  let entries: string[];
+  try {
+    entries = readdirSync(decksDir, { recursive: true }) as string[];
+  } catch (error) {
+    // 無いだけなら空。読めないのに空へ倒すと、deck に残った skill を外し残す。
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const decks: Array<{ path: string; deck: { skills?: string[] } }> = [];
+  for (const entry of entries.filter((name) => name.endsWith(".json")).sort()) {
+    const path = join(decksDir, entry);
+    try {
+      // lstat で symlink 自体を見る。statSync だと symlink 先の任意ファイルを deck として読んでしまう。
+      if (!lstatSync(path).isFile()) continue;
+    } catch {
+      continue;
+    }
+    // 1 枚の壊れた JSON で詳細表示も remove も止めない。parse できない deck は
+    // 中身を書き換えられないので、外す対象の抽出にも使えない。
+    try {
+      decks.push({ path, deck: JSON.parse(readFileSync(path, "utf-8")) });
+    } catch {
+      continue;
+    }
+  }
+  return decks;
+}
+
+/**
+ * External Source ごと管理から外すときの内訳。
+ *
+ * Vendor で上書きしている skill は、同じ名前で Vendor 版が展開されている。
+ * CLI で remove すると Vendor 版まで消え、deck から外すと Vendor 版が deck から落ちるので、
+ * これらは lock の external 登録だけを外す（`keepVendor`）。
+ * `decks` は `remove` のどれかを含む deck の数で、確認ダイアログに出す。
+ */
+export function externalSourceRemovalPlan(
+  lock: Lock,
+  source: string,
+  decksDir = projectDecksDir()
+): { remove: string[]; keepVendor: string[]; decks: number } {
+  const vendor = lock.vendor ?? {};
+  const names = sortNames(
+    Object.entries(lock.external ?? {})
+      .filter(([, meta]) => meta.source === source)
+      .map(([name]) => name)
+  );
+  const remove = names.filter((name) => !(name in vendor));
+  const keepVendor = names.filter((name) => name in vendor);
+  const decks = readProjectDecks(decksDir).filter(({ deck }) =>
+    (deck.skills ?? []).some((name) => remove.includes(name))
+  ).length;
+  return { remove, keepVendor, decks };
+}
+
 export function removeExternalSkillFromManagement(
   lock: Lock,
   skill: string,
@@ -912,22 +978,7 @@ export function removeExternalSkillFromManagement(
 ): number {
   delete lock.external?.[skill];
   let removedFromDecks = 0;
-  let entries: string[];
-  try {
-    entries = readdirSync(decksDir, { recursive: true }) as string[];
-  } catch {
-    return removedFromDecks;
-  }
-  for (const entry of entries.filter((name) => name.endsWith(".json")).sort()) {
-    const path = join(decksDir, entry);
-    try {
-      if (!statSync(path).isFile()) continue;
-    } catch {
-      continue;
-    }
-    const deck = JSON.parse(readFileSync(path, "utf-8")) as {
-      skills?: string[];
-    };
+  for (const { path, deck } of readProjectDecks(decksDir)) {
     const skills = deck.skills ?? [];
     if (!skills.includes(skill)) continue;
     deck.skills = skills.filter((name) => name !== skill);

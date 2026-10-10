@@ -218,4 +218,13 @@ describe("非表示と追跡対象", () => {
       new Set(["alpha", "ext-one", "hidden-ignored"])
     );
   });
+
+  test("vendor だけに残る skill も追跡対象", () => {
+    // external 登録を外した後 vendor に残る skill を restore all が archive へ追いやらないため。
+    const vendorLock: Lock = {
+      ...lock,
+      vendor: { "forked-one": {} },
+    };
+    expect(trackedSkills(vendorLock).has("forked-one")).toBe(true);
+  });
 });

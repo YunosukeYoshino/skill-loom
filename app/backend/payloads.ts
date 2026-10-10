@@ -24,6 +24,7 @@ import {
 import { draftRows } from "./domain/drafts";
 import {
   activeExternalSkillNames,
+  externalSourceRemovalPlan,
   externalSourceStatusLabel,
   externalSourceSummary,
   externalSkillUpdateCommand,
@@ -259,6 +260,7 @@ export async function externalSourceDetailPayload(
     installed: installedSkills,
     available: availableRows,
     updatable: updatableSkills,
+    removal: externalSourceRemovalPlan(lock, ownerRepo),
   };
 }
 

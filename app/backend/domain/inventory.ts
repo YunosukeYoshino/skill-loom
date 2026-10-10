@@ -241,7 +241,10 @@ export function trackedSkills(lock: Lock): Set<string> {
     new Set(Object.keys(lock.external ?? {})),
     ignored
   );
-  return union(custom, external);
+  // vendor-fork も管理対象。external 登録を外した skill が vendor に残ると、
+  // ここで追跡を外れると restore all が実体を archive へ追いやってしまう。
+  const vendor = difference(new Set(Object.keys(lock.vendor ?? {})), ignored);
+  return union(custom, external, vendor);
 }
 
 export function installedNames(path: string): Set<string> {
