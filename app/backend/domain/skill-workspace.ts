@@ -283,7 +283,7 @@ export function workspaceRoot(name: string): string {
   return root;
 }
 
-export function loadSkillWorkspace(name: string): SkillWorkspace | undefined {
+function loadSkillWorkspace(name: string): SkillWorkspace | undefined {
   assertSkillName(name);
   workspaceRoot(name);
   const data = readState<SkillWorkspace>(`workspaces/${name}/workspace.json`);
@@ -504,7 +504,7 @@ export async function forkSkill(ref: SkillRef): Promise<SkillView> {
   return viewSkill(local.ref, "work");
 }
 
-export function installedSkillRoot(name: string): string | undefined {
+function installedSkillRoot(name: string): string | undefined {
   assertSkillName(name);
   return [activeDir(), archiveDir()]
     .map((dir) => join(dir, name))

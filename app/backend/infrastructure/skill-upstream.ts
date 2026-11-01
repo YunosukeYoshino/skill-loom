@@ -34,7 +34,7 @@ export type SkillSnapshot = {
   ref: SkillRef;
 };
 
-export class SkillUpstreamError extends ValueError {
+class SkillUpstreamError extends ValueError {
   constructor(
     readonly state: "missing" | "unavailable" | "review",
     message: string
