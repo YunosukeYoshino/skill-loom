@@ -1,5 +1,5 @@
 /**
- * Web UI Settings — locale と External 表示既定をまとめて持つブラウザローカルな設定。
+ * Web UI Settings — locale・External 表示既定・Pin をまとめて持つブラウザローカルな設定。
  * 永続化は単一 localStorage キー (`skill-loom.settings`) の JSON blob。
  * 旧 `external-sources-view-mode` は最初の読み込み時に blob へ移行して削除する。
  * storage は注入可能で、このモジュールは React なしで単体テストできる。
@@ -10,6 +10,8 @@ export type ExternalViewMode = "grid" | "list";
 export type UiSettings = {
   locale: UiLocale;
   externalViewMode: ExternalViewMode;
+  /** External 一覧で先頭に寄せる source。表示の好みなので Catalog ではなく端末に持つ。 */
+  pinnedSources: string[];
 };
 
 export const SETTINGS_STORAGE_KEY = "skill-loom.settings";
@@ -18,6 +20,7 @@ export const LEGACY_VIEW_MODE_KEY = "external-sources-view-mode";
 export const DEFAULT_SETTINGS: UiSettings = {
   locale: "en",
   externalViewMode: "grid",
+  pinnedSources: [],
 };
 
 export interface SettingsStorage {
@@ -30,6 +33,8 @@ const toLocale = (v: unknown): UiLocale | undefined =>
   v === "en" || v === "ja" ? v : undefined;
 const toViewMode = (v: unknown): ExternalViewMode | undefined =>
   v === "grid" || v === "list" ? v : undefined;
+const toStrings = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 
 function readItem(storage: SettingsStorage, key: string): string | null {
   try {
@@ -61,6 +66,7 @@ export function loadSettings(storage: SettingsStorage): UiSettings {
       toViewMode(parsed.externalViewMode) ??
       toViewMode(legacy) ??
       DEFAULT_SETTINGS.externalViewMode,
+    pinnedSources: toStrings(parsed.pinnedSources),
   };
 
   // 旧キーが残っていれば新 blob を書き戻してから削除し、二重管理を残さない。
@@ -96,6 +102,21 @@ export function resolveExternalView(
   settings: UiSettings
 ): ExternalViewMode {
   return toViewMode(urlView) ?? settings.externalViewMode;
+}
+
+/**
+ * Pin した source を先頭に寄せる。どちらの側も元の並び（名前順）を保つ。
+ * 外した source の Pin は storage に残っていても、ここで一致しないだけで害はない。
+ */
+export function pinnedFirst<T extends { source: string }>(
+  rows: T[],
+  pinned: string[]
+): T[] {
+  const set = new Set(pinned);
+  return [
+    ...rows.filter((row) => set.has(row.source)),
+    ...rows.filter((row) => !set.has(row.source)),
+  ];
 }
 
 /* ======================================================================
@@ -267,6 +288,8 @@ const en = {
   "sources.checkAll": "Check all for updates",
   "sources.updateAll": "Update all with updates ({count})",
   "sources.empty": "No external sources yet. Add one from “Add skills”.",
+  "sources.pin": "Pin {source} to the top",
+  "sources.unpin": "Unpin {source}",
 
   // external source detail page
   "detail.back": "Back to sources",
@@ -277,9 +300,26 @@ const en = {
   "detail.removeConfirm":
     "Remove from management? Applies to global remove, skills.lock.json, and project-decks.",
   "detail.removeTitle": "Remove “{name}” from management?",
+  "detail.removeSource": "Remove this source",
+  "detail.removeSourceTitle": "Remove “{source}” from management?",
+  "detail.removeSourceConfirm":
+    "Every skill from this source is removed: global remove, skills.lock.json, and project-decks.",
+  "detail.removeSourceSkills": "Skills to remove",
+  "detail.removeSourceDecks": "Project decks affected",
+  "detail.removeSourceVendor": "Vendor skills kept",
   "detail.remove": "Remove from management",
   "detail.available": "Available to install",
   "detail.installSelected": "Install selected",
+  "replace.title": "Approval needed ({count})",
+  "replace.body":
+    "An existing skill already uses these names. Choose which one to keep for each selected skill. State (Active/Archive) and deck membership carry over.",
+  "replace.keep": "Keep existing",
+  "replace.replace": "Replace",
+  "replace.existing": "Existing",
+  "replace.incoming": "Incoming",
+  "replace.unknownSource": "Unknown (outside Inventory)",
+  "replace.decks": "decks: {count}",
+  "replace.submit": "Apply choices",
 
   // drafts page
   "drafts.overline": "Catalog · drafts",
@@ -462,6 +502,8 @@ const ja: MessageCatalog = {
   "sources.checkAll": "すべて更新を確認",
   "sources.updateAll": "更新があるものをすべてupdate ({count})",
   "sources.empty": "外部ソースがありません。「skillsを追加」から追加できます。",
+  "sources.pin": "{source} を先頭にPin",
+  "sources.unpin": "{source} のPinを外す",
 
   "detail.back": "sourcesに戻る",
   "detail.updateAll": "このsourceをすべてupdate ({count})",
@@ -471,9 +513,26 @@ const ja: MessageCatalog = {
   "detail.removeConfirm":
     "管理から外しますか？ global remove、skills.lock.json、project-decks に反映します。",
   "detail.removeTitle": "“{name}” を管理から外しますか？",
+  "detail.removeSource": "このsourceを外す",
+  "detail.removeSourceTitle": "“{source}” を管理から外しますか？",
+  "detail.removeSourceConfirm":
+    "このsourceのskillをすべて外します。global remove、skills.lock.json、project-decks に反映します。",
+  "detail.removeSourceSkills": "外すskill",
+  "detail.removeSourceDecks": "影響するproject deck",
+  "detail.removeSourceVendor": "残るVendor skill",
   "detail.remove": "管理から外す",
   "detail.available": "install 可能",
   "detail.installSelected": "選択してinstall",
+  "replace.title": "承認が必要 ({count})",
+  "replace.body":
+    "同じ名前の skill が既にあります。選んだ skill ごとに、どちらを残すか選んでください。状態（Active/Archive）と deck の所属は引き継ぎます。",
+  "replace.keep": "既存を残す",
+  "replace.replace": "置き換える",
+  "replace.existing": "既存",
+  "replace.incoming": "取り込み側",
+  "replace.unknownSource": "不明（Inventory 外）",
+  "replace.decks": "deck {count} 件",
+  "replace.submit": "選択を反映して取り込む",
 
   "drafts.overline": "Catalog · drafts",
   "drafts.help":

@@ -182,16 +182,27 @@ export const api = {
       body: JSON.stringify({ skill }),
     }),
 
+  removeSource: (source: string) =>
+    request<ExternalSourcesPayload>("/api/external-sources/remove-source", {
+      method: "POST",
+      body: JSON.stringify({ source }),
+    }),
+
   previewExternal: (source: string, deck = "") =>
     request<ExternalPreviewPayload>("/api/external/preview", {
       method: "POST",
       body: JSON.stringify({ source, deck }),
     }),
 
-  installExternal: (source: string, skills: string[], deck = "") =>
+  installExternal: (
+    source: string,
+    skills: string[],
+    deck = "",
+    replace: string[] = []
+  ) =>
     request<GlobalPayload | ProjectDeckPayload>("/api/external/install", {
       method: "POST",
-      body: JSON.stringify({ source, skills, deck }),
+      body: JSON.stringify({ source, skills, deck, replace }),
     }),
 
   addToDeck: (source: string, skills: string[], deck: string) =>

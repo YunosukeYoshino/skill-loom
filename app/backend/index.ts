@@ -38,14 +38,14 @@ import {
   addExternalToLock,
   collectExternalUpdateStatus,
   collectUpdatableSkillNames,
+  externalCliRemoveName,
   externalRemoveCommand,
   externalSkillStillUpdatable,
+  externalSourceRemovalPlan,
   formatExternalUpdateMessage,
   isArgvSafeSkillName,
-  registerInstalledExternalSelection,
   removeExternalSkillFromManagement,
   resolveSelectedExternalSkills,
-  runExternalInstall,
   runExternalSkillUpdate,
 } from "./domain/external";
 import { commitRepoChanges } from "./infrastructure/git";
@@ -72,11 +72,16 @@ import {
   applyNamedPreset,
   applyRestoreAllPlan,
   bulkOffActive,
+  discardDeployedSkill,
   formatRestoreAllPreview,
   installCustomFromRepo,
   planRestoreAll,
   restorePreviousPreset,
 } from "./domain/projection";
+import {
+  installExternalSelection,
+  recoverPendingReplacements,
+} from "./domain/replacement";
 import {
   computeTristateApplyDelta,
   formatTristateApplySummary,
@@ -513,6 +518,11 @@ app.post("/api/all", async (c) => {
 function bodyString(body: unknown, key: string): string {
   const value = (body as Record<string, unknown> | null)?.[key];
   return String(value ?? "").trim();
+}
+
+function bodyNames(body: unknown, key: string): Set<string> {
+  const value = (body as Record<string, unknown> | null)?.[key];
+  return new Set(Array.isArray(value) ? value.map((name) => String(name)) : []);
 }
 
 function bodyFlag(body: unknown, key: string): boolean {
@@ -970,8 +980,11 @@ app.post("/api/external-sources/remove", async (c) => {
   let removedDecks = 0;
   let commitNote = "";
   try {
-    runExternalCommand(externalRemoveCommand(skill));
     const currentLock = loadLock();
+    // 別名登録は CLI lock が上流名で持つので、上流名で外して展開名の実体はこちらで落とす。
+    const cliName = externalCliRemoveName(skill, currentLock);
+    runExternalCommand(externalRemoveCommand(cliName));
+    if (cliName !== skill) discardDeployedSkill(skill);
     removedDecks = removeExternalSkillFromManagement(currentLock, skill);
     saveLock(currentLock);
     commitNote = commitRepoChanges(
@@ -988,6 +1001,68 @@ app.post("/api/external-sources/remove", async (c) => {
     releaseApply();
   }
   const message = `removed: ${skill} (project decks ${removedDecks})${commitNote}`;
+  return jsonResponse(externalSourcesPayload(loadLock(), message), 200);
+});
+
+/**
+ * External Source ごと管理から外す。skill ごとに CLI で消して lock を保存していくので、
+ * 途中で失敗しても、そこまでに外した分は lock と commit に残り、実体と食い違わない。
+ * Vendor で上書きしている skill は external 登録だけ外す（`externalSourceRemovalPlan` 参照）。
+ */
+app.post("/api/external-sources/remove-source", async (c) => {
+  const raw = bodyString(await readJson(c.req.raw), "source");
+  const base = externalSourcesPayload(loadLock());
+  if (!raw)
+    return errorResponse("管理から外すsourceを選択してください", 400, base);
+  let source: string;
+  try {
+    source = normalizeGithubSource(raw);
+  } catch (error) {
+    return errorResponse(errorText(error), 400, base);
+  }
+  const plan = externalSourceRemovalPlan(loadLock(), source);
+  if (plan.remove.length === 0 && plan.keepVendor.length === 0)
+    return errorResponse(`登録されていないsourceです: ${source}`, 404, base);
+  if (!tryAcquireApply()) return errorResponse(REMOVE_BUSY_MESSAGE, 409, base);
+
+  let removedDecks = 0;
+  let failure = "";
+  let commitNote = "";
+  try {
+    try {
+      for (const skill of plan.remove) {
+        const currentLock = loadLock();
+        const cliName = externalCliRemoveName(skill, currentLock);
+        runExternalCommand(externalRemoveCommand(cliName));
+        if (cliName !== skill) discardDeployedSkill(skill);
+        removedDecks += removeExternalSkillFromManagement(currentLock, skill);
+        saveLock(currentLock);
+      }
+      const currentLock = loadLock();
+      for (const skill of plan.keepVendor) delete currentLock.external?.[skill];
+      saveLock(currentLock);
+    } catch (error) {
+      failure = errorText(error);
+    }
+    commitNote = commitRepoChanges(
+      `chore: remove ${source} from skills.lock.json`,
+      [lockFile(), projectDecksDir()]
+    );
+  } catch (error) {
+    failure ||= errorText(error);
+  } finally {
+    releaseApply();
+  }
+  if (failure)
+    return errorResponse(
+      `source の remove に失敗: ${failure}`,
+      500,
+      externalSourcesPayload(loadLock())
+    );
+  const kept = plan.keepVendor.length
+    ? ` · vendor kept: ${plan.keepVendor.join(", ")}`
+    : "";
+  const message = `removed: ${source} (skills ${plan.remove.length}, project decks ${removedDecks})${kept}${commitNote}`;
   return jsonResponse(externalSourcesPayload(loadLock(), message), 200);
 });
 
@@ -1264,6 +1339,10 @@ function catalogPayload(deckName: string, message = ""): object {
     : globalPayload(lock, message, { showCatalog: true });
 }
 
+/**
+ * 承認済みの衝突（ADR 0003）があれば既存を退避してから install する。失敗したら退避分を戻す。
+ * 戻り値は [ignore 解除数, 画面に足すメッセージ]。
+ */
 /** source から取り込める skill の一覧を出すだけ。ここでは何も入れない。 */
 app.post("/api/external/preview", async (c) => {
   const body = await readJson(c.req.raw);
@@ -1302,10 +1381,8 @@ app.post("/api/external/install", async (c) => {
   const body = await readJson(c.req.raw);
   const deckName = bodyString(body, "deck");
   const source = bodyString(body, "source");
-  const requested = (body as Record<string, unknown> | null)?.skills;
-  const selected = new Set(
-    Array.isArray(requested) ? requested.map((name) => String(name)) : []
-  );
+  const selected = bodyNames(body, "skills");
+  const replace = bodyNames(body, "replace");
 
   let ownerRepo: string;
   let deck: ReturnType<typeof loadOptionalProjectDeck>[0];
@@ -1326,18 +1403,29 @@ app.post("/api/external/install", async (c) => {
   if (!tryAcquireApply())
     return errorResponse(IMPORT_BUSY_MESSAGE, 409, catalogPayload(deckName));
 
-  let resolved: ReturnType<typeof resolveSelectedExternalSkills>;
   let deploySelected: Set<string>;
+  let unignoredCount: number;
+  let replacedMessage = "";
   try {
     const candidates = externalSkillCandidates(ownerRepo);
-    resolved = resolveSelectedExternalSkills(
+    const resolved = resolveSelectedExternalSkills(
       loadLock(),
       ownerRepo,
       selected,
-      candidates
+      candidates,
+      replace
     );
     deploySelected = new Set(resolved.map((row) => row.deployName));
-    await runExternalInstall(ownerRepo, deploySelected, resolved);
+    const replaced = resolved
+      .filter((row) => row.conflict)
+      .map((row) => row.deployName);
+    let warning: string;
+    [unignoredCount, warning] = await installExternalSelection(
+      ownerRepo,
+      resolved
+    );
+    if (replaced.length > 0)
+      replacedMessage = ` / 置き換え ${sortNames(replaced).join(", ")}${warning ? ` / ${warning}` : ""}`;
   } catch (error) {
     return errorResponse(
       `取り込みに失敗: ${errorText(error)}`,
@@ -1349,14 +1437,7 @@ app.post("/api/external/install", async (c) => {
   }
 
   const names = sortNames(deploySelected).join(", ");
-  const [, unignoredCount] = registerInstalledExternalSelection(
-    ownerRepo,
-    deploySelected,
-    resolved
-  );
-  const unignoredMessage = unignoredCount
-    ? ` / ignored解除 ${unignoredCount}`
-    : "";
+  const unignoredMessage = `${unignoredCount ? ` / ignored解除 ${unignoredCount}` : ""}${replacedMessage}`;
   const commitNote = commitRepoChanges(
     `chore: add ${names} to skills.lock.json`,
     [lockFile(), ignoreFile()]
@@ -1525,6 +1606,14 @@ app.on(["GET", "HEAD"], "*", async (c) => {
 app.all("*", () =>
   jsonResponse({ detail: "Method Not Allowed" }, 405, { allow: "HEAD, GET" })
 );
+
+// 前回、置き換えの途中でプロセスが止まっていれば、ここで片付けてから受け付ける。
+try {
+  const warning = recoverPendingReplacements();
+  if (warning) console.warn(warning);
+} catch (error) {
+  console.warn(`置き換えの復旧に失敗しました: ${errorText(error)}`);
+}
 
 const server = Bun.serve({
   hostname: args.host,

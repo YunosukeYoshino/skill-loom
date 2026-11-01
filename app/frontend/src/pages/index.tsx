@@ -5,7 +5,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useIsMutating,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ApiError, api } from "@/api/client";
 import type {
@@ -15,6 +20,7 @@ import type {
   InstalledExternal,
   PresetPreview,
   PresetSummary,
+  ReplaceableSkill,
   SkillRow,
   Tristate,
 } from "@shared/api-types";
@@ -30,6 +36,7 @@ import { DialogFrame, useConfirm } from "@/components/dialog";
 import { useListViewSearch } from "@/router-search";
 import { useT, useUiSettings } from "@/settings/react";
 import {
+  pinnedFirst,
   resolveExternalView,
   type ExternalViewMode,
 } from "@/settings/settings";
@@ -252,6 +259,52 @@ function OgpPreview({
         />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * source カードの Pin 切り替え。カードは全体が Link なので、中に入れず兄弟として重ねる
+ * （a の中に button を置くと入れ子の対話要素になる）。
+ */
+function PinToggle({ source }: { source: string }) {
+  const t = useT();
+  const { settings, update } = useUiSettings();
+  const pinned = settings.pinnedSources.includes(source);
+  const label = t(pinned ? "sources.unpin" : "sources.pin", { source });
+  return (
+    <button
+      type="button"
+      aria-pressed={pinned}
+      aria-label={label}
+      title={label}
+      onClick={() =>
+        update({
+          pinnedSources: pinned
+            ? settings.pinnedSources.filter((name) => name !== source)
+            : [...settings.pinnedSources, source],
+        })
+      }
+      className={`absolute top-2 right-2 z-10 inline-flex size-8 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--color-rule)] bg-[var(--surface)] transition-[transform,color,background] duration-100 ease-out hover:bg-[var(--color-paper-2)] active:scale-[0.96] ${
+        pinned
+          ? "text-[var(--color-ink)]"
+          : "text-[var(--color-ink-2)] hover:text-[var(--color-ink)]"
+      }`}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        fill={pinned ? "currentColor" : "none"}
+        aria-hidden="true"
+      >
+        <path
+          d="M5 1.5h4l-.5 4 2 2v1h-7v-1l2-2-.5-4ZM7 8.5v4"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
   );
 }
 
@@ -1364,7 +1417,13 @@ export function ExternalPreviewPage({
   });
 
   const install = useMutation({
-    mutationFn: (skills: string[]) => api.installExternal(source, skills, deck),
+    mutationFn: ({
+      skills,
+      replace,
+    }: {
+      skills: string[];
+      replace?: string[];
+    }) => api.installExternal(source, skills, deck, replace),
     onSuccess: (data) => {
       if (deck) {
         qc.setQueryData(["project-deck", deck, true], data);
@@ -1446,6 +1505,12 @@ export function ExternalPreviewPage({
           </Link>
         )}
       </div>
+      <ReplacementPanel
+        rows={data.replaceable}
+        source={data.source}
+        busy={previewBusy}
+        onSubmit={(replace) => install.mutate({ skills: replace, replace })}
+      />
       <SelectableSkills
         rows={data.rows}
         busy={install.isPending || addDeck.isPending}
@@ -1459,14 +1524,14 @@ export function ExternalPreviewPage({
                 {
                   label: t("preview.installAdd"),
                   primary: true,
-                  onClick: (skills) => install.mutate(skills),
+                  onClick: (skills) => install.mutate({ skills }),
                 },
               ]
             : [
                 {
                   label: t("preview.installGlobal"),
                   primary: true,
-                  onClick: (skills) => install.mutate(skills),
+                  onClick: (skills) => install.mutate({ skills }),
                 },
               ]
         }
@@ -1575,6 +1640,148 @@ function SelectableSkills({
         </div>
       )}
     </div>
+  );
+}
+
+type ReplaceChoice = "keep" | "replace";
+
+/** 置き換え行の片側（既存 / 取り込み側）。 */
+function ReplaceSide({
+  label,
+  source,
+  meta,
+  description,
+}: {
+  label: string;
+  source: string;
+  meta?: string;
+  description: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-[var(--radius-sm)] bg-[var(--color-paper-2)] px-2.5 py-2">
+      <div className="font-[family-name:var(--font-mono)] text-[10px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase">
+        {label}
+      </div>
+      <div className="mt-0.5 break-all text-xs font-medium">{source}</div>
+      {meta ? (
+        <div className="text-xs text-[var(--color-ink-2)]">{meta}</div>
+      ) : null}
+      <p className="m-0 mt-1 line-clamp-2 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
+        {description}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * 同名の既存 skill がある候補（ADR 0003）。選んだ行は「既存を残す / 置き換える」を
+ * 選ぶまで取り込めない。どちらも既定にはしない（黙って既存を消さないため）。
+ */
+function ReplacementPanel({
+  rows,
+  source,
+  busy,
+  onSubmit,
+}: {
+  rows: ReplaceableSkill[];
+  source: string;
+  busy?: boolean;
+  onSubmit: (replace: string[]) => void;
+}) {
+  const t = useT();
+  const [choices, setChoices] = useState<Record<string, ReplaceChoice | null>>(
+    {}
+  );
+  const selected = Object.keys(choices);
+  const replace = selected.filter((name) => choices[name] === "replace");
+  const unresolved = selected.some((name) => choices[name] === null);
+  const toggle = (name: string, on: boolean) =>
+    setChoices((prev) => {
+      const next = { ...prev };
+      if (on) next[name] = null;
+      else delete next[name];
+      return next;
+    });
+
+  if (rows.length === 0) return null;
+  return (
+    <section className="my-4 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="m-0 text-sm font-semibold">
+          {t("replace.title", { count: rows.length })}
+        </h2>
+        <Button
+          variant="primary"
+          disabled={busy || unresolved || replace.length === 0}
+          onClick={() => onSubmit(replace)}
+        >
+          {pendingLabel(!!busy, t("replace.submit"), t("common.processing"))}
+        </Button>
+      </div>
+      <p className="m-0 mt-1 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
+        {t("replace.body")}
+      </p>
+      <div className="mt-2 divide-y divide-[var(--color-rule)]">
+        {rows.map((row) => {
+          const choice = choices[row.name];
+          const checked = choice !== undefined;
+          return (
+            <div key={row.name} className="py-2.5">
+              <label className="flex cursor-pointer items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={busy}
+                  onChange={(e) => toggle(row.name, e.target.checked)}
+                />
+                <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
+                  {row.name}
+                </code>
+              </label>
+              <div className="mt-2 grid gap-2 pl-7 sm:grid-cols-2">
+                <ReplaceSide
+                  label={t("replace.existing")}
+                  source={row.existing.source ?? t("replace.unknownSource")}
+                  meta={`${row.existing.state} · ${t("replace.decks", { count: row.existing.decks })}`}
+                  description={row.existing.description}
+                />
+                <ReplaceSide
+                  label={t("replace.incoming")}
+                  source={source}
+                  meta={row.category}
+                  description={row.description}
+                />
+              </div>
+              {checked ? (
+                <div
+                  role="radiogroup"
+                  aria-label={row.name}
+                  className="mt-2 flex gap-4 pl-7 text-sm"
+                >
+                  {(["keep", "replace"] as const).map((value) => (
+                    <label
+                      key={value}
+                      className="flex cursor-pointer items-center gap-1.5"
+                    >
+                      <input
+                        type="radio"
+                        name={`replace-${row.name}`}
+                        checked={choice === value}
+                        disabled={busy}
+                        onChange={() =>
+                          setChoices((prev) => ({ ...prev, [row.name]: value }))
+                        }
+                      />
+                      {t(value === "keep" ? "replace.keep" : "replace.replace")}
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -1781,6 +1988,7 @@ export function ExternalSourcesPage() {
     );
   }
   const data = q.data;
+  const sources = pinnedFirst(data.sources, settings.pinnedSources);
   const sourcesBusy = checkAll.isPending || updateAll.isPending;
 
   return (
@@ -1845,34 +2053,38 @@ export function ExternalSourcesPage() {
           </div>
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-            {data.sources.map((src) => (
-              <Link
-                key={src.source}
-                to="/external-sources/$source"
-                params={{ source: src.source }}
-                className="block overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)] transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-1 hover:shadow-[0_12px_32px_oklch(20%_0.02_260/0.1)]"
-              >
-                <OgpPreview source={src.source} variant="grid" />
-                <div className="p-3">
-                  <ExternalSourceMeta src={src} />
-                </div>
-              </Link>
+            {sources.map((src) => (
+              <div key={src.source} className="relative">
+                <PinToggle source={src.source} />
+                <Link
+                  to="/external-sources/$source"
+                  params={{ source: src.source }}
+                  className="block h-full overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] shadow-[var(--shadow-lift)] transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-1 hover:shadow-[0_12px_32px_oklch(20%_0.02_260/0.1)]"
+                >
+                  <OgpPreview source={src.source} variant="grid" />
+                  <div className="p-3">
+                    <ExternalSourceMeta src={src} />
+                  </div>
+                </Link>
+              </div>
             ))}
           </div>
         ) : (
           <div className="grid gap-3">
-            {data.sources.map((src) => (
-              <Link
-                key={src.source}
-                to="/external-sources/$source"
-                params={{ source: src.source }}
-                className="flex gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 transition-colors duration-200 hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
-              >
-                <OgpPreview source={src.source} variant="list" />
-                <div className="min-w-0 flex-1">
-                  <ExternalSourceMeta src={src} />
-                </div>
-              </Link>
+            {sources.map((src) => (
+              <div key={src.source} className="relative">
+                <PinToggle source={src.source} />
+                <Link
+                  to="/external-sources/$source"
+                  params={{ source: src.source }}
+                  className="flex gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3 pr-12 transition-colors duration-200 hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]"
+                >
+                  <OgpPreview source={src.source} variant="list" />
+                  <div className="min-w-0 flex-1">
+                    <ExternalSourceMeta src={src} />
+                  </div>
+                </Link>
+              </div>
             ))}
           </div>
         )}
@@ -1888,6 +2100,54 @@ export function ExternalSourcesPage() {
   );
 }
 
+/** source ごと外す。何が外れて何が残るかを確認ダイアログに並べてから実行する。 */
+function RemoveSourceButton({
+  source,
+  removal,
+  disabled,
+  pending,
+  onConfirm,
+}: {
+  source: string;
+  removal: ExternalSourceDetailPayload["removal"];
+  disabled: boolean;
+  pending: boolean;
+  onConfirm: () => void;
+}) {
+  const t = useT();
+  const confirm = useConfirm();
+  const details = [
+    {
+      label: t("detail.removeSourceSkills"),
+      value: removal.remove.join(", ") || "—",
+    },
+    { label: t("detail.removeSourceDecks"), value: removal.decks },
+  ];
+  if (removal.keepVendor.length)
+    details.push({
+      label: t("detail.removeSourceVendor"),
+      value: removal.keepVendor.join(", "),
+    });
+  return (
+    <Button
+      className="ml-auto"
+      disabled={disabled}
+      onClick={async () => {
+        const ok = await confirm({
+          title: t("detail.removeSourceTitle", { source }),
+          body: t("detail.removeSourceConfirm"),
+          details,
+          confirmLabel: t("detail.removeSource"),
+          tone: "danger",
+        });
+        if (ok) onConfirm();
+      }}
+    >
+      {pendingLabel(pending, t("detail.removeSource"), t("common.processing"))}
+    </Button>
+  );
+}
+
 export function ExternalSourceDetailPage({ source }: { source: string }) {
   const t = useT();
   const confirm = useConfirm();
@@ -1898,6 +2158,8 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
     queryFn: () => api.externalSource(source),
   });
   const allGlobalRef = useRef<HTMLInputElement>(null);
+  // このページの update / remove / install / apply のどれかが走っている間は操作を止める。
+  const detailBusy = useIsMutating() > 0;
 
   const updateOne = useMutation({
     mutationFn: (skill: string) => api.updateSkill(skill),
@@ -1928,8 +2190,29 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       }
     },
   });
+  const removeSource = useMutation({
+    mutationFn: () => api.removeSource(source),
+    onSuccess: (data) => {
+      qc.setQueryData(["external-sources"], data);
+      qc.removeQueries({ queryKey: ["external-source", source] });
+      navigate({ to: "/external-sources" });
+    },
+    // 途中まで外れた 500 は lock 済みの一覧 body を持つ。捨てると一覧と実態がずれる。
+    onError: (err) => {
+      applyErrorBody(err, (body) =>
+        qc.setQueryData(["external-sources"], body)
+      );
+      void q.refetch();
+    },
+  });
   const install = useMutation({
-    mutationFn: (skills: string[]) => api.installExternal(source, skills, ""),
+    mutationFn: ({
+      skills,
+      replace,
+    }: {
+      skills: string[];
+      replace?: string[];
+    }) => api.installExternal(source, skills, "", replace),
     onSuccess: () => q.refetch(),
   });
   const applyGlobal = useMutation({
@@ -1993,12 +2276,6 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
     );
   }
   const data = q.data;
-  const detailBusy =
-    updateAll.isPending ||
-    updateOne.isPending ||
-    remove.isPending ||
-    install.isPending ||
-    applyGlobal.isPending;
 
   const setGlobal = (name: string, on: boolean) => {
     applyGlobal.mutate({ [name]: on ? "active" : "off" });
@@ -2032,7 +2309,8 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
           errMessage(updateOne.error) ||
           errMessage(updateAll.error) ||
           errMessage(remove.error) ||
-          errMessage(applyGlobal.error)
+          errMessage(applyGlobal.error) ||
+          errMessage(removeSource.error)
         }
       />
       <ActionStatus
@@ -2041,7 +2319,7 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             ? t("status.updateSource")
             : updateOne.isPending
               ? t("status.updateSkill")
-              : remove.isPending
+              : remove.isPending || removeSource.isPending
                 ? t("status.removing")
                 : install.isPending
                   ? t("status.installing")
@@ -2073,6 +2351,13 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             </span>
           </Button>
         ) : null}
+        <RemoveSourceButton
+          source={source}
+          removal={data.removal}
+          disabled={detailBusy}
+          pending={removeSource.isPending}
+          onConfirm={() => removeSource.mutate()}
+        />
       </div>
       {installed.length ? (
         <label className="mb-3 flex min-h-10 cursor-pointer items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2.5 text-sm">
@@ -2163,10 +2448,16 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
             rows={data.available}
             submitLabel={t("detail.installSelected")}
             busy={install.isPending}
-            onSubmit={(skills) => install.mutate(skills)}
+            onSubmit={(skills) => install.mutate({ skills })}
           />
         </>
       ) : null}
+      <ReplacementPanel
+        rows={data.replaceable}
+        source={data.source}
+        busy={install.isPending}
+        onSubmit={(replace) => install.mutate({ skills: replace, replace })}
+      />
     </WorkbenchShell>
   );
 }

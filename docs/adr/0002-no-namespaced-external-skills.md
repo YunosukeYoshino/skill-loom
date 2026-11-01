@@ -4,7 +4,7 @@ Date: 2026-09-26
 
 ## Status
 
-Accepted. Supersedes [0001](0001-namespaced-external-skills.md).
+Accepted. Supersedes [0001](0001-namespaced-external-skills.md). Partially amended by [0003](0003-replace-on-skill-name-conflict.md).
 
 ## Context
 
