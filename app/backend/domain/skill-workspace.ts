@@ -26,7 +26,8 @@ import { activeDir, archiveDir } from "./config";
 import { customSkillRepoDir } from "./custom";
 import { draftSkillMap } from "./drafts";
 import { ValueError } from "./errors";
-import { loadLock } from "./inventory";
+import { loadLock, type Lock } from "./inventory";
+import { checkedSkillRef as checkedRef } from "./skill-reference";
 import { trashPath } from "./projection";
 import {
   assertSkillName,
@@ -54,39 +55,6 @@ type Tracking = {
   status?: SkillUpstreamStatus;
 };
 type SourceSnapshot = { ref: SkillRef; version: UpstreamVersion };
-
-function checkedRef(ref: SkillRef): SkillRef {
-  if (!ref || typeof ref !== "object")
-    throw new ValueError("Invalid skill reference");
-  assertSkillName(ref.name);
-  if (
-    ref.source !== undefined &&
-    (typeof ref.source !== "string" ||
-      !/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*$/i.test(ref.source))
-  )
-    throw new ValueError("Source must be owner/repo");
-  if (
-    ref.skillPath !== undefined &&
-    (typeof ref.skillPath !== "string" ||
-      /[\\\x00-\x1f\x7f:]/.test(ref.skillPath) ||
-      ref.skillPath
-        .split("/")
-        .some(
-          (part) =>
-            !part ||
-            part === "." ||
-            part === ".." ||
-            part.toLowerCase() === ".git"
-        ) ||
-      ref.skillPath.split("/").at(-1) !== "SKILL.md")
-  )
-    throw new ValueError("Invalid source skill path");
-  return {
-    name: ref.name,
-    ...(ref.source ? { source: ref.source.toLowerCase() } : {}),
-    ...(ref.skillPath ? { skillPath: ref.skillPath } : {}),
-  };
-}
 
 function checkedVersion(version: UpstreamVersion | undefined): void {
   if (
@@ -129,40 +97,53 @@ function writeState(path: string, value: unknown): void {
   writeSkillJson(file, value);
 }
 
+function validCheckTime(value: string | undefined): boolean {
+  return value === undefined || Number.isFinite(Date.parse(value));
+}
+
+function validAttemptTime(status: SkillUpstreamStatus): boolean {
+  if (!("attemptedAt" in status) || status.attemptedAt === undefined)
+    return true;
+  return (
+    typeof status.attemptedAt === "string" &&
+    Number.isFinite(Date.parse(status.attemptedAt))
+  );
+}
+
+function validateUpstreamStatus(status: SkillUpstreamStatus): void {
+  if (
+    !status ||
+    ![
+      "unchecked",
+      "current",
+      "behind",
+      "missing",
+      "unavailable",
+      "review",
+      "unknown",
+    ].includes(status.state)
+  )
+    throw new ValueError("Invalid upstream status metadata");
+  const validLag =
+    status.behind === null ||
+    (Number.isSafeInteger(status.behind) && status.behind >= 0);
+  if (
+    !validLag ||
+    !validCheckTime(status.checkedAt) ||
+    !validAttemptTime(status)
+  )
+    throw new ValueError("Invalid upstream status metadata");
+  checkedVersion(status.baseline);
+  checkedVersion(status.latest);
+}
+
 function readTracking(ref: SkillRef): Tracking | undefined {
   const data = readState<Tracking>(`tracking/${ref.name}.json`);
   if (!data) return undefined;
   data.ref = checkedRef(data.ref);
   assertSameRef(data.ref, ref);
   checkedVersion(data.baseline);
-  if (data.status !== undefined) {
-    const status = data.status;
-    if (
-      !status ||
-      ![
-        "unchecked",
-        "current",
-        "behind",
-        "missing",
-        "unavailable",
-        "review",
-        "unknown",
-      ].includes(status.state) ||
-      !(
-        status.behind === null ||
-        (Number.isSafeInteger(status.behind) && status.behind >= 0)
-      ) ||
-      (status.checkedAt !== undefined &&
-        !Number.isFinite(Date.parse(status.checkedAt))) ||
-      ("attemptedAt" in status &&
-        status.attemptedAt !== undefined &&
-        (typeof status.attemptedAt !== "string" ||
-          !Number.isFinite(Date.parse(status.attemptedAt))))
-    )
-      throw new ValueError("Invalid upstream status metadata");
-    checkedVersion(status.baseline);
-    checkedVersion(status.latest);
-  }
+  if (data.status !== undefined) validateUpstreamStatus(data.status);
   return data;
 }
 
@@ -204,18 +185,26 @@ export function requireWorkspace(ref: SkillRef): SkillWorkspace {
   return workspace;
 }
 
+function reviewedWorkspace(ref: SkillRef, revision: string, message: string) {
+  const workspace = requireWorkspace(ref);
+  const root = workspaceRoot(ref.name);
+  const work = join(root, "files");
+  if (typeof revision !== "string" || revision !== skillTreeHash(work))
+    throw new SkillWorkspaceConflict(message);
+  return { workspace, root, work };
+}
+
 export async function saveSkillFile(
   ref: SkillRef,
   path: string,
   content: string,
   revision: string
 ): Promise<SkillView> {
-  const workspace = requireWorkspace(ref);
-  const root = join(workspaceRoot(ref.name), "files");
-  if (typeof revision !== "string" || revision !== skillTreeHash(root))
-    throw new SkillWorkspaceConflict(
-      "The working copy has changed; reload before saving"
-    );
+  const { workspace, work: root } = reviewedWorkspace(
+    ref,
+    revision,
+    "The working copy has changed; reload before saving"
+  );
   if (
     typeof content !== "string" ||
     Buffer.byteLength(content) > SKILL_TEXT_LIMIT
@@ -305,56 +294,97 @@ function loadSkillWorkspace(name: string): SkillWorkspace | undefined {
   return data;
 }
 
-function resolveLocalSkill(ref: SkillRef): {
+type ResolvedSkill = {
   ref: SkillRef;
   kind: SkillView["kind"];
   root?: string;
-} {
-  ref = checkedRef(ref);
-  const lock = loadLock();
-  const meta = lock.vendor?.[ref.name] ?? lock.external?.[ref.name];
-  let resolved = checkedRef({
+};
+
+function inventorySkillRef(
+  ref: SkillRef,
+  meta: Pick<SkillRef, "source" | "skillPath"> | undefined
+): SkillRef {
+  const resolved = checkedRef({
     ...ref,
     source: ref.source ?? meta?.source,
     skillPath: ref.skillPath ?? meta?.skillPath,
   });
   if (ref.source && meta?.source && ref.source !== meta.source.toLowerCase())
     throw new SkillWorkspaceConflict("A different source owns this skill");
+  return resolved;
+}
+
+function trackedSkillRef(ref: SkillRef, lock: Lock): SkillRef {
+  const meta = lock.vendor?.[ref.name] ?? lock.external?.[ref.name];
+  const resolved = inventorySkillRef(ref, meta);
   const tracking = readTracking(resolved);
-  if (tracking)
-    resolved = checkedRef({
-      ...tracking.ref,
-      ...resolved,
-      skillPath: resolved.skillPath ?? tracking.ref.skillPath,
-    });
+  if (!tracking) return resolved;
+  return checkedRef({
+    ...tracking.ref,
+    ...resolved,
+    skillPath: resolved.skillPath ?? tracking.ref.skillPath,
+  });
+}
+
+function authoredSkillSource(
+  ref: SkillRef,
+  lock: Lock
+): ResolvedSkill | undefined {
   if (lock.custom?.skills?.[ref.name])
     return {
-      ref: resolved,
+      ref,
       kind: "custom",
       root: customSkillRepoDir(lock, ref.name) ?? undefined,
     };
   if (lock.vendor?.[ref.name])
     return {
-      ref: resolved,
+      ref,
       kind: "vendor",
       root: resolveCatalogPath(`vendor/${ref.name}`),
     };
-  if (lock.external?.[ref.name]) {
-    const repoPath = lock.external[ref.name]?.localRepoPath;
-    const catalog = repoPath ? resolveCatalogPath(repoPath) : undefined;
-    const saved = readSourceSnapshot(resolved);
-    return {
-      ref: saved?.ref ?? resolved,
-      kind: "external",
-      root:
-        catalog && existsSync(catalog)
-          ? catalog
-          : (installedSkillRoot(ref.name) ??
-            (saved
-              ? skillStatePath(`source-snapshots/${ref.name}/files`)
-              : undefined)),
-    };
-  }
+  return undefined;
+}
+
+function externalSkillSource(ref: SkillRef, repoPath?: string): ResolvedSkill {
+  const catalog = repoPath ? resolveCatalogPath(repoPath) : undefined;
+  const saved = readSourceSnapshot(ref);
+  return {
+    ref: saved?.ref ?? ref,
+    kind: "external",
+    root:
+      catalog && existsSync(catalog)
+        ? catalog
+        : (installedSkillRoot(ref.name) ??
+          (saved
+            ? skillStatePath(`source-snapshots/${ref.name}/files`)
+            : undefined)),
+  };
+}
+
+function untrackedSkillSource(ref: SkillRef): ResolvedSkill {
+  const saved = readSourceSnapshot(ref);
+  return {
+    ref: saved?.ref ?? ref,
+    kind: ref.source ? "external" : "untracked",
+    root:
+      (ref.source ? undefined : installedSkillRoot(ref.name)) ??
+      (saved
+        ? skillStatePath(`source-snapshots/${ref.name}/files`)
+        : undefined),
+  };
+}
+
+function resolveLocalSkill(ref: SkillRef): ResolvedSkill {
+  ref = checkedRef(ref);
+  const lock = loadLock();
+  const resolved = trackedSkillRef(ref, lock);
+  const authored = authoredSkillSource(resolved, lock);
+  if (authored) return authored;
+  if (lock.external?.[ref.name])
+    return externalSkillSource(
+      resolved,
+      lock.external[ref.name]?.localRepoPath
+    );
   const draft = draftSkillMap().get(ref.name);
   if (draft)
     return {
@@ -362,21 +392,21 @@ function resolveLocalSkill(ref: SkillRef): {
       kind: "draft",
       root: resolveCatalogPath(draft.repoPath),
     };
-  const saved = readSourceSnapshot(resolved);
-  return {
-    ref: saved?.ref ?? resolved,
-    kind: resolved.source ? "external" : "untracked",
-    root:
-      (resolved.source ? undefined : installedSkillRoot(ref.name)) ??
-      (saved
-        ? skillStatePath(`source-snapshots/${ref.name}/files`)
-        : undefined),
-  };
+  return untrackedSkillSource(resolved);
 }
 
-async function resolveSkill(
-  ref: SkillRef
-): Promise<ReturnType<typeof resolveLocalSkill>> {
+function recordFetchedBaseline(ref: SkillRef, version: UpstreamVersion): void {
+  const tracking = readTracking(ref);
+  const lock = loadLock();
+  const baseline =
+    tracking?.baseline ??
+    (!lock.external?.[ref.name] && !lock.vendor?.[ref.name]
+      ? version
+      : undefined);
+  writeState(`tracking/${ref.name}.json`, { ...tracking, ref, baseline });
+}
+
+async function resolveSkill(ref: SkillRef): Promise<ResolvedSkill> {
   const local = resolveLocalSkill(ref);
   if (
     (local.root && existsSync(local.root)) ||
@@ -392,19 +422,18 @@ async function resolveSkill(
     ref: fetched.ref,
     version: fetched.version,
   });
-  const tracking = readTracking(fetched.ref);
-  const lock = loadLock();
-  const baseline =
-    tracking?.baseline ??
-    (!lock.external?.[ref.name] && !lock.vendor?.[ref.name]
-      ? fetched.version
-      : undefined);
-  writeState(`tracking/${ref.name}.json`, {
-    ...tracking,
-    ref: fetched.ref,
-    baseline,
-  });
+  recordFetchedBaseline(fetched.ref, fetched.version);
   return { ...local, ref: fetched.ref, root };
+}
+
+function retainedBaselineRoot(
+  ref: SkillRef,
+  baseline: UpstreamVersion | undefined
+): string | undefined {
+  const saved = readSourceSnapshot(ref);
+  if (saved && saved.version.commit === baseline?.commit)
+    return skillStatePath(`source-snapshots/${ref.name}/files`);
+  return undefined;
 }
 
 function baselineRoot(
@@ -415,11 +444,10 @@ function baselineRoot(
   if (workspace && existsSync(working)) return working;
   const upstream = resolveCatalogPath(`upstream/${ref.name}`);
   if (existsSync(upstream)) return upstream;
-  const saved = readSourceSnapshot(ref);
-  const baseline = workspace?.baseline ?? readTracking(ref)?.baseline;
-  if (saved && saved.version.commit === baseline?.commit)
-    return skillStatePath(`source-snapshots/${ref.name}/files`);
-  return undefined;
+  return retainedBaselineRoot(
+    ref,
+    workspace?.baseline ?? readTracking(ref)?.baseline
+  );
 }
 
 export function sourceFingerprint(ref: SkillRef): string {
@@ -511,6 +539,116 @@ function installedSkillRoot(name: string): string | undefined {
     .find((path) => existsSync(path));
 }
 
+function skillVersionRoots(local: ResolvedSkill, workspace?: SkillWorkspace) {
+  const installed = installedSkillRoot(local.ref.name);
+  const baseline = baselineRoot(local.ref, workspace);
+  const cached = local.ref.source ? readCachedSkillSnapshot(local.ref) : null;
+  const roots = {
+    source: local.root,
+    upstream: cached?.root,
+    baseline,
+    work: workspace ? join(workspaceRoot(local.ref.name), "files") : undefined,
+    installed,
+  };
+  const versions: SkillVersion[] = ["source"];
+  for (const version of ["upstream", "baseline", "work", "installed"] as const)
+    if (roots[version]) versions.push(version);
+  return { roots, versions, baseline };
+}
+
+function selectedVersionRoot(
+  version: SkillVersion,
+  roots: ReturnType<typeof skillVersionRoots>["roots"],
+  workspace?: SkillWorkspace
+): string {
+  if (version === "work" && !workspace)
+    throw new ValueError("Version is not available");
+  const root = roots[version];
+  if (!root || !existsSync(root))
+    throw new ValueError("Skill source is not available");
+  return root;
+}
+
+function readSkillContent(root: string, file: string) {
+  const files = listSkillFiles(root);
+  const selected = files.find((row) => row.path === file);
+  skillFilePath(root, file);
+  if (!selected) throw new ValueError("Skill file not found");
+  const data = selected.binary
+    ? null
+    : readFileSync(skillFilePath(root, file)).subarray(0, SKILL_TEXT_LIMIT);
+  const content = data?.toString("utf8") ?? null;
+  return {
+    files,
+    selectedFile: file,
+    content,
+    html:
+      content !== null && /\.md$/i.test(file)
+        ? Bun.markdown.html(content)
+        : null,
+    binary: selected.binary,
+    truncated: selected.size > SKILL_TEXT_LIMIT,
+  };
+}
+
+function comparisonRoot(
+  version: SkillVersion,
+  baseline: string | undefined,
+  workspace?: SkillWorkspace
+): string | undefined {
+  if (version === "baseline") return undefined;
+  return (
+    baseline ??
+    (workspace && version === "work"
+      ? join(workspaceRoot(workspace.ref.name), "original")
+      : undefined)
+  );
+}
+
+function skillVersionDiff(
+  version: SkillVersion,
+  root: string,
+  baseline: string | undefined,
+  knownBaseline: UpstreamVersion | undefined,
+  workspace?: SkillWorkspace
+): string {
+  if (version === "upstream" && !knownBaseline)
+    return "Comparison unavailable: baseline unknown";
+  if (version === "upstream" && !baseline)
+    return "Comparison unavailable: baseline snapshot unavailable";
+  const comparison = comparisonRoot(version, baseline, workspace);
+  if (!comparison) return "";
+  const prefix = knownBaseline
+    ? ""
+    : "Comparison against retained source snapshot (upstream baseline unknown)\n";
+  return prefix + treeDiff(comparison, root);
+}
+
+function workspaceViewState(workspace: SkillWorkspace, baseChanged: boolean) {
+  const root = workspaceRoot(workspace.ref.name);
+  return {
+    dirty:
+      skillTreeHash(join(root, "files")) !==
+      skillTreeHash(join(root, "original")),
+    conflicts: workspace.conflicts,
+    issues: validateSkillWorkspace(workspace.ref.name),
+    baseChanged,
+  };
+}
+
+function savedUpstreamStatus(
+  tracking: Tracking | undefined,
+  workspace: SkillWorkspace | undefined
+): SkillUpstreamStatus {
+  return (
+    tracking?.status ?? {
+      state: "unchecked",
+      baseline: tracking?.baseline ?? workspace?.baseline,
+      behind: null,
+    }
+  );
+}
+
 export async function viewSkill(
   ref: SkillRef,
   version: SkillVersion = "source",
@@ -527,63 +665,23 @@ export async function viewSkill(
     version === "work" && workspace
       ? resolveLocalSkill(workspace.ref)
       : await resolveSkill(ref);
-  let { root } = local;
-  const { kind } = local;
-  const installed = installedSkillRoot(ref.name);
+  const { roots, versions, baseline } = skillVersionRoots(local, workspace);
+  const root = selectedVersionRoot(version, roots, workspace);
+  const selected = readSkillContent(root, file);
   const tracking = readTracking(local.ref);
-  const baseline = baselineRoot(local.ref, workspace);
-  const cached = local.ref.source ? readCachedSkillSnapshot(local.ref) : null;
-  const versions: SkillVersion[] = [
-    "source",
-    ...(cached ? ["upstream" as const] : []),
-    ...(baseline ? ["baseline" as const] : []),
-    ...(workspace ? ["work" as const] : []),
-    ...(installed ? ["installed" as const] : []),
-  ];
-  if (version === "installed") root = installed;
-  else if (version === "work" && workspace)
-    root = join(workspaceRoot(ref.name), "files");
-  else if (version === "upstream") root = cached?.root;
-  else if (version === "baseline") root = baseline;
-  else if (version !== "source")
-    throw new ValueError("Version is not available");
-  if (!root || !existsSync(root))
-    throw new ValueError("Skill source is not available");
-  const files = listSkillFiles(root);
-  const selected = files.find((row) => row.path === file);
-  skillFilePath(root, file);
-  if (!selected) throw new ValueError("Skill file not found");
-  const data = selected.binary
-    ? null
-    : readFileSync(skillFilePath(root, file)).subarray(0, SKILL_TEXT_LIMIT);
-  const content = data?.toString("utf8") ?? null;
   const baseChanged = workspace
     ? workspace.fingerprint !== sourceFingerprint(workspace.ref)
     : false;
   const recovery = existsSync(
     skillStatePath(`transactions/${ref.name}/journal.json`)
   );
-  const upstream = tracking?.status ?? {
-    state: "unchecked" as const,
-    baseline: tracking?.baseline ?? workspace?.baseline,
-    behind: null,
-  };
-  const comparison =
-    version === "baseline"
-      ? undefined
-      : (baseline ??
-        (workspace && version === "work"
-          ? join(workspaceRoot(ref.name), "original")
-          : undefined));
-  const knownBaseline = tracking?.baseline ?? workspace?.baseline;
-  const diff =
-    version === "upstream" && !knownBaseline
-      ? "Comparison unavailable: baseline unknown"
-      : version === "upstream" && !baseline
-        ? "Comparison unavailable: baseline snapshot unavailable"
-        : comparison
-          ? `${knownBaseline ? "" : "Comparison against retained source snapshot (upstream baseline unknown)\n"}${treeDiff(comparison, root)}`
-          : "";
+  const diff = skillVersionDiff(
+    version,
+    root,
+    baseline,
+    tracking?.baseline ?? workspace?.baseline,
+    workspace
+  );
   const message = recovery
     ? "適用の復旧が必要です。復旧後に作業を再開してください。"
     : baseChanged
@@ -591,33 +689,16 @@ export async function viewSkill(
       : undefined;
   return {
     ref: local.ref,
-    kind,
+    kind: local.kind,
     version,
     versions,
-    files,
-    selectedFile: file,
-    content,
-    html:
-      content !== null && /\.md$/i.test(file)
-        ? Bun.markdown.html(content)
-        : null,
-    binary: selected.binary,
-    truncated: selected.size > SKILL_TEXT_LIMIT,
+    ...selected,
     revision: skillTreeHash(root),
     diff,
-    upstream,
+    upstream: savedUpstreamStatus(tracking, workspace),
     ...(message ? { message } : {}),
     ...(workspace
-      ? {
-          workspace: {
-            dirty:
-              skillTreeHash(join(workspaceRoot(ref.name), "files")) !==
-              skillTreeHash(join(workspaceRoot(ref.name), "original")),
-            conflicts: workspace.conflicts,
-            issues: validateSkillWorkspace(ref.name),
-            baseChanged,
-          },
-        }
+      ? { workspace: workspaceViewState(workspace, baseChanged) }
       : {}),
   };
 }
@@ -633,7 +714,7 @@ export async function checkSkillUpdates(ref: SkillRef): Promise<SkillView> {
   const previousLatest =
     tracking?.status?.latest ?? readCachedSkillSnapshot(local.ref)?.version;
   const checked = await checkSkillUpstream(local.ref, baseline);
-  const failed = ["missing", "unavailable", "review"].includes(checked.state);
+  const failed = upstreamNeedsReview(checked.state);
   const status = {
     ...checked,
     attemptedAt: checked.checkedAt,
@@ -720,6 +801,51 @@ function mergeText(
   }
 }
 
+type MergeChange = { pending: UpstreamVersion } | { fingerprint: string };
+type MergeReview = { revision: string; metadata: string; fingerprint: string };
+
+function upstreamNeedsReview(state: SkillUpstreamStatus["state"]): boolean {
+  return ["missing", "unavailable", "review"].includes(state);
+}
+
+function usableMergeBase(
+  workspace: SkillWorkspace,
+  base: string | undefined,
+  state: SkillUpstreamStatus["state"]
+): string | undefined {
+  if (
+    !(workspace.pending ?? workspace.baseline) ||
+    state === "unknown" ||
+    !base ||
+    !existsSync(base)
+  )
+    return undefined;
+  return base;
+}
+
+async function upstreamMergeBase(
+  workspace: SkillWorkspace,
+  root: string,
+  state: SkillUpstreamStatus["state"]
+): Promise<string | undefined> {
+  let base = workspace.pending
+    ? join(root, "pending-upstream")
+    : baselineRoot(workspace.ref, workspace);
+  if (workspace.pending) {
+    const status = await checkSkillUpstream(
+      workspace.ref,
+      workspace.pending,
+      false
+    );
+    if (upstreamNeedsReview(status.state))
+      throw new SkillWorkspaceConflict(
+        status.message ?? "Pending upstream needs review"
+      );
+    if (status.state === "unknown") base = undefined;
+  }
+  return usableMergeBase(workspace, base, state);
+}
+
 export async function mergeSkillUpdates(ref: SkillRef): Promise<SkillView> {
   ref = checkedRef(ref);
   const workspace = requireWorkspace(ref);
@@ -732,46 +858,19 @@ export async function mergeSkillUpdates(ref: SkillRef): Promise<SkillView> {
       "The source has changed; compare versions or discard and restart the fork"
     );
   const root = workspaceRoot(ref.name);
-  const work = join(root, "files");
-  const revision = skillTreeHash(work);
+  const revision = skillTreeHash(join(root, "files"));
   const metadata = readFileSync(
     skillStatePath(`workspaces/${ref.name}/workspace.json`),
     "utf8"
   );
   const checked = await checkSkillUpdates(workspace.ref);
-  if (["missing", "unavailable", "review"].includes(checked.upstream.state))
+  if (upstreamNeedsReview(checked.upstream.state))
     throw new SkillWorkspaceConflict(
       checked.upstream.message ?? "Upstream needs review before merging"
     );
   const latest = readCachedSkillSnapshot(workspace.ref);
   if (!latest) throw new ValueError("Upstream snapshot is not available");
-  let base = workspace.pending
-    ? join(root, "pending-upstream")
-    : baselineRoot(workspace.ref, workspace);
-  const baseVersion = workspace.pending ?? workspace.baseline;
-  if (workspace.pending) {
-    const status = await checkSkillUpstream(
-      workspace.ref,
-      workspace.pending,
-      false
-    );
-    if (
-      status.state === "review" ||
-      status.state === "missing" ||
-      status.state === "unavailable"
-    )
-      throw new SkillWorkspaceConflict(
-        status.message ?? "Pending upstream needs review"
-      );
-    if (status.state === "unknown") base = undefined;
-  }
-  if (
-    !baseVersion ||
-    checked.upstream.state === "unknown" ||
-    !base ||
-    !existsSync(base)
-  )
-    base = undefined;
+  const base = await upstreamMergeBase(workspace, root, checked.upstream.state);
   mergeWorkspaceCopies(
     workspace,
     latest.root,
@@ -793,13 +892,111 @@ export async function mergeSkillUpdates(ref: SkillRef): Promise<SkillView> {
       };
 }
 
-function mergeWorkspaceCopies(
+type MergeTrees = {
+  work: string;
+  incoming: string;
+  base: string | undefined;
+  stagedWork: string;
+};
+type MergeFile = { bytes: Buffer | undefined; mode: number | undefined };
+type MergeVersions = {
+  ours: MergeFile;
+  theirs: MergeFile;
+  original: MergeFile;
+};
+
+function readMergeFile(dir: string | undefined, path: string): MergeFile {
+  const bytes =
+    dir &&
+    existsSync(skillFilePath(dir, path)) &&
+    lstatSync(skillFilePath(dir, path)).isFile()
+      ? readFileSync(skillFilePath(dir, path))
+      : undefined;
+  const mode =
+    bytes && dir ? lstatSync(skillFilePath(dir, path)).mode & 0o111 : undefined;
+  return { bytes, mode };
+}
+
+function sameMergeFile(left: MergeFile, right: MergeFile): boolean {
+  return sameBytes(left.bytes, right.bytes) && left.mode === right.mode;
+}
+
+function mergeObstruction(stagedWork: string, path: string): boolean {
+  let ancestor = skillFilePath(stagedWork, path);
+  let obstruction = existsSync(ancestor) && lstatSync(ancestor).isDirectory();
+  while (dirname(ancestor) !== stagedWork) {
+    ancestor = dirname(ancestor);
+    if (existsSync(ancestor) && !lstatSync(ancestor).isDirectory())
+      obstruction = true;
+  }
+  return obstruction;
+}
+
+function mergeUnchangedFile(
+  trees: MergeTrees,
+  path: string,
+  theirs: MergeFile
+): boolean {
+  const obstruction = mergeObstruction(trees.stagedWork, path);
+  if (theirs.bytes && obstruction) return true;
+  if (theirs.bytes)
+    atomicSkillWrite(
+      trees.stagedWork,
+      path,
+      theirs.bytes,
+      (lstatSync(skillFilePath(trees.incoming, path)).mode & 0o777) | 0o600
+    );
+  else trashPath(skillFilePath(trees.stagedWork, path));
+  return false;
+}
+
+function mergeCustomizedFile(
+  trees: MergeTrees,
+  path: string,
+  base: string,
+  versions: MergeVersions
+): boolean {
+  const { ours, theirs, original } = versions;
+  if (
+    ![ours, original, theirs].every((file) => file.bytes && isText(file.bytes))
+  )
+    return true;
+  const merged = mergeText(
+    skillFilePath(trees.work, path),
+    skillFilePath(base, path),
+    skillFilePath(trees.incoming, path)
+  );
+  if (!merged) return true;
+  atomicSkillWrite(
+    trees.stagedWork,
+    path,
+    merged.bytes,
+    ((ours.mode === original.mode ? theirs.mode : ours.mode) ?? 0) | 0o644
+  );
+  return merged.conflict;
+}
+
+function mergeWorkspaceFile(trees: MergeTrees, path: string): boolean {
+  const ours = readMergeFile(trees.work, path);
+  const theirs = readMergeFile(trees.incoming, path);
+  const original = readMergeFile(trees.base, path);
+  if (sameMergeFile(ours, theirs)) return false;
+  if (!trees.base) return true;
+  if (sameMergeFile(theirs, original)) return false;
+  if (sameMergeFile(ours, original))
+    return mergeUnchangedFile(trees, path, theirs);
+  return mergeCustomizedFile(trees, path, trees.base, {
+    ours,
+    theirs,
+    original,
+  });
+}
+
+function stageWorkspaceMerge(
   workspace: SkillWorkspace,
   incoming: string,
-  base: string | undefined,
-  change: { pending: UpstreamVersion } | { fingerprint: string },
-  review: { revision: string; metadata: string; fingerprint: string }
-): void {
+  change: MergeChange
+) {
   const name = workspace.ref.name;
   const root = workspaceRoot(name);
   const work = join(root, "files");
@@ -810,7 +1007,93 @@ function mergeWorkspaceCopies(
   copySkillTree(work, join(stage, "conflict-work"));
   copySkillTree(incoming, join(stage, "conflict-incoming"));
   copySkillTree(incoming, join(stage, incomingKey));
-  let preserveStage = false;
+  return { root, work, stage, stagedWork, incomingKey, preserveStage: false };
+}
+
+type WorkspaceMerge = ReturnType<typeof stageWorkspaceMerge>;
+
+function assertMergeReview(
+  workspace: SkillWorkspace,
+  work: string,
+  review: MergeReview
+): void {
+  if (
+    review.revision !== skillTreeHash(work) ||
+    review.metadata !==
+      readFileSync(
+        skillStatePath(`workspaces/${workspace.ref.name}/workspace.json`),
+        "utf8"
+      ) ||
+    review.fingerprint !== sourceFingerprint(workspace.ref)
+  )
+    throw new SkillWorkspaceConflict(
+      "The working copy or source changed during the merge; review and retry"
+    );
+}
+
+function restoreMergeCopies(
+  merge: WorkspaceMerge,
+  installed: string[],
+  replaced: string[]
+): void {
+  for (const key of installed.reverse()) trashPath(join(merge.root, key));
+  for (const key of replaced.reverse())
+    renameSync(join(merge.stage, `previous-${key}`), join(merge.root, key));
+}
+
+function installMergeCopies(
+  merge: WorkspaceMerge,
+  workspace: SkillWorkspace,
+  change: MergeChange,
+  conflicts: string[]
+): void {
+  const { root, stage, incomingKey } = merge;
+  const replaced: string[] = [];
+  const installed: string[] = [];
+  merge.preserveStage = true;
+  try {
+    for (const key of [
+      "files",
+      "conflict-work",
+      "conflict-incoming",
+      incomingKey,
+    ]) {
+      const target = join(root, key);
+      if (existsSync(target)) {
+        renameSync(target, join(stage, `previous-${key}`));
+        replaced.push(key);
+      }
+      renameSync(join(stage, key), target);
+      installed.push(key);
+    }
+    writeState(`workspaces/${workspace.ref.name}/workspace.json`, {
+      ...workspace,
+      ...change,
+      conflicts,
+    });
+  } catch (error) {
+    try {
+      restoreMergeCopies(merge, installed, replaced);
+      merge.preserveStage = false;
+    } catch (recovery) {
+      throw new Error(
+        `Workspace merge recovery is required; backups retained at ${stage}: ${String(error)} / ${String(recovery)}`
+      );
+    }
+    throw error;
+  }
+  merge.preserveStage = false;
+}
+
+function mergeWorkspaceCopies(
+  workspace: SkillWorkspace,
+  incoming: string,
+  base: string | undefined,
+  change: MergeChange,
+  review: MergeReview
+): void {
+  const merge = stageWorkspaceMerge(workspace, incoming, change);
+  const { work, stagedWork, stage } = merge;
   const paths = new Set(
     [
       ...listSkillFiles(work),
@@ -819,131 +1102,15 @@ function mergeWorkspaceCopies(
     ].map((file) => file.path)
   );
   const conflicts: string[] = [];
+  const trees = { work, incoming, base, stagedWork };
   try {
-    for (const path of [...paths].sort()) {
-      const read = (dir: string | undefined): Buffer | undefined =>
-        dir &&
-        existsSync(skillFilePath(dir, path)) &&
-        lstatSync(skillFilePath(dir, path)).isFile()
-          ? readFileSync(skillFilePath(dir, path))
-          : undefined;
-      const ours = read(work);
-      const theirs = read(incoming);
-      const original = read(base);
-      const mode = (dir: string | undefined, bytes: Buffer | undefined) =>
-        bytes && dir
-          ? lstatSync(skillFilePath(dir, path)).mode & 0o111
-          : undefined;
-      const oursMode = mode(work, ours);
-      const theirsMode = mode(incoming, theirs);
-      const originalMode = mode(base, original);
-      if (sameBytes(ours, theirs) && oursMode === theirsMode) continue;
-      if (!base) {
-        conflicts.push(path);
-        continue;
-      }
-      if (sameBytes(theirs, original) && theirsMode === originalMode) continue;
-      if (sameBytes(ours, original) && oursMode === originalMode) {
-        let ancestor = skillFilePath(stagedWork, path);
-        let obstruction =
-          existsSync(ancestor) && lstatSync(ancestor).isDirectory();
-        while (dirname(ancestor) !== stagedWork) {
-          ancestor = dirname(ancestor);
-          if (existsSync(ancestor) && !lstatSync(ancestor).isDirectory())
-            obstruction = true;
-        }
-        if (theirs && obstruction) {
-          conflicts.push(path);
-          continue;
-        }
-        if (theirs)
-          atomicSkillWrite(
-            stagedWork,
-            path,
-            theirs,
-            (lstatSync(skillFilePath(incoming, path)).mode & 0o777) | 0o600
-          );
-        else trashPath(skillFilePath(stagedWork, path));
-        continue;
-      }
-      if (
-        ours &&
-        original &&
-        theirs &&
-        isText(ours) &&
-        isText(original) &&
-        isText(theirs)
-      ) {
-        const merged = mergeText(
-          skillFilePath(work, path),
-          skillFilePath(base, path),
-          skillFilePath(incoming, path)
-        );
-        if (merged) {
-          atomicSkillWrite(
-            stagedWork,
-            path,
-            merged.bytes,
-            ((oursMode === originalMode ? theirsMode : oursMode) ?? 0) | 0o644
-          );
-          if (merged.conflict) conflicts.push(path);
-          continue;
-        }
-      }
-      conflicts.push(path);
-    }
+    for (const path of [...paths].sort())
+      if (mergeWorkspaceFile(trees, path)) conflicts.push(path);
     listSkillFiles(stagedWork);
-    if (
-      review.revision !== skillTreeHash(work) ||
-      review.metadata !==
-        readFileSync(
-          skillStatePath(`workspaces/${name}/workspace.json`),
-          "utf8"
-        ) ||
-      review.fingerprint !== sourceFingerprint(workspace.ref)
-    )
-      throw new SkillWorkspaceConflict(
-        "The working copy or source changed during the merge; review and retry"
-      );
-    const replaced: string[] = [];
-    const installed: string[] = [];
-    preserveStage = true;
-    try {
-      for (const key of [
-        "files",
-        "conflict-work",
-        "conflict-incoming",
-        incomingKey,
-      ]) {
-        const target = join(root, key);
-        if (existsSync(target)) {
-          renameSync(target, join(stage, `previous-${key}`));
-          replaced.push(key);
-        }
-        renameSync(join(stage, key), target);
-        installed.push(key);
-      }
-      writeState(`workspaces/${name}/workspace.json`, {
-        ...workspace,
-        ...change,
-        conflicts,
-      });
-    } catch (error) {
-      try {
-        for (const key of installed.reverse()) trashPath(join(root, key));
-        for (const key of replaced.reverse())
-          renameSync(join(stage, `previous-${key}`), join(root, key));
-        preserveStage = false;
-      } catch (recovery) {
-        throw new Error(
-          `Workspace merge recovery is required; backups retained at ${stage}: ${String(error)} / ${String(recovery)}`
-        );
-      }
-      throw error;
-    }
-    preserveStage = false;
+    assertMergeReview(workspace, work, review);
+    installMergeCopies(merge, workspace, change, conflicts);
   } catch (error) {
-    if (!preserveStage) trashPath(stage);
+    if (!merge.preserveStage) trashPath(stage);
     throw error;
   }
   trashPath(stage);
@@ -954,13 +1121,11 @@ export async function reconcileSkillSource(
   revision: string
 ): Promise<SkillView> {
   ref = checkedRef(ref);
-  const workspace = requireWorkspace(ref);
-  const root = workspaceRoot(ref.name);
-  const work = join(root, "files");
-  if (typeof revision !== "string" || revision !== skillTreeHash(work))
-    throw new SkillWorkspaceConflict(
-      "The working copy changed; review it before reconciling the source"
-    );
+  const { workspace, root } = reviewedWorkspace(
+    ref,
+    revision,
+    "The working copy changed; review it before reconciling the source"
+  );
   if (workspace.conflicts.length)
     throw new SkillWorkspaceConflict(
       "Resolve existing conflicts before reconciling the source"
@@ -1009,13 +1174,11 @@ export async function resolveSkillConflict(
   revision: string
 ): Promise<SkillView> {
   ref = checkedRef(ref);
-  const workspace = requireWorkspace(ref);
-  const root = workspaceRoot(ref.name);
-  const work = join(root, "files");
-  if (typeof revision !== "string" || revision !== skillTreeHash(work))
-    throw new SkillWorkspaceConflict(
-      "The working copy changed; review the conflict again"
-    );
+  const { workspace, root, work } = reviewedWorkspace(
+    ref,
+    revision,
+    "The working copy changed; review the conflict again"
+  );
   if (choice !== "work" && choice !== "upstream")
     throw new ValueError("Conflict choice must be work or upstream");
   if (typeof path !== "string" || !workspace.conflicts.includes(path))

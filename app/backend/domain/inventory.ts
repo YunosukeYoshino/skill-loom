@@ -356,18 +356,26 @@ function rowContext(lock: Lock): RowContext {
   };
 }
 
-/** 返り値は Python と同じ [category, source] の並び。 */
-function skillMetadata(ctx: RowContext, name: string): [string, string] {
-  const custom = ctx.lock.custom?.skills ?? {};
-  const external = ctx.lock.external ?? {};
-  const vendor = ctx.lock.vendor?.[name];
-  if (vendor) return [vendor.source || "vendor", "vendor"];
+function cliExternalMetadata(
+  ctx: RowContext,
+  name: string
+): [string, string] | undefined {
   const globalMeta = ctx.globalLock[name];
   if (globalMeta && Object.keys(globalMeta).length > 0) {
     const source = globalMeta.source ?? "";
     const repoSource = ctx.lock.custom?.repo;
     if (source && source !== repoSource) return [source, "external"];
   }
+}
+
+/** 返り値は Python と同じ [category, source] の並び。 */
+function skillMetadata(ctx: RowContext, name: string): [string, string] {
+  const custom = ctx.lock.custom?.skills ?? {};
+  const external = ctx.lock.external ?? {};
+  const vendor = ctx.lock.vendor?.[name];
+  if (vendor) return [vendor.source || "vendor", "vendor"];
+  const globalMeta = cliExternalMetadata(ctx, name);
+  if (globalMeta) return globalMeta;
   if (name in custom) {
     const meta = custom[name];
     return [

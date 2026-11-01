@@ -23,6 +23,40 @@ import type { SkillCodexState } from "../../shared/skill-workspace-types";
 type Id = string | number;
 type JsonObject = Record<string, any>;
 type Execution = { argv: string[]; network: boolean };
+type ToolArguments = { argv: string[]; network?: boolean };
+type SavedSession = Pick<SkillCodexState, "threadId" | "messages">;
+type ReadEntry = { access: "read"; path: { type: "path"; path: string } };
+type FilePermissions = {
+  read?: string[] | null;
+  write?: [] | null;
+  entries?: ReadEntry[] | null;
+};
+type AccessGrant = {
+  network?: { enabled: true };
+  fileSystem?: { read: string[] | null; write: null; entries?: ReadEntry[] };
+};
+type RequestedPermissions = {
+  network?: { enabled: boolean | null } | null;
+  fileSystem?: FilePermissions | null;
+};
+const approvalMethods = [
+  "item/commandExecution/requestApproval",
+  "item/fileChange/requestApproval",
+  "item/permissions/requestApproval",
+  "item/tool/call",
+] as const;
+type ApprovalMethod = (typeof approvalMethods)[number];
+type TurnParams = JsonObject & { threadId: string; turnId: string };
+type ApprovalRequest = { id: Id; method: ApprovalMethod; params: TurnParams };
+const turnEventMethods = [
+  "item/started",
+  "item/agentMessage/delta",
+  "item/completed",
+  "turn/completed",
+] as const;
+type TurnEventMethod = (typeof turnEventMethods)[number];
+type TurnEvent = { method: TurnEventMethod; params: JsonObject };
+type Notification = { method: string; params: JsonObject };
 type Pending = {
   resolve: (value: any) => void;
   reject: (error: Error) => void;
@@ -100,6 +134,10 @@ function object(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function turnEventMethod(method: string): method is TurnEventMethod {
+  return turnEventMethods.includes(method as TurnEventMethod);
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -115,6 +153,212 @@ function safeApprovalPolicy(value: unknown): boolean {
       ([key, expected]) => value.granular[key] === expected
     )
   );
+}
+
+function isolationConfig(): Record<string, unknown> {
+  return {
+    sandbox_mode: "workspace-write",
+    "sandbox_workspace_write.writable_roots": [],
+    "sandbox_workspace_write.network_access": false,
+    "sandbox_workspace_write.exclude_tmpdir_env_var": true,
+    "sandbox_workspace_write.exclude_slash_tmp": true,
+    approvals_reviewer: "user",
+    model_provider: "openai",
+    mcp_servers: {},
+    notify: [],
+    web_search: "disabled",
+    allow_login_shell: false,
+    "shell_environment_policy.inherit": "none",
+    "shell_environment_policy.experimental_use_profile": false,
+    "shell_environment_policy.set": {},
+    "features.request_permissions_tool": true,
+    ...Object.fromEntries(
+      disabledFeatures.map((name) => [`features.${name}`, false])
+    ),
+    ...Object.fromEntries(
+      Object.entries(approvalPolicy.granular).map(([key, value]) => [
+        `approval_policy.granular.${key}`,
+        value,
+      ])
+    ),
+  };
+}
+
+function metadataFile(workdir: string, metadataPath: string): string {
+  const target = resolve(metadataPath);
+  if (inside(workdir, target))
+    throw new Error("Codex metadata must be outside the workcopy");
+  let existingParent = dirname(target);
+  while (!existsSync(existingParent)) existingParent = dirname(existingParent);
+  if (inside(workdir, realpathSync(existingParent)))
+    throw new Error("Codex metadata must be outside the workcopy");
+  mkdirSync(dirname(target), { recursive: true });
+  const canonical = resolve(realpathSync(dirname(target)), basename(target));
+  if (
+    inside(workdir, canonical) ||
+    (existsSync(target) && lstatSync(target).isSymbolicLink())
+  )
+    throw new Error(
+      "Codex metadata must be outside the workcopy and not a symlink"
+    );
+  return canonical;
+}
+
+function savedMessage(
+  value: unknown
+): value is SavedSession["messages"][number] {
+  return (
+    object(value) &&
+    ["user", "assistant", "system"].includes(value.role) &&
+    typeof value.text === "string"
+  );
+}
+
+function readSession(path: string): SavedSession | undefined {
+  if (!existsSync(path)) return undefined;
+  const saved: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (
+    !object(saved) ||
+    (saved.threadId !== undefined && typeof saved.threadId !== "string") ||
+    !Array.isArray(saved.messages) ||
+    !saved.messages.every(savedMessage)
+  )
+    throw new Error("Invalid Codex session metadata");
+  return {
+    threadId: saved.threadId,
+    messages: saved.messages.map(({ role, text }) => ({ role, text })),
+  };
+}
+
+function safeFeatures(value: unknown): boolean {
+  return (
+    object(value) &&
+    disabledFeatures.every((key) => value[key] === false) &&
+    value.request_permissions_tool === true
+  );
+}
+
+function safeShellEnvironment(value: unknown): boolean {
+  return (
+    object(value) &&
+    value.inherit === "none" &&
+    value.experimental_use_profile === false &&
+    object(value.set) &&
+    Object.keys(value.set).length === 0
+  );
+}
+
+function safeRuntimeConfig(config: JsonObject): boolean {
+  return (
+    Array.isArray(config.notify) &&
+    config.notify.length === 0 &&
+    config.model_provider === "openai" &&
+    safeApprovalPolicy(config.approval_policy) &&
+    config.approvals_reviewer === "user" &&
+    config.allow_login_shell === false &&
+    config.web_search === "disabled" &&
+    safeShellEnvironment(config.shell_environment_policy)
+  );
+}
+
+function safeMcpConfig(
+  value: unknown,
+  allowInherited: boolean
+): value is Record<string, JsonObject> {
+  return (
+    object(value) &&
+    Object.values(value).every(
+      (server) => object(server) && (allowInherited || server.enabled === false)
+    )
+  );
+}
+
+function validArgv(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.length <= 256 &&
+    value.every((arg) => typeof arg === "string" && !arg.includes("\0")) &&
+    !!value[0] &&
+    Buffer.byteLength(JSON.stringify(value)) <= 100_000
+  );
+}
+
+function toolArguments(value: unknown): value is ToolArguments {
+  return (
+    object(value) &&
+    !Object.keys(value).some((key) => !["argv", "network"].includes(key)) &&
+    validArgv(value.argv) &&
+    (value.network === undefined || typeof value.network === "boolean")
+  );
+}
+
+function readablePath(path: unknown): path is string {
+  return typeof path === "string" && isAbsolute(path) && !/[*?\[\]]/.test(path);
+}
+
+function readableEntry(entry: unknown): entry is ReadEntry {
+  return (
+    object(entry) &&
+    entry.access === "read" &&
+    object(entry.path) &&
+    entry.path.type === "path" &&
+    readablePath(entry.path.path)
+  );
+}
+
+function safeReadPaths(value: unknown): boolean {
+  return value == null || (Array.isArray(value) && value.every(readablePath));
+}
+
+function safeReadEntries(value: unknown): boolean {
+  return value == null || (Array.isArray(value) && value.every(readableEntry));
+}
+
+function safeFilePermissions(
+  value: unknown
+): value is FilePermissions | null | undefined {
+  if (value == null) return true;
+  return (
+    object(value) &&
+    !Object.keys(value).some(
+      (key) => !["read", "write", "entries", "globScanMaxDepth"].includes(key)
+    ) &&
+    (value.write == null ||
+      (Array.isArray(value.write) && value.write.length === 0)) &&
+    safeReadPaths(value.read) &&
+    safeReadEntries(value.entries)
+  );
+}
+
+function safeNetworkPermissions(value: unknown): boolean {
+  if (value == null) return true;
+  return (
+    object(value) &&
+    !Object.keys(value).some((key) => key !== "enabled") &&
+    (value.enabled === null || typeof value.enabled === "boolean")
+  );
+}
+
+function requestedPermissions(value: unknown): value is RequestedPermissions {
+  return (
+    object(value) &&
+    !Object.keys(value).some(
+      (key) => !["network", "fileSystem"].includes(key)
+    ) &&
+    safeNetworkPermissions(value.network) &&
+    safeFilePermissions(value.fileSystem)
+  );
+}
+
+function fileReadGrant(fs: FilePermissions): AccessGrant["fileSystem"] {
+  if (!fs.read?.length && !fs.entries?.length) return undefined;
+  const grant: NonNullable<AccessGrant["fileSystem"]> = {
+    read: fs.read ?? null,
+    write: null,
+  };
+  if (fs.entries?.length) grant.entries = fs.entries;
+  return grant;
 }
 
 /** Supported CLI minor: 0.164 (native-smoke tested on 0.164.0). Constructor options are a trusted subprocess test seam. */
@@ -136,7 +380,7 @@ export class SkillCodexSession {
   private starting?: Promise<void>;
   private messageItems = new Map<string, number>();
   private fileItems = new Map<string, JsonObject[]>();
-  private accessGrants = new Map<Id, JsonObject>();
+  private accessGrants = new Map<Id, AccessGrant>();
   private executions = new Map<Id, Execution>();
   private activeCommand?: { id: Id; processId: string; turnId: string };
   private commandDone?: Promise<void>;
@@ -149,50 +393,9 @@ export class SkillCodexSession {
     private options: { command?: string[]; requestTimeoutMs?: number } = {}
   ) {
     this.workdir = realpathSync(workdir);
-    const target = resolve(metadataPath);
-    if (inside(this.workdir, target))
-      throw new Error("Codex metadata must be outside the workcopy");
-    let existingParent = dirname(target);
-    while (!existsSync(existingParent))
-      existingParent = dirname(existingParent);
-    if (inside(this.workdir, realpathSync(existingParent)))
-      throw new Error("Codex metadata must be outside the workcopy");
-    mkdirSync(dirname(target), { recursive: true });
-    this.metadataPath = resolve(
-      realpathSync(dirname(target)),
-      basename(target)
-    );
-    if (
-      inside(this.workdir, this.metadataPath) ||
-      (existsSync(target) && lstatSync(target).isSymbolicLink())
-    ) {
-      throw new Error(
-        "Codex metadata must be outside the workcopy and not a symlink"
-      );
-    }
-    if (existsSync(this.metadataPath)) {
-      const saved: unknown = JSON.parse(
-        readFileSync(this.metadataPath, "utf8")
-      );
-      if (
-        !object(saved) ||
-        (saved.threadId !== undefined && typeof saved.threadId !== "string") ||
-        !Array.isArray(saved.messages) ||
-        saved.messages.some(
-          (m: unknown) =>
-            !object(m) ||
-            !["user", "assistant", "system"].includes(m.role) ||
-            typeof m.text !== "string"
-        )
-      ) {
-        throw new Error("Invalid Codex session metadata");
-      }
-      this.current.threadId = saved.threadId;
-      this.current.messages = saved.messages.map(({ role, text }) => ({
-        role,
-        text,
-      }));
-    }
+    this.metadataPath = metadataFile(this.workdir, metadataPath);
+    const saved = readSession(this.metadataPath);
+    if (saved) this.current = { ...this.current, ...saved };
   }
 
   state(): SkillCodexState {
@@ -225,7 +428,7 @@ export class SkillCodexSession {
     }
   }
 
-  private async begin(prompt: string): Promise<void> {
+  private async prepare(): Promise<void> {
     if (this.stopping) {
       this.child = undefined;
       await this.stopping;
@@ -235,6 +438,10 @@ export class SkillCodexSession {
     if (this.closed) throw new Error("Codex session is shut down");
     this.interrupting = false;
     if (!this.ready) await this.initialize();
+  }
+
+  private async begin(prompt: string): Promise<void> {
+    await this.prepare();
     if (this.closed) throw new Error("Codex session is shut down");
     this.messageItems.clear();
     this.fileItems.clear();
@@ -259,35 +466,9 @@ export class SkillCodexSession {
       this.turnId = result.turn.id;
   }
 
-  private async initialize(): Promise<void> {
-    if (process.platform !== "darwin" && process.platform !== "linux")
-      throw new Error("Codex isolation requires macOS or Linux");
-    const config: Record<string, unknown> = {
-      sandbox_mode: "workspace-write",
-      "sandbox_workspace_write.writable_roots": [],
-      "sandbox_workspace_write.network_access": false,
-      "sandbox_workspace_write.exclude_tmpdir_env_var": true,
-      "sandbox_workspace_write.exclude_slash_tmp": true,
-      approvals_reviewer: "user",
-      model_provider: "openai",
-      mcp_servers: {},
-      notify: [],
-      web_search: "disabled",
-      allow_login_shell: false,
-      "shell_environment_policy.inherit": "none",
-      "shell_environment_policy.experimental_use_profile": false,
-      "shell_environment_policy.set": {},
-      "features.request_permissions_tool": true,
-      ...Object.fromEntries(
-        disabledFeatures.map((name) => [`features.${name}`, false])
-      ),
-      ...Object.fromEntries(
-        Object.entries(approvalPolicy.granular).map(([key, value]) => [
-          `approval_policy.granular.${key}`,
-          value,
-        ])
-      ),
-    };
+  private async initializeConfig(
+    config: Record<string, unknown>
+  ): Promise<void> {
     let effective = await this.open(config);
     this.checkConfig(effective.config, true);
     const inherited = Object.entries(effective.config.mcp_servers).filter(
@@ -310,6 +491,49 @@ export class SkillCodexSession {
       effective = await this.open(config);
     }
     this.checkConfig(effective.config);
+  }
+
+  private safeWorkspaceRoots(value: unknown): boolean {
+    return Array.isArray(value) && value.every((root) => root === this.workdir);
+  }
+
+  private safeThreadWorkspace(thread: unknown): thread is JsonObject {
+    return (
+      object(thread) &&
+      object(thread.thread) &&
+      typeof thread.thread.id === "string" &&
+      thread.cwd === this.workdir &&
+      this.safeWorkspaceRoots(thread.runtimeWorkspaceRoots)
+    );
+  }
+
+  private safeBootstrapSandbox(value: unknown): boolean {
+    return (
+      this.safeSandbox(value) ||
+      (object(value) &&
+        value.type === "readOnly" &&
+        value.networkAccess === false)
+    );
+  }
+
+  private confirmThread(thread: unknown): void {
+    if (
+      !this.safeThreadWorkspace(thread) ||
+      thread.approvalsReviewer !== "user" ||
+      !safeApprovalPolicy(thread.approvalPolicy) ||
+      !this.safeBootstrapSandbox(thread.sandbox)
+    )
+      throw new Error("Codex did not confirm workcopy-only isolation");
+    this.current.threadId = thread.thread.id;
+    this.persist();
+    this.ready = true;
+  }
+
+  private async initialize(): Promise<void> {
+    if (process.platform !== "darwin" && process.platform !== "linux")
+      throw new Error("Codex isolation requires macOS or Linux");
+    const config = isolationConfig();
+    await this.initializeConfig(config);
     const thread = await this.request(
       this.current.threadId ? "thread/resume" : "thread/start",
       {
@@ -328,27 +552,7 @@ export class SkillCodexSession {
         config,
       }
     );
-    if (
-      !object(thread?.thread) ||
-      typeof thread.thread.id !== "string" ||
-      thread.cwd !== this.workdir ||
-      !Array.isArray(thread.runtimeWorkspaceRoots) ||
-      thread.runtimeWorkspaceRoots.some(
-        (root: unknown) => root !== this.workdir
-      ) ||
-      thread.approvalsReviewer !== "user" ||
-      !safeApprovalPolicy(thread.approvalPolicy) ||
-      !(
-        this.safeSandbox(thread.sandbox) ||
-        (thread.sandbox?.type === "readOnly" &&
-          thread.sandbox.networkAccess === false)
-      )
-    ) {
-      throw new Error("Codex did not confirm workcopy-only isolation");
-    }
-    this.current.threadId = thread.thread.id;
-    this.persist();
-    this.ready = true;
+    this.confirmThread(thread);
   }
 
   private async open(config: Record<string, unknown>): Promise<JsonObject> {
@@ -438,43 +642,32 @@ export class SkillCodexSession {
     });
   }
 
+  private safeSandboxConfig(config: JsonObject): boolean {
+    const sandbox = config.sandbox_workspace_write;
+    return (
+      config.sandbox_mode === "workspace-write" &&
+      object(sandbox) &&
+      this.safeSandbox({
+        type: "workspaceWrite",
+        writableRoots: sandbox.writable_roots,
+        networkAccess: sandbox.network_access,
+        excludeTmpdirEnvVar: sandbox.exclude_tmpdir_env_var,
+        excludeSlashTmp: sandbox.exclude_slash_tmp,
+      })
+    );
+  }
+
   private checkConfig(config: unknown, allowInheritedMcp = false): void {
     if (
       !object(config) ||
-      !object(config.features) ||
-      disabledFeatures.some((key) => config.features[key] !== false) ||
-      !Array.isArray(config.notify) ||
-      config.notify.length ||
-      config.model_provider !== "openai" ||
-      config.sandbox_mode !== "workspace-write" ||
-      !object(config.sandbox_workspace_write) ||
-      !this.safeSandbox({
-        type: "workspaceWrite",
-        writableRoots: config.sandbox_workspace_write.writable_roots,
-        networkAccess: config.sandbox_workspace_write.network_access,
-        excludeTmpdirEnvVar:
-          config.sandbox_workspace_write.exclude_tmpdir_env_var,
-        excludeSlashTmp: config.sandbox_workspace_write.exclude_slash_tmp,
-      }) ||
-      !safeApprovalPolicy(config.approval_policy) ||
-      config.approvals_reviewer !== "user" ||
-      config.allow_login_shell !== false ||
-      config.web_search !== "disabled" ||
-      config.features.request_permissions_tool !== true ||
-      config.shell_environment_policy?.inherit !== "none" ||
-      config.shell_environment_policy?.experimental_use_profile !== false ||
-      !object(config.shell_environment_policy?.set) ||
-      Object.keys(config.shell_environment_policy.set).length !== 0 ||
-      !object(config.mcp_servers) ||
-      Object.values(config.mcp_servers).some(
-        (value) =>
-          !object(value) || (!allowInheritedMcp && value.enabled !== false)
-      )
-    ) {
+      !safeFeatures(config.features) ||
+      !safeRuntimeConfig(config) ||
+      !this.safeSandboxConfig(config) ||
+      !safeMcpConfig(config.mcp_servers, allowInheritedMcp)
+    )
       throw new Error(
         "Codex isolation could not disable inherited MCPs, plugins, hooks or notifications"
       );
-    }
   }
 
   private safeSandbox(value: unknown): boolean {
@@ -531,228 +724,296 @@ export class SkillCodexSession {
   private receive(message: unknown): void {
     if (!object(message)) throw new Error("Invalid Codex JSON-RPC message");
     if (typeof message.method !== "string") {
-      const pending = this.pending.get(message.id);
-      if (!pending) return;
-      clearTimeout(pending.timer);
-      this.pending.delete(message.id);
-      if (message.error)
-        pending.reject(
-          new Error(message.error.message ?? "Codex request failed")
-        );
-      else pending.resolve(message.result);
-      return;
+      this.receiveResponse(message);
+    } else if (message.id !== undefined) {
+      this.receiveRequest(message.id, message.method, message.params);
+    } else {
+      this.receiveNotification(message.method, message.params);
     }
-    const p = message.params;
-    if (message.id !== undefined) {
-      if (typeof message.id !== "number" && typeof message.id !== "string")
-        throw new Error("Invalid Codex approval ID");
-      if (
-        object(p) &&
-        p.threadId === this.current.threadId &&
-        typeof p.turnId === "string" &&
-        (message.method === "item/commandExecution/requestApproval" ||
-          message.method === "item/fileChange/requestApproval" ||
-          message.method === "item/permissions/requestApproval" ||
-          message.method === "item/tool/call")
-      ) {
-        if (
-          !["running", "approval"].includes(this.current.status) ||
-          (this.turnId && p.turnId !== this.turnId)
-        ) {
-          this.refuse(
-            message.id,
-            message.method,
-            p,
-            "既に終了した、または現在の実行とは異なる turn の要求です。",
-            true
-          );
-          return;
-        }
-        this.turnId = p.turnId;
-        if (message.method === "item/tool/call") {
-          const args = p.arguments;
-          if (
-            this.closing ||
-            p.tool !== "skill_exec" ||
-            p.namespace != null ||
-            typeof p.callId !== "string" ||
-            !object(args) ||
-            Object.keys(args).some(
-              (key) => !["argv", "network"].includes(key)
-            ) ||
-            !Array.isArray(args.argv) ||
-            !args.argv.length ||
-            args.argv.length > 256 ||
-            args.argv.some(
-              (arg: unknown) => typeof arg !== "string" || arg.includes("\0")
-            ) ||
-            !args.argv[0] ||
-            Buffer.byteLength(JSON.stringify(args.argv)) > 100_000 ||
-            (args.network !== undefined && typeof args.network !== "boolean")
-          ) {
-            this.refuse(
-              message.id,
-              message.method,
-              p,
-              "未対応または不正な command tool の要求です。",
-              false
-            );
-            return;
-          }
-          this.executions.set(message.id, {
-            argv: [...args.argv],
-            network: args.network === true,
-          });
-          this.current.approvals.push({
-            id: message.id,
-            title: "コマンドの実行許可",
-            detail: `argv: ${JSON.stringify(args.argv)}\ncwd: ${this.workdir}\nネットワーク: ${args.network === true ? "許可を要求" : "禁止"}`,
-          });
-          this.current.status = "approval";
-          return;
-        }
-        if (message.method === "item/permissions/requestApproval") {
-          const grant = this.accessGrant(p.permissions);
-          if (!grant || p.environmentId != null || !this.safePath(p.cwd)) {
-            this.refuse(
-              message.id,
-              message.method,
-              p,
-              "追加 write・glob・特殊パス・別環境への権限は許可できません。",
-              true
-            );
-            return;
-          }
-          this.accessGrants.set(message.id, grant);
-          this.current.approvals.push({
-            id: message.id,
-            title: "追加アクセスの許可",
-            detail: `${p.reason ?? "追加データまたはネットワークへのアクセス"}\n${JSON.stringify(p.permissions, null, 2)}`,
-          });
-          this.current.status = "approval";
-          return;
-        }
-        const command =
-          message.method === "item/commandExecution/requestApproval";
-        const changes = this.fileItems.get(p.itemId);
-        // Accept must never grant a sandbox escape or a new writable root.
-        if (
-          (command &&
-            (p.additionalPermissions ||
-              p.networkApprovalContext ||
-              p.proposedExecpolicyAmendment ||
-              p.proposedNetworkPolicyAmendments ||
-              typeof p.cwd !== "string" ||
-              !this.safePath(p.cwd))) ||
-          (!command &&
-            (p.grantRoot != null ||
-              !changes?.length ||
-              changes.some(
-                (change) =>
-                  !this.safePath(change.path) ||
-                  (change.kind?.move_path != null &&
-                    !this.safePath(change.kind.move_path))
-              )))
-        ) {
-          this.refuse(
-            message.id,
-            message.method,
-            p,
-            "作業ディレクトリ外へのアクセスや追加権限の要求は承認できません。",
-            true
-          );
-          return;
-        }
-        this.current.approvals.push({
-          id: message.id,
-          title: command ? "Command execution" : "File changes",
-          detail: [
-            p.command,
-            p.cwd,
-            p.reason,
-            p.itemId,
-            ...(!command
-              ? changes!.map((change) => `${change.path}\n${change.diff}`)
-              : []),
-          ]
-            .filter((v) => typeof v === "string")
-            .join("\n"),
-        });
-        this.current.status = "approval";
-      } else {
-        this.refuse(
-          message.id,
-          message.method,
-          object(p) ? p : {},
-          "この種類の要求は未対応のため承認できません。",
-          false
-        );
-      }
-      return;
-    }
-    if (!object(p) || p.threadId !== this.current.threadId) return;
-    if (message.method === "error") {
-      if (!p.willRetry)
-        this.fail(new Error(p.error?.message ?? "Codex turn failed"));
-      return;
-    }
-    if (message.method === "serverRequest/resolved") {
-      this.accessGrants.delete(p.requestId);
-      this.executions.delete(p.requestId);
-      this.current.approvals = this.current.approvals.filter(
-        (a) => a.id !== p.requestId
+  }
+
+  private receiveResponse(message: JsonObject): void {
+    const pending = this.pending.get(message.id);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pending.delete(message.id);
+    if (message.error)
+      pending.reject(
+        new Error(message.error.message ?? "Codex request failed")
       );
-      if (this.current.status === "approval" && !this.current.approvals.length)
-        this.current.status = "running";
+    else pending.resolve(message.result);
+  }
+
+  private scopedRequest(method: string, params: unknown): params is TurnParams {
+    return (
+      approvalMethods.includes(method as ApprovalMethod) &&
+      object(params) &&
+      params.threadId === this.current.threadId &&
+      typeof params.turnId === "string"
+    );
+  }
+
+  private activeTurn(turnId: string): boolean {
+    return (
+      ["running", "approval"].includes(this.current.status) &&
+      (!this.turnId || turnId === this.turnId)
+    );
+  }
+
+  private receiveRequest(id: unknown, method: string, params: unknown): void {
+    if (typeof id !== "number" && typeof id !== "string")
+      throw new Error("Invalid Codex approval ID");
+    if (!this.scopedRequest(method, params)) {
+      this.refuse(
+        id,
+        method,
+        object(params) ? params : {},
+        "この種類の要求は未対応のため承認できません。",
+        false
+      );
       return;
     }
-    const incomingTurn =
-      message.method === "turn/started" || message.method === "turn/completed"
-        ? p.turn?.id
-        : p.turnId;
-    if (
-      typeof incomingTurn !== "string" ||
-      (this.turnId && incomingTurn !== this.turnId) ||
-      !["running", "approval"].includes(this.current.status)
-    )
+    if (!this.activeTurn(params.turnId)) {
+      this.refuse(
+        id,
+        method,
+        params,
+        "既に終了した、または現在の実行とは異なる turn の要求です。",
+        true
+      );
       return;
-    this.turnId = incomingTurn;
-    if (message.method === "item/started" && p.item?.type === "fileChange") {
-      if (
-        typeof p.item.id !== "string" ||
-        !Array.isArray(p.item.changes) ||
-        p.item.changes.some(
-          (change: unknown) =>
-            !object(change) ||
-            typeof change.path !== "string" ||
-            typeof change.diff !== "string"
-        )
-      ) {
-        throw new Error("Invalid Codex file changes");
-      }
-      this.fileItems.set(p.item.id, p.item.changes);
-    } else if (message.method === "item/agentMessage/delta") {
-      if (typeof p.itemId !== "string" || typeof p.delta !== "string")
-        throw new Error("Invalid Codex message delta");
-      this.message(p.itemId, p.delta, true);
-    } else if (
-      message.method === "item/completed" &&
-      p.item?.type === "agentMessage"
+    }
+    this.turnId = params.turnId;
+    this.dispatchApproval({ id, method: method as ApprovalMethod, params });
+  }
+
+  private dispatchApproval(request: ApprovalRequest): void {
+    const { id, method, params } = request;
+    switch (method) {
+      case "item/tool/call":
+        this.receiveExecution(id, params);
+        break;
+      case "item/permissions/requestApproval":
+        this.receivePermissions(id, params);
+        break;
+      case "item/commandExecution/requestApproval":
+        this.receiveCommandApproval(id, params);
+        break;
+      case "item/fileChange/requestApproval":
+        this.receiveFileApproval(id, params);
+        break;
+    }
+  }
+
+  private queueApproval(id: Id, title: string, detail: string): void {
+    this.current.approvals.push({ id, title, detail });
+    this.current.status = "approval";
+  }
+
+  private receiveExecution(id: Id, p: TurnParams): void {
+    const args = p.arguments;
+    if (
+      this.closing ||
+      p.tool !== "skill_exec" ||
+      p.namespace != null ||
+      typeof p.callId !== "string" ||
+      !toolArguments(args)
     ) {
-      if (typeof p.item.id !== "string" || typeof p.item.text !== "string")
-        throw new Error("Invalid Codex agent message");
-      this.message(p.item.id, p.item.text, false);
-    } else if (message.method === "turn/completed") {
-      this.turnId = undefined;
-      this.current.approvals = [];
-      this.accessGrants.clear();
-      this.executions.clear();
-      if (p.turn.status === "failed") {
-        this.fail(new Error(p.turn.error?.message ?? "Codex turn failed"));
-      } else {
-        this.current.status = "idle";
-        this.persist();
-      }
+      this.refuse(
+        id,
+        "item/tool/call",
+        p,
+        "未対応または不正な command tool の要求です。",
+        false
+      );
+      return;
+    }
+    this.executions.set(id, {
+      argv: [...args.argv],
+      network: args.network === true,
+    });
+    this.queueApproval(
+      id,
+      "コマンドの実行許可",
+      `argv: ${JSON.stringify(args.argv)}\ncwd: ${this.workdir}\nネットワーク: ${args.network === true ? "許可を要求" : "禁止"}`
+    );
+  }
+
+  private receivePermissions(id: Id, p: TurnParams): void {
+    const grant = this.accessGrant(p.permissions);
+    if (!grant || p.environmentId != null || !this.safePath(p.cwd)) {
+      this.refuse(
+        id,
+        "item/permissions/requestApproval",
+        p,
+        "追加 write・glob・特殊パス・別環境への権限は許可できません。",
+        true
+      );
+      return;
+    }
+    this.accessGrants.set(id, grant);
+    this.queueApproval(
+      id,
+      "追加アクセスの許可",
+      `${p.reason ?? "追加データまたはネットワークへのアクセス"}\n${JSON.stringify(p.permissions, null, 2)}`
+    );
+  }
+
+  private receiveCommandApproval(id: Id, p: TurnParams): void {
+    // Accept must never grant a sandbox escape or a new writable root.
+    if (
+      p.additionalPermissions ||
+      p.networkApprovalContext ||
+      p.proposedExecpolicyAmendment ||
+      p.proposedNetworkPolicyAmendments ||
+      typeof p.cwd !== "string" ||
+      !this.safePath(p.cwd)
+    ) {
+      this.refuseOutsideAccess(id, "item/commandExecution/requestApproval", p);
+      return;
+    }
+    this.queueApproval(id, "Command execution", this.approvalDetail(p));
+  }
+
+  private safeFileChange(change: JsonObject): boolean {
+    return (
+      this.safePath(change.path) &&
+      (change.kind?.move_path == null || this.safePath(change.kind.move_path))
+    );
+  }
+
+  private receiveFileApproval(id: Id, p: TurnParams): void {
+    const changes = this.fileItems.get(p.itemId);
+    if (
+      p.grantRoot != null ||
+      !changes?.length ||
+      !changes.every((change) => this.safeFileChange(change))
+    ) {
+      this.refuseOutsideAccess(id, "item/fileChange/requestApproval", p);
+      return;
+    }
+    this.queueApproval(id, "File changes", this.approvalDetail(p, changes));
+  }
+
+  private refuseOutsideAccess(
+    id: Id,
+    method: ApprovalMethod,
+    p: TurnParams
+  ): void {
+    this.refuse(
+      id,
+      method,
+      p,
+      "作業ディレクトリ外へのアクセスや追加権限の要求は承認できません。",
+      true
+    );
+  }
+
+  private approvalDetail(p: TurnParams, changes: JsonObject[] = []): string {
+    return [
+      p.command,
+      p.cwd,
+      p.reason,
+      p.itemId,
+      ...changes.map((change) => `${change.path}\n${change.diff}`),
+    ]
+      .filter((v) => typeof v === "string")
+      .join("\n");
+  }
+
+  private receiveNotification(method: string, params: unknown): void {
+    if (!object(params) || params.threadId !== this.current.threadId) return;
+    if (!this.receiveThreadEvent({ method, params }))
+      this.receiveTurnNotification(method, params);
+  }
+
+  private receiveThreadEvent({ method, params }: Notification): boolean {
+    if (method === "error") {
+      if (!params.willRetry)
+        this.fail(new Error(params.error?.message ?? "Codex turn failed"));
+      return true;
+    }
+    if (method === "serverRequest/resolved") {
+      this.resolveApproval(params.requestId);
+      return true;
+    }
+    return false;
+  }
+
+  private receiveTurnNotification(method: string, params: JsonObject): void {
+    const turnId =
+      method === "turn/started" || method === "turn/completed"
+        ? params.turn?.id
+        : params.turnId;
+    if (typeof turnId !== "string" || !this.activeTurn(turnId)) return;
+    this.turnId = turnId;
+    if (turnEventMethod(method)) this.dispatchTurnEvent({ method, params });
+  }
+
+  private resolveApproval(id: Id): void {
+    this.accessGrants.delete(id);
+    this.executions.delete(id);
+    this.current.approvals = this.current.approvals.filter((a) => a.id !== id);
+    if (this.current.status === "approval" && !this.current.approvals.length)
+      this.current.status = "running";
+  }
+
+  private dispatchTurnEvent({ method, params }: TurnEvent): void {
+    switch (method) {
+      case "item/started":
+        if (params.item?.type === "fileChange")
+          this.receiveFileChanges(params.item);
+        break;
+      case "item/agentMessage/delta":
+        this.receiveMessageDelta(params);
+        break;
+      case "item/completed":
+        if (params.item?.type === "agentMessage")
+          this.receiveMessage(params.item);
+        break;
+      case "turn/completed":
+        this.completeTurn(params.turn);
+        break;
+    }
+  }
+
+  private receiveFileChanges(item: JsonObject): void {
+    if (
+      typeof item.id !== "string" ||
+      !Array.isArray(item.changes) ||
+      item.changes.some(
+        (change: unknown) =>
+          !object(change) ||
+          typeof change.path !== "string" ||
+          typeof change.diff !== "string"
+      )
+    )
+      throw new Error("Invalid Codex file changes");
+    this.fileItems.set(item.id, item.changes);
+  }
+
+  private receiveMessageDelta(p: JsonObject): void {
+    if (typeof p.itemId !== "string" || typeof p.delta !== "string")
+      throw new Error("Invalid Codex message delta");
+    this.message(p.itemId, p.delta, true);
+  }
+
+  private receiveMessage(item: JsonObject): void {
+    if (typeof item.id !== "string" || typeof item.text !== "string")
+      throw new Error("Invalid Codex agent message");
+    this.message(item.id, item.text, false);
+  }
+
+  private completeTurn(turn: JsonObject): void {
+    this.turnId = undefined;
+    this.current.approvals = [];
+    this.accessGrants.clear();
+    this.executions.clear();
+    if (turn.status === "failed")
+      this.fail(new Error(turn.error?.message ?? "Codex turn failed"));
+    else {
+      this.current.status = "idle";
+      this.persist();
     }
   }
 
@@ -806,55 +1067,13 @@ export class SkillCodexSession {
     this.persist();
   }
 
-  private accessGrant(value: unknown): JsonObject | null {
-    if (
-      !object(value) ||
-      Object.keys(value).some((key) => !["network", "fileSystem"].includes(key))
-    )
-      return null;
-    const grant: JsonObject = {};
-    if (value.network != null) {
-      if (
-        !object(value.network) ||
-        Object.keys(value.network).some((key) => key !== "enabled") ||
-        (value.network.enabled !== null &&
-          typeof value.network.enabled !== "boolean")
-      )
-        return null;
-      if (value.network.enabled === true) grant.network = { enabled: true };
-    }
+  private accessGrant(value: unknown): AccessGrant | null {
+    if (!requestedPermissions(value)) return null;
+    const grant: AccessGrant = {};
+    if (value.network?.enabled === true) grant.network = { enabled: true };
     if (value.fileSystem != null) {
-      const fs = value.fileSystem;
-      const readPath = (path: unknown) =>
-        typeof path === "string" && isAbsolute(path) && !/[*?\[\]]/.test(path);
-      if (
-        !object(fs) ||
-        Object.keys(fs).some(
-          (key) =>
-            !["read", "write", "entries", "globScanMaxDepth"].includes(key)
-        ) ||
-        (fs.write != null &&
-          (!Array.isArray(fs.write) || fs.write.length !== 0)) ||
-        (fs.read != null &&
-          (!Array.isArray(fs.read) || !fs.read.every(readPath))) ||
-        (fs.entries != null &&
-          (!Array.isArray(fs.entries) ||
-            fs.entries.some(
-              (entry: unknown) =>
-                !object(entry) ||
-                entry.access !== "read" ||
-                !object(entry.path) ||
-                entry.path.type !== "path" ||
-                !readPath(entry.path.path)
-            )))
-      )
-        return null;
-      if (fs.read?.length || fs.entries?.length)
-        grant.fileSystem = {
-          read: fs.read ?? null,
-          write: null,
-          ...(fs.entries?.length ? { entries: fs.entries } : {}),
-        };
+      const fileSystem = fileReadGrant(value.fileSystem);
+      if (fileSystem) grant.fileSystem = fileSystem;
     }
     return Object.keys(grant).length ? grant : null;
   }
@@ -888,15 +1107,37 @@ export class SkillCodexSession {
     id: Id,
     decision: "accept" | "decline"
   ): Promise<SkillCodexState> {
+    this.checkApproval(id, decision);
+    const execution = this.executions.get(id);
+    if (execution && decision === "accept" && this.activeCommand)
+      throw new Error("別のコマンドを実行中です。完了後に承認してください。");
+    this.replyApproval(id, decision, execution);
+    this.accessGrants.delete(id);
+    this.executions.delete(id);
+    this.current.approvals = this.current.approvals.filter((a) => a.id !== id);
+    this.current.status = this.current.approvals.length
+      ? "approval"
+      : "running";
+    if (execution && decision === "accept") {
+      this.startCommand(id, execution);
+    }
+    return this.state();
+  }
+
+  private checkApproval(id: Id, decision: "accept" | "decline"): void {
     if (decision !== "accept" && decision !== "decline")
       throw new Error("Invalid Codex approval decision");
     if (!this.current.approvals.some((a) => a.id === id))
       throw new Error("Unknown or expired Codex approval");
     if (this.closing || this.interrupting)
       throw new Error("Codex は終了または中断処理中です。");
-    const execution = this.executions.get(id);
-    if (execution && decision === "accept" && this.activeCommand)
-      throw new Error("別のコマンドを実行中です。完了後に承認してください。");
+  }
+
+  private replyApproval(
+    id: Id,
+    decision: "accept" | "decline",
+    execution?: Execution
+  ): void {
     const grant = this.accessGrants.get(id);
     if (!execution)
       this.send({
@@ -918,22 +1159,16 @@ export class SkillCodexSession {
           ],
         },
       });
-    this.accessGrants.delete(id);
-    this.executions.delete(id);
-    this.current.approvals = this.current.approvals.filter((a) => a.id !== id);
-    this.current.status = this.current.approvals.length
-      ? "approval"
-      : "running";
-    if (execution && decision === "accept") {
-      const done = this.runCommand(id, execution).catch((error) =>
-        this.fail(error)
-      );
-      this.commandDone = done;
-      void done.finally(() => {
-        if (this.commandDone === done) this.commandDone = undefined;
-      });
-    }
-    return this.state();
+  }
+
+  private startCommand(id: Id, execution: Execution): void {
+    const done = this.runCommand(id, execution).catch((error) =>
+      this.fail(error)
+    );
+    this.commandDone = done;
+    void done.finally(() => {
+      if (this.commandDone === done) this.commandDone = undefined;
+    });
   }
 
   private async runCommand(id: Id, execution: Execution): Promise<void> {

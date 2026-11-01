@@ -854,3 +854,106 @@ test("interrupt during initialization cancels promptly and can be retried", asyn
   await instance.start("Retry");
   await settled(instance);
 });
+
+test.each([
+  { method: "item/agentMessage/delta", params: { itemId: "bad", delta: 7 } },
+  {
+    method: "item/completed",
+    params: { item: { type: "agentMessage", id: "bad", text: null } },
+  },
+  {
+    method: "item/started",
+    params: {
+      item: {
+        type: "fileChange",
+        id: "bad",
+        changes: [{ path: "SKILL.md", diff: null }],
+      },
+    },
+  },
+])(
+  "malformed supported notifications fail the turn without creating approvals: %j",
+  async (notification) => {
+    const instance = session({ hold: true, requests: [notification] });
+    await instance.start("Validate incoming events").catch(() => {});
+    await until(() => instance.state().status === "failed");
+    expect(instance.state().error).toContain("Invalid Codex");
+    expect(instance.state().approvals).toEqual([]);
+    expect(transcript().some((m) => m.method === "command/exec")).toBe(false);
+  }
+);
+
+test("typed read entries preserve exact paths without granting writes or disabled network", async () => {
+  const entries = [
+    {
+      access: "read",
+      path: { type: "path", path: join(root, "reference.txt") },
+    },
+  ];
+  const instance = session({
+    hold: true,
+    requests: [
+      {
+        id: "read-entry",
+        method: "item/permissions/requestApproval",
+        params: {
+          cwd: workdir,
+          permissions: {
+            network: { enabled: false },
+            fileSystem: { read: null, write: [], entries },
+          },
+        },
+      },
+    ],
+  });
+  await instance.start("Read reference data");
+  await until(() => instance.state().approvals.length === 1);
+  await instance.approve("read-entry", "accept");
+  await until(() =>
+    transcript().some((m) => m.id === "read-entry" && m.result)
+  );
+  expect(
+    transcript().find((m) => m.id === "read-entry" && m.result).result
+  ).toEqual({
+    permissions: { fileSystem: { read: null, write: null, entries } },
+    scope: "turn",
+  });
+  await instance.interrupt();
+  await settled(instance);
+});
+
+test.each([
+  { network: { enabled: true, unexpected: true } },
+  { network: { enabled: "true" } },
+  { fileSystem: { read: ["relative.txt"] } },
+  {
+    fileSystem: {
+      entries: [{ access: "write", path: { type: "path", path: "/" } }],
+    },
+  },
+  { fileSystem: { read: ["/tmp/reference"], unexpected: true } },
+])(
+  "unsupported permission profiles are refused before UI approval: %j",
+  async (permissions) => {
+    const instance = session({
+      hold: true,
+      requests: [
+        {
+          id: "invalid-access",
+          method: "item/permissions/requestApproval",
+          params: { cwd: workdir, permissions },
+        },
+      ],
+    });
+    await instance.start("Keep permission validation");
+    await until(() =>
+      transcript().some((m) => m.id === "invalid-access" && m.result)
+    );
+    expect(
+      transcript().find((m) => m.id === "invalid-access" && m.result).result
+    ).toEqual({ permissions: {}, scope: "turn" });
+    expect(instance.state().approvals).toEqual([]);
+    await instance.interrupt();
+    await settled(instance);
+  }
+);

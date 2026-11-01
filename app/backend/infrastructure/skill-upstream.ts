@@ -334,30 +334,63 @@ async function copyBlob(
   });
 }
 
+async function discoverSkillPath(
+  ref: SkillRef,
+  repo: string,
+  version: UpstreamVersion,
+  entries: Entry[]
+): Promise<string | undefined> {
+  const candidates: { name: string; path: string }[] = [];
+  for (const entry of entries) {
+    if (
+      entry.path.split("/").at(-1) !== "SKILL.md" ||
+      !isInstallableSkillPath(entry.path)
+    )
+      continue;
+    regular(entry);
+    const candidate = resolveCatalogPath(
+      `${sourceDir(ref)}/discovery/${version.commit}/${hash(entry.path)}.md`
+    );
+    await copyBlob(repo, entry, candidate);
+    candidates.push({ name: frontmatterName(candidate), path: entry.path });
+  }
+  return uniqueExternalSkillCandidates(candidates).find(
+    (candidate) => candidate.name === ref.name
+  )?.path;
+}
+
+async function copySnapshot(
+  resolved: SkillRef,
+  { repo, version }: { repo: string; version: UpstreamVersion },
+  selected: Entry[],
+  prefix: string
+): Promise<string> {
+  const root = resolveCatalogPath(snapshotDir(resolved, version.commit));
+  for (const entry of selected) {
+    const path = entry.path.slice(prefix.length);
+    const target = skillFilePath(root, path);
+    // Guard each target as well as the root, including pre-existing symlink ancestors.
+    const guarded = resolveCatalogPath(
+      `${snapshotDir(resolved, version.commit)}/${path}`
+    );
+    if (target !== guarded)
+      throw new SkillUpstreamError(
+        "review",
+        "Snapshot path contains a symlink"
+      );
+    await copyBlob(repo, entry, guarded);
+  }
+  return root;
+}
+
 async function snapshot(ref: SkillRef): Promise<SkillSnapshot> {
   const cached = readCachedSkillSnapshot(ref);
   const pinned = cached?.ref.skillPath ?? ref.skillPath;
-  const { repo, version, entries } = await fetchHead(ref);
+  const head = await fetchHead(ref);
+  const { repo, version, entries } = head;
   let skillPath = pinned;
-  if (!skillPath) {
-    const candidates: { name: string; path: string }[] = [];
-    for (const entry of entries) {
-      if (
-        entry.path.split("/").at(-1) !== "SKILL.md" ||
-        !isInstallableSkillPath(entry.path)
-      )
-        continue;
-      regular(entry);
-      const candidate = resolveCatalogPath(
-        `${sourceDir(ref)}/discovery/${version.commit}/${hash(entry.path)}.md`
-      );
-      await copyBlob(repo, entry, candidate);
-      candidates.push({ name: frontmatterName(candidate), path: entry.path });
-    }
-    skillPath = uniqueExternalSkillCandidates(candidates).find(
-      (candidate) => candidate.name === ref.name
-    )?.path;
-  }
+  if (!skillPath)
+    skillPath = await discoverSkillPath(ref, repo, version, entries);
   if (!skillPath || !entries.some((entry) => entry.path === skillPath))
     throw new SkillUpstreamError(
       "missing",
@@ -375,21 +408,7 @@ async function snapshot(ref: SkillRef): Promise<SkillSnapshot> {
       "Source skill exceeds the 2000 file / 50 MiB limit"
     );
   for (const entry of selected) regular(entry);
-  const root = resolveCatalogPath(snapshotDir(resolved, version.commit));
-  for (const entry of selected) {
-    const path = entry.path.slice(prefix.length);
-    const target = skillFilePath(root, path);
-    // Guard each target as well as the root, including pre-existing symlink ancestors.
-    const guarded = resolveCatalogPath(
-      `${snapshotDir(resolved, version.commit)}/${path}`
-    );
-    if (target !== guarded)
-      throw new SkillUpstreamError(
-        "review",
-        "Snapshot path contains a symlink"
-      );
-    await copyBlob(repo, entry, guarded);
-  }
+  const root = await copySnapshot(resolved, head, selected, prefix);
   const pointer = pointerPath(ref);
   skillFilePath(dirname(pointer), `${ref.name}.json.tmp`);
   writeSkillJson(pointer, { ref: resolved, version });
@@ -410,110 +429,130 @@ export async function fetchSkillSnapshot(
   });
 }
 
+type HistoryProblem = Pick<SkillUpstreamStatus, "state" | "message">;
+
+async function baselineHistoryProblem(
+  repo: string,
+  baseline: UpstreamVersion,
+  latest: UpstreamVersion
+): Promise<HistoryProblem | undefined> {
+  try {
+    await git(repo, ["rev-parse", "--verify", `${baseline.commit}^{commit}`]);
+  } catch {
+    return { state: "unknown", message: "Baseline commit cannot be resolved" };
+  }
+  try {
+    await git(repo, [
+      "merge-base",
+      "--is-ancestor",
+      baseline.commit,
+      latest.commit,
+    ]);
+  } catch {
+    return {
+      state: "review",
+      message: "Upstream history is no longer continuous with the baseline",
+    };
+  }
+}
+
+async function compareSnapshot(
+  ref: SkillRef,
+  baseline: UpstreamVersion,
+  fetched: SkillSnapshot,
+  checkedAt: string
+): Promise<SkillUpstreamStatus> {
+  const latest = fetched.version;
+  const repo = resolveCatalogPath(`${sourceDir(ref)}/repo.git`);
+  const problem = await baselineHistoryProblem(repo, baseline, latest);
+  if (problem) return { ...problem, baseline, latest, behind: null, checkedAt };
+  const path = dirname(fetched.ref.skillPath!);
+  const behind = Number(
+    (
+      await git(repo, [
+        "rev-list",
+        "--count",
+        `${baseline.commit}..${latest.commit}`,
+        "--",
+        path,
+      ])
+    )
+      .toString()
+      .trim()
+  );
+  if (!Number.isSafeInteger(behind) || behind < 0)
+    throw new Error("Invalid scoped commit count");
+  return {
+    state: behind > 0 ? "behind" : "current",
+    baseline,
+    latest,
+    behind,
+    checkedAt,
+  };
+}
+
+function upstreamCheckFailure(
+  error: unknown,
+  baseline: UpstreamVersion | undefined,
+  latest: UpstreamVersion | undefined,
+  checkedAt: string
+): SkillUpstreamStatus {
+  if (error instanceof ValueError && !(error instanceof SkillUpstreamError))
+    throw error;
+  return {
+    state: error instanceof SkillUpstreamError ? error.state : "unavailable",
+    baseline,
+    latest,
+    behind: null,
+    checkedAt,
+    message:
+      error instanceof SkillUpstreamError
+        ? error.message
+        : "Unable to check the source repository; retry later",
+  };
+}
+
+async function checkUpstream(
+  ref: SkillRef,
+  baseline: UpstreamVersion | undefined,
+  refresh: boolean
+): Promise<SkillUpstreamStatus> {
+  const checkedAt = new Date().toISOString();
+  let latest: UpstreamVersion | undefined;
+  try {
+    latest = readCachedSkillSnapshot(ref)?.version;
+    const fetched = refresh
+      ? await snapshot(ref)
+      : readCachedSkillSnapshot(ref);
+    if (!fetched)
+      return {
+        state: "unknown",
+        baseline,
+        behind: null,
+        checkedAt,
+        message: "No cached upstream snapshot is available",
+      };
+    latest = fetched.version;
+    if (!baseline || !commitPattern.test(baseline.commit))
+      return {
+        state: "unknown",
+        baseline,
+        latest,
+        behind: null,
+        checkedAt,
+        message: "Baseline commit is unknown",
+      };
+    return await compareSnapshot(ref, baseline, fetched, checkedAt);
+  } catch (error) {
+    return upstreamCheckFailure(error, baseline, latest, checkedAt);
+  }
+}
+
 export async function checkSkillUpstream(
   input: SkillRef,
   baseline?: UpstreamVersion,
   refresh = true
 ): Promise<SkillUpstreamStatus> {
   const ref = normalize(input);
-  return serialized(ref, async () => {
-    const checkedAt = new Date().toISOString();
-    let latest: UpstreamVersion | undefined;
-    try {
-      latest = readCachedSkillSnapshot(ref)?.version;
-      const fetched = refresh
-        ? await snapshot(ref)
-        : readCachedSkillSnapshot(ref);
-      if (!fetched)
-        return {
-          state: "unknown",
-          baseline,
-          behind: null,
-          checkedAt,
-          message: "No cached upstream snapshot is available",
-        };
-      latest = fetched.version;
-      if (!baseline || !commitPattern.test(baseline.commit))
-        return {
-          state: "unknown",
-          baseline,
-          latest,
-          behind: null,
-          checkedAt,
-          message: "Baseline commit is unknown",
-        };
-      const repo = resolveCatalogPath(`${sourceDir(ref)}/repo.git`);
-      try {
-        await git(repo, [
-          "rev-parse",
-          "--verify",
-          `${baseline.commit}^{commit}`,
-        ]);
-      } catch {
-        return {
-          state: "unknown",
-          baseline,
-          latest,
-          behind: null,
-          checkedAt,
-          message: "Baseline commit cannot be resolved",
-        };
-      }
-      try {
-        await git(repo, [
-          "merge-base",
-          "--is-ancestor",
-          baseline.commit,
-          latest.commit,
-        ]);
-      } catch {
-        return {
-          state: "review",
-          baseline,
-          latest,
-          behind: null,
-          checkedAt,
-          message: "Upstream history is no longer continuous with the baseline",
-        };
-      }
-      const path = dirname(fetched.ref.skillPath!);
-      const behind = Number(
-        (
-          await git(repo, [
-            "rev-list",
-            "--count",
-            `${baseline.commit}..${latest.commit}`,
-            "--",
-            path,
-          ])
-        )
-          .toString()
-          .trim()
-      );
-      if (!Number.isSafeInteger(behind) || behind < 0)
-        throw new Error("Invalid scoped commit count");
-      return {
-        state: behind > 0 ? "behind" : "current",
-        baseline,
-        latest,
-        behind,
-        checkedAt,
-      };
-    } catch (error) {
-      if (error instanceof ValueError && !(error instanceof SkillUpstreamError))
-        throw error;
-      return {
-        state:
-          error instanceof SkillUpstreamError ? error.state : "unavailable",
-        baseline,
-        latest,
-        behind: null,
-        checkedAt,
-        message:
-          error instanceof SkillUpstreamError
-            ? error.message
-            : "Unable to check the source repository; retry later",
-      };
-    }
-  });
+  return serialized(ref, () => checkUpstream(ref, baseline, refresh));
 }

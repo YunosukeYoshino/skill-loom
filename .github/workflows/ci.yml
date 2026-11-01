@@ -22,4 +22,4 @@ jobs:
       - run: make typecheck
       - run: make test
       - run: make publication-check
-      - run: bun run fallow:audit
+      - run: bun run fallow:audit --base origin/main

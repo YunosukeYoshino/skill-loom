@@ -21,16 +21,20 @@ async function request<T>(
       : {}),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(
-      typeof error?.message === "string"
-        ? error.message
-        : `Request failed (${response.status})`
-    );
+    throw await requestError(response);
   }
   return response.json().catch(() => {
     throw new Error(`Invalid API response (${response.status})`);
   }) as Promise<T>;
+}
+
+async function requestError(response: Response): Promise<Error> {
+  const error = await response.json().catch(() => ({}));
+  return new Error(
+    typeof error?.message === "string"
+      ? error.message
+      : `Request failed (${response.status})`
+  );
 }
 
 function query(ref: SkillRef, extra: Record<string, string> = {}) {

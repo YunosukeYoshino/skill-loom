@@ -303,6 +303,39 @@ test("他サイトや text/plain の書き込み要求を実行しない", async
   expect(plain.status).toBe(415);
 });
 
+test.each(["localhost", "127.0.0.1", "[::1]", "skill-loom.localhost"])(
+  "local host %s accepts same-origin skill reads",
+  async (host) => {
+    const origin = `http://${host}:9000`;
+    const response = await app.request(`${origin}/api/skill?name=alpha`, {
+      headers: { origin, "sec-fetch-site": "same-origin" },
+    });
+    expect(response.status).toBe(200);
+  }
+);
+
+const untrustedSkillRequests: {
+  url: string;
+  headers: Record<string, string>;
+}[] = [
+  { url: "http://localhost.evil.example", headers: {} },
+  { url: "http://localhost:9000", headers: { origin: "invalid" } },
+  {
+    url: "http://localhost:9000",
+    headers: { origin: "http://localhost:9001" },
+  },
+  { url: "http://localhost:9000", headers: { "sec-fetch-site": "same-site" } },
+];
+test.each(untrustedSkillRequests)(
+  "untrusted request is rejected before reading skills: %j",
+  async ({ url, headers }) => {
+    const response = await app.request(`${url}/api/skill?name=alpha`, {
+      headers,
+    });
+    expect(response.status).toBe(403);
+  }
+);
+
 test("適用の途中失敗で原版と Inventory を戻し、編集内容から再試行できる", async () => {
   inventory({
     beta: {
