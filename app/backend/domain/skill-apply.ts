@@ -25,6 +25,7 @@ import {
   deregisterFromCliLock,
   linkAgentSkillDirs,
   movePath,
+  setCliLockEntries,
   trashPath,
   unlinkAgentSkillDirs,
 } from "./projection";
@@ -99,6 +100,38 @@ function restoreText(path: string, value: string | null): void {
   renameSync(temporary, path);
 }
 
+function restoreInventoryEntry(journal: Journal): void {
+  if (readOptional(lockFile()) === journal.inventory) return;
+  const saved = parseInventoryLock(JSON.parse(journal.inventory));
+  const current = loadLock();
+  for (const section of ["external", "vendor"] as const) {
+    const entries = (current[section] ??= {});
+    const entry = saved[section][journal.name];
+    if (entry) entries[journal.name] = entry;
+    else delete entries[journal.name];
+  }
+  saveLock(current);
+}
+
+function restoreCliEntry(journal: Journal): void {
+  const path = globalLockFile();
+  const current = readOptional(path);
+  if (current === journal.cli) return;
+  if (journal.cli !== null) validateCliBackup(journal.cli);
+  const saved = journal.cli === null ? null : JSON.parse(journal.cli);
+  const entry = saved?.skills[journal.name] ?? null;
+  if (current === null) {
+    if (entry !== null)
+      restoreText(
+        path,
+        `${JSON.stringify({ ...saved, skills: { [journal.name]: entry } }, null, 2)}\n`
+      );
+    return;
+  }
+  const warning = setCliLockEntries({ [journal.name]: entry });
+  if (warning) throw new Error(warning);
+}
+
 function rollback(dir: string, journal: Journal): void {
   const paths = targetPaths(journal.name);
   unlinkAgentSkillDirs(journal.name);
@@ -110,8 +143,8 @@ function rollback(dir: string, journal: Journal): void {
       movePath(backup, paths[row.key]);
     } else if (!row.existed) trashPath(paths[row.key]);
   }
-  restoreText(lockFile(), journal.inventory);
-  restoreText(globalLockFile(), journal.cli);
+  restoreInventoryEntry(journal);
+  restoreCliEntry(journal);
   restoreText(
     skillStatePath(`tracking/${journal.name}.json`),
     journal.tracking

@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -361,7 +362,9 @@ test("適用の途中失敗で原版と Inventory を戻し、編集内容から
   place("cli-lock.json", "invalid CLI lock");
   const failed = await post("apply", { ref, revision: saved.revision });
   expect(failed.status).toBe(500);
-  expect(readFileSync(join(root, "skills.lock.json"), "utf8")).toBe(before);
+  expect(
+    JSON.parse(readFileSync(join(root, "skills.lock.json"), "utf8"))
+  ).toEqual(JSON.parse(before));
   expect(readFileSync(join(root, "active/beta/SKILL.md"), "utf8")).toBe(
     original
   );
@@ -375,6 +378,116 @@ test("適用の途中失敗で原版と Inventory を戻し、編集内容から
     (await post("apply", { ref, revision: resumed.revision })).status
   ).toBe(200);
 });
+
+test.each(["present", "absent", "removed", "unreadable"])(
+  "recovery preserves a different skill (CLI lock: %s)",
+  async (cliState) => {
+    const { recoverSkillApplications } = await import("./domain/skill-apply");
+    inventory({
+      beta: { source: "owner/repo", skillPath: "skills/beta/SKILL.md" },
+      gamma: { source: "owner/repo", skillPath: "skills/gamma/SKILL.md" },
+    });
+    if (cliState !== "absent")
+      place(
+        "cli-lock.json",
+        JSON.stringify({
+          version: 3,
+          skills: {
+            beta: { source: "owner/repo" },
+            gamma: { source: "owner/repo" },
+          },
+        })
+      );
+    const revisions: Record<string, string> = {};
+    for (const name of ["beta", "gamma"]) {
+      const content = `---\nname: ${name}\ndescription: Original\n---\n# Original\n`;
+      place(`active/${name}/SKILL.md`, content);
+      const ref = { name };
+      const fork = await (await post("fork", { ref })).json();
+      const saved = await (
+        await post("save", {
+          ref,
+          path: "SKILL.md",
+          content: content.replace("# Original", "# Edited"),
+          revision: fork.revision,
+        })
+      ).json();
+      revisions[name] = saved.revision;
+    }
+    place("claude", "Blocks agent-link directory creation\n");
+    const failed = await post("apply", {
+      ref: { name: "beta" },
+      revision: revisions.beta,
+    });
+    expect(failed.status).toBe(500);
+    expect(
+      existsSync(join(root, ".skill-loom/transactions/beta/journal.json"))
+    ).toBe(true);
+    renameSync(join(root, "claude"), join(root, "claude-blocker"));
+    expect(
+      (
+        await post("apply", {
+          ref: { name: "gamma" },
+          revision: revisions.gamma,
+        })
+      ).status
+    ).toBe(200);
+    const lock = readFileSync(join(root, "skills.lock.json"), "utf8");
+    if (cliState === "absent")
+      place(
+        "cli-lock.json",
+        JSON.stringify({
+          version: 4,
+          updatedAt: "retained",
+          skills: { delta: { source: "another/repo" } },
+        })
+      );
+    const cli = readFileSync(join(root, "cli-lock.json"), "utf8");
+    if (cliState === "removed")
+      renameSync(
+        join(root, "cli-lock.json"),
+        join(root, "removed-cli-lock.json")
+      );
+    if (cliState === "unreadable") {
+      place("cli-lock.json", "unreadable CLI lock");
+      expect(recoverSkillApplications().join(" ")).toContain("復旧が必要");
+      expect(readFileSync(join(root, "cli-lock.json"), "utf8")).toBe(
+        "unreadable CLI lock"
+      );
+      expect(
+        existsSync(join(root, ".skill-loom/transactions/beta/journal.json"))
+      ).toBe(true);
+      place("cli-lock.json", cli);
+    }
+    expect(JSON.parse(lock).vendor.gamma).toBeDefined();
+    expect(JSON.parse(cli).skills.gamma).toBeUndefined();
+    expect(recoverSkillApplications()).toEqual([]);
+    expect(readFileSync(join(root, "skills.lock.json"), "utf8")).toBe(lock);
+    const restored = JSON.parse(
+      readFileSync(join(root, "skills.lock.json"), "utf8")
+    );
+    expect(restored.external.beta).toEqual({
+      source: "owner/repo",
+      sourceUrl: "https://github.com/owner/repo.git",
+      skillPath: "skills/beta/SKILL.md",
+    });
+    expect(restored.vendor.beta).toBeUndefined();
+    expect(
+      JSON.parse(readFileSync(join(root, "cli-lock.json"), "utf8"))
+    ).toEqual(JSON.parse(cli));
+    expect(readFileSync(join(root, "active/beta/SKILL.md"), "utf8")).toContain(
+      "# Original"
+    );
+    expect(readFileSync(join(root, "active/gamma/SKILL.md"), "utf8")).toContain(
+      "# Edited"
+    );
+    expect(readFileSync(join(root, "vendor/gamma/SKILL.md"), "utf8")).toContain(
+      "# Edited"
+    );
+    expect(existsSync(join(root, ".skill-loom/transactions/beta"))).toBe(false);
+    expect(recoverSkillApplications()).toEqual([]);
+  }
+);
 
 test("構文エラーは保存できるが適用できず、正本の別変更も上書きしない", async () => {
   inventory({
