@@ -28,10 +28,16 @@ import {
   CheckboxList,
   ExternalImportForm,
   SearchField,
+  SkillLink,
   TristateList,
   filterSelection,
   useLoomFilter,
 } from "@/components/lists";
+import {
+  externalGlobalSelection,
+  externalSourceActivity,
+  updateExternalGlobal,
+} from "./external-source-model";
 import { DialogFrame, useConfirm } from "@/components/dialog";
 import { useListViewSearch } from "@/router-search";
 import { useT, useUiSettings } from "@/settings/react";
@@ -55,6 +61,48 @@ import {
 
 function errMessage(err: unknown): string | undefined {
   return err instanceof Error ? err.message : undefined;
+}
+
+function InstallFailure({
+  error,
+  source,
+  skills,
+}: {
+  error: unknown;
+  source: string;
+  skills: string[];
+}) {
+  const { settings } = useUiSettings();
+  const message = errMessage(error);
+  if (!message) return null;
+  const ja = settings.locale === "ja";
+  return (
+    <section
+      role="alert"
+      className="mb-3 rounded-[var(--radius-md)] border border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-3 text-sm"
+    >
+      <p className="m-0 whitespace-pre-wrap break-words">{message}</p>
+      <p className="my-2">
+        {ja
+          ? "選択したスキルを閲覧して Fork できます。エラー文は詳細画面の Codex 入力欄に引き継がれます。"
+          : "Inspect a selected skill and fork it. The error is carried into the detail page’s Codex prompt."}
+      </p>
+      <ul className="m-0 list-none space-y-1 p-0">
+        {skills.map((name) => (
+          <li key={name}>
+            <Link
+              to="/skills/$name"
+              params={{ name }}
+              search={{ source, skillPath: undefined, prompt: message }}
+              className="inline-flex min-h-10 items-center break-all text-[var(--color-accent)] underline underline-offset-4"
+            >
+              {name} · {ja ? "閲覧して Fork" : "Inspect and fork"}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 function useOgp(source: string) {
@@ -1477,10 +1525,11 @@ export function ExternalPreviewPage({
       decks={data.decks}
       searchable
     >
-      <Message
-        text={
-          data.message || errMessage(install.error) || errMessage(addDeck.error)
-        }
+      <Message text={data.message || errMessage(addDeck.error)} />
+      <InstallFailure
+        error={install.error}
+        source={source}
+        skills={install.variables?.skills ?? []}
       />
       <ActionStatus
         text={previewBusy ? t("status.addingSelected") : undefined}
@@ -1513,6 +1562,8 @@ export function ExternalPreviewPage({
       />
       <SelectableSkills
         rows={data.rows}
+        source={source}
+        prompt={errMessage(install.error)}
         busy={install.isPending || addDeck.isPending}
         actions={
           deck
@@ -1545,6 +1596,8 @@ function SelectableSkills({
   actions,
   busy,
   presetChecked = false,
+  source,
+  prompt,
 }: {
   rows: SkillRow[];
   actions: {
@@ -1554,6 +1607,8 @@ function SelectableSkills({
   }[];
   busy?: boolean;
   presetChecked?: boolean;
+  source?: string;
+  prompt?: string;
 }) {
   const t = useT();
   const [selected, setSelected] = useState<string[]>([]);
@@ -1605,33 +1660,35 @@ function SelectableSkills({
       {filtered.length > 0 ? (
         <div className="divide-y divide-[var(--color-rule)] rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)]">
           {filtered.map((row) => (
-            <label
+            <div
               key={row.name}
-              className="loom-row flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]"
+              className="loom-row flex gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]"
             >
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={selected.includes(row.name)}
-                onChange={(e) =>
-                  setSelected((prev) =>
-                    e.target.checked
-                      ? [...prev, row.name]
-                      : prev.filter((n) => n !== row.name)
-                  )
-                }
-              />
+              <label className="flex min-h-10 min-w-10 cursor-pointer justify-center pt-1">
+                <input
+                  type="checkbox"
+                  aria-label={row.name}
+                  disabled={busy}
+                  className="mt-1"
+                  checked={selected.includes(row.name)}
+                  onChange={(e) =>
+                    setSelected((prev) =>
+                      e.target.checked
+                        ? [...prev, row.name]
+                        : prev.filter((n) => n !== row.name)
+                    )
+                  }
+                />
+              </label>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
-                    {row.name}
-                  </code>
+                  <SkillLink name={row.name} source={source} prompt={prompt} />
                 </div>
                 <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
                   {row.description}
                 </p>
               </div>
-            </label>
+            </div>
           ))}
         </div>
       ) : (
@@ -2149,21 +2206,37 @@ function RemoveSourceButton({
 }
 
 export function ExternalSourceDetailPage({ source }: { source: string }) {
-  const t = useT();
-  const confirm = useConfirm();
-  const qc = useQueryClient();
-  const navigate = useNavigate();
   const q = useQuery({
     queryKey: ["external-source", source],
     queryFn: () => api.externalSource(source),
   });
-  const allGlobalRef = useRef<HTMLInputElement>(null);
+  const actions = useExternalSourceActions(source, () => q.refetch());
+  const applyGlobal = useExternalGlobal(source);
   // このページの update / remove / install / apply のどれかが走っている間は操作を止める。
   const detailBusy = useIsMutating() > 0;
+  if (q.isPending) return <PageLoading variant="detail" />;
+  if (q.isError)
+    return <PageError current="external-sources" message={q.error.message} />;
+  return (
+    <ExternalSourceDetailView
+      source={source}
+      data={q.data}
+      actions={actions}
+      applyGlobal={applyGlobal}
+      detailBusy={detailBusy}
+    />
+  );
+}
 
+function useExternalSourceActions(
+  source: string,
+  refetch: () => Promise<unknown>
+) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
   const updateOne = useMutation({
     mutationFn: (skill: string) => api.updateSkill(skill),
-    onSuccess: () => q.refetch(),
+    onSuccess: () => refetch(),
   });
   const updateAll = useMutation({
     mutationFn: () => api.updateAll(source),
@@ -2202,7 +2275,7 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       applyErrorBody(err, (body) =>
         qc.setQueryData(["external-sources"], body)
       );
-      void q.refetch();
+      void refetch();
     },
   });
   const install = useMutation({
@@ -2213,8 +2286,13 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       skills: string[];
       replace?: string[];
     }) => api.installExternal(source, skills, "", replace),
-    onSuccess: () => q.refetch(),
+    onSuccess: () => refetch(),
   });
+  return { updateOne, updateAll, remove, removeSource, install };
+}
+
+function useExternalGlobal(source: string) {
+  const qc = useQueryClient();
   const applyGlobal = useMutation({
     mutationFn: (states: Record<string, Tristate>) => api.apply(states),
     onMutate: async (states) => {
@@ -2226,21 +2304,7 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       if (prev) {
         qc.setQueryData<ExternalSourceDetailPayload>(
           ["external-source", source],
-          {
-            ...prev,
-            message: "",
-            installed: prev.installed.map((skill) =>
-              skill.name in states
-                ? {
-                    ...skill,
-                    state: states[skill.name]!,
-                    hasUpdate:
-                      states[skill.name] === "active" ? skill.hasUpdate : false,
-                  }
-                : skill
-            ),
-            updatable: prev.updatable.filter((name) => states[name] !== "off"),
-          }
+          updateExternalGlobal(prev, states)
         );
       }
       return { prev };
@@ -2253,49 +2317,26 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       void qc.invalidateQueries({ queryKey: ["external-source", source] });
     },
   });
+  return applyGlobal;
+}
 
-  const installed = q.data?.installed ?? [];
-  const isGlobalOn = (skill: InstalledExternal) => skill.state === "active";
-  const activeCount = installed.filter(isGlobalOn).length;
-  const allActive = installed.length > 0 && activeCount === installed.length;
-  const someActive = activeCount > 0 && !allActive;
+type ExternalSourceActions = ReturnType<typeof useExternalSourceActions>;
+type ExternalGlobalAction = ReturnType<typeof useExternalGlobal>;
 
-  useEffect(() => {
-    if (allGlobalRef.current) {
-      allGlobalRef.current.indeterminate = someActive;
-    }
-  }, [someActive]);
-
-  if (q.isPending) return <PageLoading variant="detail" />;
-  if (q.isError) {
-    return (
-      <PageError
-        current="external-sources"
-        message={(q.error as Error).message}
-      />
-    );
-  }
-  const data = q.data;
-
-  const setGlobal = (name: string, on: boolean) => {
-    applyGlobal.mutate({ [name]: on ? "active" : "off" });
-  };
-
-  const setAllGlobal = (on: boolean) => {
-    if (!installed.length) return;
-    const states: Record<string, Tristate> = {};
-    if (on) {
-      for (const skill of installed) {
-        if (!isGlobalOn(skill)) states[skill.name] = "active";
-      }
-    } else {
-      for (const skill of installed) {
-        if (isGlobalOn(skill)) states[skill.name] = "off";
-      }
-    }
-    if (Object.keys(states).length) applyGlobal.mutate(states);
-  };
-
+function ExternalSourceDetailView({
+  source,
+  data,
+  actions,
+  applyGlobal,
+  detailBusy,
+}: {
+  source: string;
+  data: ExternalSourceDetailPayload;
+  actions: ExternalSourceActions;
+  applyGlobal: ExternalGlobalAction;
+  detailBusy: boolean;
+}) {
+  const t = useT();
   return (
     <WorkbenchShell
       title={data.title}
@@ -2303,27 +2344,11 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       current="external-sources"
       decks={data.decks}
     >
-      <Message
-        text={
-          data.message ||
-          errMessage(applyGlobal.error) ||
-          errMessage(removeSource.error)
-        }
-      />
-      <ActionStatus
-        text={
-          updateAll.isPending
-            ? t("status.updateSource")
-            : updateOne.isPending
-              ? t("status.updateSkill")
-              : remove.isPending || removeSource.isPending
-                ? t("status.removing")
-                : install.isPending
-                  ? t("status.installing")
-                  : applyGlobal.isPending
-                    ? t("status.applyingGlobal")
-                    : undefined
-        }
+      <ExternalSourceDetailStatus
+        data={data}
+        source={source}
+        actions={actions}
+        applyGlobal={applyGlobal}
       />
       <OgpBanner source={source} />
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -2337,11 +2362,11 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
           <Button
             variant="primary"
             disabled={detailBusy}
-            onClick={() => updateAll.mutate()}
+            onClick={() => actions.updateAll.mutate()}
           >
             <span className="[font-variant-numeric:tabular-nums]">
               {pendingLabel(
-                updateAll.isPending,
+                actions.updateAll.isPending,
                 t("detail.updateAll", { count: data.updatable.length }),
                 t("common.updating")
               )}
@@ -2352,87 +2377,27 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
           source={source}
           removal={data.removal}
           disabled={detailBusy}
-          pending={removeSource.isPending}
-          onConfirm={() => removeSource.mutate()}
+          pending={actions.removeSource.isPending}
+          onConfirm={() => actions.removeSource.mutate()}
         />
       </div>
-      {installed.length ? (
-        <label className="mb-3 flex min-h-10 cursor-pointer items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2.5 text-sm">
-          <input
-            ref={allGlobalRef}
-            type="checkbox"
-            checked={allActive}
-            disabled={detailBusy}
-            onChange={(e) => setAllGlobal(e.target.checked)}
-          />
-          <span className="font-medium">{t("detail.allGlobalOn")}</span>
-          <span className="text-[var(--color-ink-2)] [font-variant-numeric:tabular-nums]">
-            ({activeCount}/{installed.length})
-          </span>
-        </label>
-      ) : null}
+      <ExternalGlobalToggle
+        installed={data.installed}
+        busy={detailBusy}
+        onApply={applyGlobal.mutate}
+      />
       <BusyRegion busy={detailBusy} className="mb-4 grid gap-3">
-        {installed.map((skill) => (
-          <div
+        {data.installed.map((skill) => (
+          <InstalledExternalCard
             key={skill.name}
-            className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3"
-          >
-            <div className="mb-1 flex flex-wrap items-center gap-3">
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={isGlobalOn(skill)}
-                  disabled={detailBusy}
-                  onChange={(e) => setGlobal(skill.name, e.target.checked)}
-                />
-                <span className="text-[var(--color-ink-2)]">global</span>
-              </label>
-              <h2 className="m-0 text-base font-semibold">{skill.name}</h2>
-            </div>
-            <p className="m-0 mb-2 text-sm text-[var(--color-ink-2)]">
-              {skill.description}
-            </p>
-            <div className="mb-2 font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink-2)]">
-              {skill.path} · {skill.state}
-            </div>
-            {skill.hasUpdate ? (
-              <div className="mb-2">
-                <span className="text-xs text-[var(--color-warn)]">
-                  {t("detail.hasUpdate")}
-                </span>
-                <div className="mt-2">
-                  <Button
-                    disabled={detailBusy}
-                    onClick={() => updateOne.mutate(skill.name)}
-                  >
-                    {pendingLabel(
-                      updateOne.isPending,
-                      t("detail.updateOne"),
-                      t("common.updating")
-                    )}
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-            <Button
-              disabled={detailBusy}
-              onClick={async () => {
-                const ok = await confirm({
-                  title: t("detail.removeTitle", { name: skill.name }),
-                  body: t("detail.removeConfirm"),
-                  confirmLabel: t("detail.remove"),
-                  tone: "danger",
-                });
-                if (ok) remove.mutate(skill.name);
-              }}
-            >
-              {pendingLabel(
-                remove.isPending,
-                t("detail.remove"),
-                t("common.processing")
-              )}
-            </Button>
-          </div>
+            skill={skill}
+            source={source}
+            detailBusy={detailBusy}
+            actions={actions}
+            onGlobal={(on) =>
+              applyGlobal.mutate({ [skill.name]: on ? "active" : "off" })
+            }
+          />
         ))}
       </BusyRegion>
       {data.available.length ? (
@@ -2442,19 +2407,186 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
           </h2>
           <CheckboxList
             rows={data.available}
+            source={source}
+            prompt={errMessage(actions.install.error)}
             submitLabel={t("detail.installSelected")}
-            busy={install.isPending}
-            onSubmit={(skills) => install.mutate({ skills })}
+            busy={actions.install.isPending}
+            onSubmit={(skills) => actions.install.mutate({ skills })}
           />
         </>
       ) : null}
       <ReplacementPanel
         rows={data.replaceable}
         source={data.source}
-        busy={install.isPending}
-        onSubmit={(replace) => install.mutate({ skills: replace, replace })}
+        busy={actions.install.isPending}
+        onSubmit={(replace) =>
+          actions.install.mutate({ skills: replace, replace })
+        }
       />
     </WorkbenchShell>
+  );
+}
+
+function ExternalSourceDetailStatus({
+  data,
+  source,
+  actions,
+  applyGlobal,
+}: {
+  data: ExternalSourceDetailPayload;
+  source: string;
+  actions: ExternalSourceActions;
+  applyGlobal: ExternalGlobalAction;
+}) {
+  const t = useT();
+  const { updateAll, updateOne, remove, removeSource, install } = actions;
+  const errors = [
+    updateOne.error,
+    updateAll.error,
+    remove.error,
+    applyGlobal.error,
+    removeSource.error,
+  ];
+  const message = [data.message, ...errors.map(errMessage)].find(Boolean);
+  const activity = externalSourceActivity({
+    updateAll: updateAll.isPending,
+    updateOne: updateOne.isPending,
+    remove: remove.isPending,
+    removeSource: removeSource.isPending,
+    install: install.isPending,
+    applyGlobal: applyGlobal.isPending,
+  });
+  return (
+    <>
+      <Message text={message} />
+      <InstallFailure
+        error={install.error}
+        source={source}
+        skills={install.variables?.skills ?? []}
+      />
+      <ActionStatus text={activity && t(activity)} />
+    </>
+  );
+}
+
+function ExternalGlobalToggle({
+  installed,
+  busy,
+  onApply,
+}: {
+  installed: InstalledExternal[];
+  busy: boolean;
+  onApply: (states: Record<string, Tristate>) => void;
+}) {
+  const t = useT();
+  const allGlobalRef = useRef<HTMLInputElement>(null);
+  const activeCount = installed.filter(
+    (skill) => skill.state === "active"
+  ).length;
+  const allActive = installed.length > 0 && activeCount === installed.length;
+  const someActive = activeCount > 0 && !allActive;
+  useEffect(() => {
+    if (allGlobalRef.current) allGlobalRef.current.indeterminate = someActive;
+  }, [someActive]);
+  if (!installed.length) return null;
+  return (
+    <label className="mb-3 flex min-h-10 cursor-pointer items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] px-3 py-2.5 text-sm">
+      <input
+        ref={allGlobalRef}
+        type="checkbox"
+        checked={allActive}
+        disabled={busy}
+        onChange={(event) => {
+          const states = externalGlobalSelection(
+            installed,
+            event.target.checked
+          );
+          if (Object.keys(states).length) onApply(states);
+        }}
+      />
+      <span className="font-medium">{t("detail.allGlobalOn")}</span>
+      <span className="text-[var(--color-ink-2)] [font-variant-numeric:tabular-nums]">
+        ({activeCount}/{installed.length})
+      </span>
+    </label>
+  );
+}
+
+function InstalledExternalCard({
+  skill,
+  source,
+  detailBusy,
+  actions,
+  onGlobal,
+}: {
+  skill: InstalledExternal;
+  source: string;
+  detailBusy: boolean;
+  actions: ExternalSourceActions;
+  onGlobal: (on: boolean) => void;
+}) {
+  const t = useT();
+  const confirm = useConfirm();
+  return (
+    <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
+      <div className="mb-1 flex flex-wrap items-center gap-3">
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={skill.state === "active"}
+            disabled={detailBusy}
+            onChange={(e) => onGlobal(e.target.checked)}
+          />
+          <span className="text-[var(--color-ink-2)]">global</span>
+        </label>
+        <h2 className="m-0 text-base font-semibold">
+          <SkillLink name={skill.name} source={source} />
+        </h2>
+      </div>
+      <p className="m-0 mb-2 text-sm text-[var(--color-ink-2)]">
+        {skill.description}
+      </p>
+      <div className="mb-2 font-[family-name:var(--font-mono)] text-xs text-[var(--color-ink-2)]">
+        {skill.path} · {skill.state}
+      </div>
+      {skill.hasUpdate ? (
+        <div className="mb-2">
+          <span className="text-xs text-[var(--color-warn)]">
+            {t("detail.hasUpdate")}
+          </span>
+          <div className="mt-2">
+            <Button
+              disabled={detailBusy}
+              onClick={() => actions.updateOne.mutate(skill.name)}
+            >
+              {pendingLabel(
+                actions.updateOne.isPending,
+                t("detail.updateOne"),
+                t("common.updating")
+              )}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      <Button
+        disabled={detailBusy}
+        onClick={async () => {
+          const ok = await confirm({
+            title: t("detail.removeTitle", { name: skill.name }),
+            body: t("detail.removeConfirm"),
+            confirmLabel: t("detail.remove"),
+            tone: "danger",
+          });
+          if (ok) actions.remove.mutate(skill.name);
+        }}
+      >
+        {pendingLabel(
+          actions.remove.isPending,
+          t("detail.remove"),
+          t("common.processing")
+        )}
+      </Button>
+    </div>
   );
 }
 

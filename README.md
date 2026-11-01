@@ -61,6 +61,8 @@ MY_SKILLS_VITE=1 ./skill-loom --catalog-dir ../my-skill-catalog ui
 > [!IMPORTANT]
 > Skill Loom currently targets macOS. Off transitions use the system Trash so removals stay recoverable. The local UI has no authentication and should remain bound to localhost.
 
+Select a skill name to inspect its files. External skills can be forked, edited manually or with a local Codex App Server, reviewed, and applied as a same-name Vendor while preserving their existing selection and Decks. See [Inspect and fork a skill](docs/skill-workspaces.md) for version tracking, approvals, and recovery.
+
 ## Why Skill Loom
 
 - **Private by construction.** The public Engine never needs your real Inventory Lock, authored Skills, Decks, or Agent definitions.

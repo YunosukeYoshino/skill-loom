@@ -89,6 +89,9 @@ import {
 } from "./domain/tristate";
 import { fetchOgp } from "./ogp";
 import { searchSkillsSh } from "./skillssh";
+import { createSkillRoutes } from "./skillRoutes";
+import { recoverSkillApplications } from "./domain/skill-apply";
+import { shutdownAllSkillCodexSessions } from "./infrastructure/skill-codex";
 import {
   draftsPayload,
   externalPreviewPayload,
@@ -234,7 +237,7 @@ function startVite(port: number): Subprocess {
 
 let shuttingDown = false;
 
-function shutdown(code: number | null = null): void {
+async function shutdown(code: number | null = null): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   for (const child of children) {
@@ -244,6 +247,7 @@ function shutdown(code: number | null = null): void {
       // 既に終了している子は無視する
     }
   }
+  await shutdownAllSkillCodexSessions();
   if (code !== null) process.exit(code);
 }
 
@@ -386,6 +390,7 @@ if (useVite) {
 }
 
 const app = new Hono();
+app.route("/api/skill", createSkillRoutes());
 
 // ---- 移植済みルート ----
 
@@ -1611,6 +1616,7 @@ app.all("*", () =>
 try {
   const warning = recoverPendingReplacements();
   if (warning) console.warn(warning);
+  for (const message of recoverSkillApplications()) console.warn(message);
 } catch (error) {
   console.warn(`置き換えの復旧に失敗しました: ${errorText(error)}`);
 }

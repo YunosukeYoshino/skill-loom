@@ -11,6 +11,7 @@
  *    1 箇所に閉じ込めて意図を残す。
  */
 
+import { randomUUID } from "node:crypto";
 import {
   readdirSync,
   readFileSync,
@@ -50,7 +51,15 @@ export type Lock = {
   version?: 1;
   custom?: { repo?: string; skills?: Record<string, CustomSkillMeta | string> };
   external?: Record<string, ExternalSkillMeta>;
-  vendor?: Record<string, { source?: string }>;
+  vendor?: Record<
+    string,
+    {
+      source?: string;
+      sourceUrl?: string;
+      skillPath?: string;
+      localRepoPath?: string;
+    }
+  >;
 };
 
 /**
@@ -151,8 +160,8 @@ export function loadLock(): Lock {
 /** lock の書き戻し。tmp へ書いてから rename するので、途中で落ちても半端な lock は残らない。 */
 export function saveLock(lock: Lock): void {
   const path = lockFile();
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(lock, null, 2)}\n`);
+  const tmp = `${path}.${randomUUID()}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(lock, null, 2)}\n`, { flag: "wx" });
   renameSync(tmp, path);
 }
 
@@ -347,16 +356,26 @@ function rowContext(lock: Lock): RowContext {
   };
 }
 
-/** 返り値は Python と同じ [category, source] の並び。 */
-function skillMetadata(ctx: RowContext, name: string): [string, string] {
-  const custom = ctx.lock.custom?.skills ?? {};
-  const external = ctx.lock.external ?? {};
+function cliExternalMetadata(
+  ctx: RowContext,
+  name: string
+): [string, string] | undefined {
   const globalMeta = ctx.globalLock[name];
   if (globalMeta && Object.keys(globalMeta).length > 0) {
     const source = globalMeta.source ?? "";
     const repoSource = ctx.lock.custom?.repo;
     if (source && source !== repoSource) return [source, "external"];
   }
+}
+
+/** 返り値は Python と同じ [category, source] の並び。 */
+function skillMetadata(ctx: RowContext, name: string): [string, string] {
+  const custom = ctx.lock.custom?.skills ?? {};
+  const external = ctx.lock.external ?? {};
+  const vendor = ctx.lock.vendor?.[name];
+  if (vendor) return [vendor.source || "vendor", "vendor"];
+  const globalMeta = cliExternalMetadata(ctx, name);
+  if (globalMeta) return globalMeta;
   if (name in custom) {
     const meta = custom[name];
     return [

@@ -12,6 +12,7 @@
  * 移動の途中経過をエージェントに見せないため。順序を変えないこと。
  */
 
+import { randomUUID } from "node:crypto";
 import {
   cpSync,
   existsSync,
@@ -179,9 +180,9 @@ function editCliLock(
   if (!edit(skills)) return "";
 
   // tmp へ書いてから rename。途中で落ちても CLI lock が壊れた状態で残らない。
-  const tmp = `${lockPath}.tmp`;
+  const tmp = `${lockPath}.${randomUUID()}.tmp`;
   try {
-    writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`);
+    writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { flag: "wx" });
     renameSync(tmp, lockPath);
   } catch (error) {
     return `CLI lock を更新できませんでした（書き込み失敗: ${error instanceof Error ? error.message : String(error)}）: ${lockPath}`;
