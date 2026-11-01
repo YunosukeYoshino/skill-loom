@@ -509,6 +509,27 @@ describe("addExternalToLock", () => {
 });
 
 describe("runExternalInstall", () => {
+  test.each(["stdout", "stderr"])(
+    "install 失敗時に %s の診断を残す",
+    async (stream) => {
+      const script = dir("skills-add-stub");
+      writeFileSync(
+        script,
+        `#!/bin/sh\nprintf '\\033[31mYAML parse error: invalid description\\033[0m\\n' ${stream === "stderr" ? ">&2" : ""}\nexit 1\n`
+      );
+      setEnv("MY_SKILLS_ADD_SCRIPT", script);
+      await expect(
+        runExternalInstall("owner/repo", new Set(["alpha"]), [
+          {
+            candidate: { name: "alpha" },
+            upstreamName: "alpha",
+            deployName: "alpha",
+          },
+        ])
+      ).rejects.toThrow("YAML parse error: invalid description");
+    }
+  );
+
   test("unsafe な skill 名は subprocess を起動する前に弾く", async () => {
     const marker = dir("install-ran");
     const script = dir("skills-add-stub");

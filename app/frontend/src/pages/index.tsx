@@ -2026,7 +2026,15 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
       current="external-sources"
       decks={data.decks}
     >
-      <Message text={data.message || errMessage(applyGlobal.error)} />
+      <Message
+        text={
+          data.message ||
+          errMessage(updateOne.error) ||
+          errMessage(updateAll.error) ||
+          errMessage(remove.error) ||
+          errMessage(applyGlobal.error)
+        }
+      />
       <ActionStatus
         text={
           updateAll.isPending
@@ -2150,6 +2158,7 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
           <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink-2)]">
             {t("detail.available")}
           </h2>
+          <Message text={errMessage(install.error)} />
           <CheckboxList
             rows={data.available}
             submitLabel={t("detail.installSelected")}

@@ -17,6 +17,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import {
   activeDir,
   archiveDir,
@@ -771,10 +772,15 @@ async function runSkillsAdd(source: string, names: string[]): Promise<void> {
     stderr: "pipe",
     timeout: 180_000 * names.length,
   });
-  const exitCode = await proc.exited;
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
   if (exitCode !== 0) {
+    const detail = stripVTControlCharacters(`${stdout}\n${stderr}`).trim();
     throw new Error(
-      `Command '${command.join(" ")}' returned non-zero exit status ${exitCode}.`
+      `Command '${command.join(" ")}' returned non-zero exit status ${exitCode}.${detail ? `\n${detail}` : ""}`
     );
   }
 }
