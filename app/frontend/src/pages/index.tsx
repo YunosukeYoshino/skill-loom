@@ -28,6 +28,7 @@ import {
   CheckboxList,
   ExternalImportForm,
   SearchField,
+  SkillLink,
   TristateList,
   filterSelection,
   useLoomFilter,
@@ -55,6 +56,48 @@ import {
 
 function errMessage(err: unknown): string | undefined {
   return err instanceof Error ? err.message : undefined;
+}
+
+function InstallFailure({
+  error,
+  source,
+  skills,
+}: {
+  error: unknown;
+  source: string;
+  skills: string[];
+}) {
+  const { settings } = useUiSettings();
+  const message = errMessage(error);
+  if (!message) return null;
+  const ja = settings.locale === "ja";
+  return (
+    <section
+      role="alert"
+      className="mb-3 rounded-[var(--radius-md)] border border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-3 text-sm"
+    >
+      <p className="m-0 whitespace-pre-wrap break-words">{message}</p>
+      <p className="my-2">
+        {ja
+          ? "選択したスキルを閲覧して Fork できます。エラー文は詳細画面の Codex 入力欄に引き継がれます。"
+          : "Inspect a selected skill and fork it. The error is carried into the detail page’s Codex prompt."}
+      </p>
+      <ul className="m-0 list-none space-y-1 p-0">
+        {skills.map((name) => (
+          <li key={name}>
+            <Link
+              to="/skills/$name"
+              params={{ name }}
+              search={{ source, skillPath: undefined, prompt: message }}
+              className="inline-flex min-h-10 items-center break-all text-[var(--color-accent)] underline underline-offset-4"
+            >
+              {name} · {ja ? "閲覧して Fork" : "Inspect and fork"}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 function useOgp(source: string) {
@@ -1477,10 +1520,11 @@ export function ExternalPreviewPage({
       decks={data.decks}
       searchable
     >
-      <Message
-        text={
-          data.message || errMessage(install.error) || errMessage(addDeck.error)
-        }
+      <Message text={data.message || errMessage(addDeck.error)} />
+      <InstallFailure
+        error={install.error}
+        source={source}
+        skills={install.variables?.skills ?? []}
       />
       <ActionStatus
         text={previewBusy ? t("status.addingSelected") : undefined}
@@ -1513,6 +1557,8 @@ export function ExternalPreviewPage({
       />
       <SelectableSkills
         rows={data.rows}
+        source={source}
+        prompt={errMessage(install.error)}
         busy={install.isPending || addDeck.isPending}
         actions={
           deck
@@ -1545,6 +1591,8 @@ function SelectableSkills({
   actions,
   busy,
   presetChecked = false,
+  source,
+  prompt,
 }: {
   rows: SkillRow[];
   actions: {
@@ -1554,6 +1602,8 @@ function SelectableSkills({
   }[];
   busy?: boolean;
   presetChecked?: boolean;
+  source?: string;
+  prompt?: string;
 }) {
   const t = useT();
   const [selected, setSelected] = useState<string[]>([]);
@@ -1605,33 +1655,35 @@ function SelectableSkills({
       {filtered.length > 0 ? (
         <div className="divide-y divide-[var(--color-rule)] rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)]">
           {filtered.map((row) => (
-            <label
+            <div
               key={row.name}
-              className="loom-row flex cursor-pointer gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]"
+              className="loom-row flex gap-3 px-3 py-2.5 hover:bg-[var(--color-paper-2)]"
             >
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={selected.includes(row.name)}
-                onChange={(e) =>
-                  setSelected((prev) =>
-                    e.target.checked
-                      ? [...prev, row.name]
-                      : prev.filter((n) => n !== row.name)
-                  )
-                }
-              />
+              <label className="flex min-h-10 min-w-10 cursor-pointer justify-center pt-1">
+                <input
+                  type="checkbox"
+                  aria-label={row.name}
+                  disabled={busy}
+                  className="mt-1"
+                  checked={selected.includes(row.name)}
+                  onChange={(e) =>
+                    setSelected((prev) =>
+                      e.target.checked
+                        ? [...prev, row.name]
+                        : prev.filter((n) => n !== row.name)
+                    )
+                  }
+                />
+              </label>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <code className="break-all font-[family-name:var(--font-mono)] text-sm font-medium">
-                    {row.name}
-                  </code>
+                  <SkillLink name={row.name} source={source} prompt={prompt} />
                 </div>
                 <p className="m-0 mt-0.5 line-clamp-2 text-xs text-[var(--color-ink-2)] [text-wrap:pretty]">
                   {row.description}
                 </p>
               </div>
-            </label>
+            </div>
           ))}
         </div>
       ) : (
@@ -2313,6 +2365,11 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
           errMessage(removeSource.error)
         }
       />
+      <InstallFailure
+        error={install.error}
+        source={source}
+        skills={install.variables?.skills ?? []}
+      />
       <ActionStatus
         text={
           updateAll.isPending
@@ -2390,7 +2447,9 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
                 />
                 <span className="text-[var(--color-ink-2)]">global</span>
               </label>
-              <h2 className="m-0 text-base font-semibold">{skill.name}</h2>
+              <h2 className="m-0 text-base font-semibold">
+                <SkillLink name={skill.name} source={source} />
+              </h2>
             </div>
             <p className="m-0 mb-2 text-sm text-[var(--color-ink-2)]">
               {skill.description}
@@ -2443,9 +2502,10 @@ export function ExternalSourceDetailPage({ source }: { source: string }) {
           <h2 className="mb-2 text-sm font-semibold text-[var(--color-ink-2)]">
             {t("detail.available")}
           </h2>
-          <Message text={errMessage(install.error)} />
           <CheckboxList
             rows={data.available}
+            source={source}
+            prompt={errMessage(install.error)}
             submitLabel={t("detail.installSelected")}
             busy={install.isPending}
             onSubmit={(skills) => install.mutate({ skills })}

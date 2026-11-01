@@ -18,6 +18,7 @@ import {
 import { PageError } from "@/components/ui";
 import { useT } from "@/settings/react";
 import { validateListViewSearch } from "./router-search";
+import { SkillWorkspacePage } from "@/pages/skill-workspace";
 
 function navCurrentFromPath(pathname: string): string {
   if (pathname.startsWith("/settings")) return "settings";
@@ -99,6 +100,28 @@ const draftsRoute = createRoute({
   component: DraftsPage,
 });
 
+const skillRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/skills/$name",
+  validateSearch: (search: Record<string, unknown>) => ({
+    source: typeof search.source === "string" ? search.source : undefined,
+    skillPath:
+      typeof search.skillPath === "string" ? search.skillPath : undefined,
+    prompt: typeof search.prompt === "string" ? search.prompt : undefined,
+  }),
+  component: function SkillRoute() {
+    const { name } = skillRoute.useParams();
+    const search = skillRoute.useSearch();
+    return (
+      <SkillWorkspacePage
+        key={JSON.stringify([name, search.source, search.skillPath])}
+        name={name}
+        {...search}
+      />
+    );
+  },
+});
+
 const projectDeckRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/project-decks/$deckName",
@@ -135,6 +158,7 @@ const routeTree = rootRoute.addChildren([
   externalSourcesRoute,
   externalSourceDetailRoute,
   draftsRoute,
+  skillRoute,
   projectDeckRoute,
   externalPreviewRoute,
   settingsRoute,
