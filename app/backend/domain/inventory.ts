@@ -360,6 +360,8 @@ function rowContext(lock: Lock): RowContext {
 function skillMetadata(ctx: RowContext, name: string): [string, string] {
   const custom = ctx.lock.custom?.skills ?? {};
   const external = ctx.lock.external ?? {};
+  const vendor = ctx.lock.vendor?.[name];
+  if (vendor) return [vendor.source || "vendor", "vendor"];
   const globalMeta = ctx.globalLock[name];
   if (globalMeta && Object.keys(globalMeta).length > 0) {
     const source = globalMeta.source ?? "";

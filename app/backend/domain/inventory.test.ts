@@ -12,12 +12,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   frontmatterDescription,
+  globalTristateRows,
   hiddenGlobalSkills,
   installedNames,
   loadLock,
   type Lock,
   repoLocalCustomSkills,
   skillDescription,
+  skillRows,
   trackedSkills,
 } from "./inventory";
 
@@ -226,5 +228,31 @@ describe("非表示と追跡対象", () => {
       vendor: { "forked-one": {} },
     };
     expect(trackedSkills(vendorLock).has("forked-one")).toBe(true);
+  });
+});
+
+describe("Vendor の一覧表示", () => {
+  test("CLI lock の有無によらず Vendor 登録を表示する", () => {
+    const globalLock = join(sandbox, "global-lock.json");
+    setEnv("MY_SKILLS_GLOBAL_LOCK_FILE", globalLock);
+    const lock: Lock = {
+      vendor: { "forked-one": { source: "owner/upstream" } },
+    };
+
+    for (const skills of [{}, { "forked-one": { source: "owner/upstream" } }]) {
+      writeFileSync(globalLock, JSON.stringify({ skills }));
+      const [rows] = globalTristateRows(lock);
+      expect(rows[0]).toMatchObject({
+        name: "forked-one",
+        category: "owner/upstream",
+        source: "vendor",
+        selection: "off",
+        can_activate: true,
+      });
+      expect(skillRows(lock)[0]).toMatchObject({
+        category: "owner/upstream",
+        source: "vendor",
+      });
+    }
   });
 });
