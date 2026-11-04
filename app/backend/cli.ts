@@ -85,10 +85,38 @@ function padLeft(value: string, width: number): string {
     : " ".repeat(width - value.length) + value;
 }
 
+// ---- --json ----
+
+/**
+ * `--json` で stdout を機械可読にする opt-in。既定のテキスト出力は一切変えない。
+ * list 系は 1 件 1 行の JSON Lines、それ以外は 1 コマンド 1 オブジェクトを出す。
+ */
+const jsonMode = Bun.argv.slice(2).includes("--json");
+
+function emitJson(value: unknown): void {
+  console.log(JSON.stringify(value));
+}
+
+/** git commit note の連結用プレフィクス " / " を剥がす。空なら null。 */
+function commitNoteText(note: string): string | null {
+  return note ? note.replace(/^ \/ /, "") : null;
+}
+
 function cmdList(): number {
   const decks = listProjectDecks();
   if (decks.length === 0) {
-    console.log("No project decks.");
+    if (!jsonMode) console.log("No project decks.");
+    return 0;
+  }
+  if (jsonMode) {
+    for (const name of decks) {
+      const [deck, skills] = loadDeck(name, new Set(), true);
+      emitJson(
+        deck.description
+          ? { name, skills: skills.length, description: deck.description }
+          : { name, skills: skills.length }
+      );
+    }
     return 0;
   }
   console.log("Project decks:");
@@ -107,6 +135,18 @@ function cmdStatus(): number {
   const unmanaged = ignoredSkills();
   const active = visibleInstalledNames(lock, activeDir());
   const archived = visibleInstalledNames(lock, archiveDir());
+  const untracked = difference(active, known, unmanaged);
+
+  if (jsonMode) {
+    emitJson({
+      tracked: known.size,
+      ignored: unmanaged.size,
+      active: active.size,
+      archive: archived.size,
+      untracked: sortNames(untracked),
+    });
+    return 0;
+  }
 
   console.log(`tracked:  ${known.size}`);
   console.log(`ignored:  ${unmanaged.size}`);
@@ -114,7 +154,6 @@ function cmdStatus(): number {
   console.log(`archive:  ${archived.size}`);
   console.log("");
 
-  const untracked = difference(active, known, unmanaged);
   if (untracked.size > 0) {
     console.log("untracked active skills:");
     for (const name of sortNames(untracked)) console.log(`  ${name}`);
@@ -127,7 +166,12 @@ function cmdStatus(): number {
 function cmdExternalList(): number {
   const sources = externalSourceSummary(loadLock());
   if (sources.length === 0) {
-    console.log("No external sources.");
+    if (!jsonMode) console.log("No external sources.");
+    return 0;
+  }
+  if (jsonMode) {
+    for (const source of sources)
+      emitJson({ source: source.source, skills: source.skills });
     return 0;
   }
   console.log("External sources:");
@@ -142,6 +186,26 @@ function cmdExternalList(): number {
 async function cmdExternalCheck(): Promise<number> {
   const lock = loadLock();
   const [statuses, errors] = await collectExternalUpdateStatus(lock);
+  if (jsonMode) {
+    for (const source of externalSourceSummary(lock)) {
+      const status = statuses[source.source];
+      emitJson(
+        status?.checked
+          ? {
+              source: source.source,
+              checked: true,
+              updatable: status.updatable ?? [],
+            }
+          : {
+              source: source.source,
+              checked: false,
+              updatable: [],
+              error: status?.error ?? "unknown error",
+            }
+      );
+    }
+    return errors.length > 0 ? 1 : 0;
+  }
   console.log("External update check:");
   for (const source of externalSourceSummary(lock)) {
     const status = statuses[source.source];
@@ -165,6 +229,17 @@ function cmdExternalPreview(source: string): number {
   try {
     const ownerRepo = normalizeGithubSource(source);
     const candidates = externalSkillCandidates(ownerRepo);
+    if (jsonMode) {
+      emitJson({
+        source: ownerRepo,
+        candidates: candidates.map((candidate) =>
+          candidate.path
+            ? { name: candidate.name, path: candidate.path }
+            : { name: candidate.name }
+        ),
+      });
+      return 0;
+    }
     console.log(`External source: ${ownerRepo}`);
     if (candidates.length === 0) {
       console.log("No Skill candidates.");
@@ -192,19 +267,22 @@ function runCommand(command: string[]): void {
   }
 }
 
-/** 確認プロンプトの共通部分。`-y` なら聞かず、断られれば Aborted。 */
-function confirmProceed(yes: boolean): boolean {
-  if (yes || confirmed("Continue? [y/N] ")) return true;
-  console.log("Aborted.");
-  return false;
+/**
+ * 確認プロンプトの共通部分。返り値はそのまま exit code（0 = 続行）。
+ *
+ * `--json` では人間向けの出力（プロンプト・見出し・Aborted）をすべて stderr へ寄せ、
+ * stdout をデータ行だけにする。
+ */
+function confirmProceed(yes: boolean, question = "Continue? [y/N] "): number {
+  if (yes || confirmed(question)) return 0;
+  if (jsonMode) console.error(JSON.stringify({ aborted: true }));
+  else console.log("Aborted.");
+  return 1;
 }
 
-function confirmedAction(
-  label: string,
-  names: string[],
-  yes: boolean
-): boolean {
-  console.log(`${label}: ${names.join(", ")}`);
+function confirmedAction(label: string, names: string[], yes: boolean): number {
+  if (jsonMode) console.error(`${label}: ${names.join(", ")}`);
+  else console.log(`${label}: ${names.join(", ")}`);
   return confirmProceed(yes);
 }
 
@@ -230,14 +308,16 @@ function cmdExternalUpdate(argv: string[]): number {
     console.error(`cannot update because not active: ${inactive.join(", ")}`);
     return 2;
   }
-  if (!confirmedAction("Update External Skills", names, yes)) return 1;
+  const denied = confirmedAction("Update External Skills", names, yes);
+  if (denied) return denied;
   try {
     for (const name of names) runExternalSkillUpdate(name, lock, runCommand);
   } catch (error) {
     console.error(errorText(error));
     return 2;
   }
-  console.log(`Updated: ${names.join(", ")}`);
+  if (jsonMode) emitJson({ updated: names });
+  else console.log(`Updated: ${names.join(", ")}`);
   return 0;
 }
 
@@ -263,6 +343,12 @@ function cmdCustom(argv: string[]): number {
   const [subcommand, ...rest] = argv;
   if (subcommand === "check") {
     const rows = collectCustomUpdatable(loadLock());
+    if (jsonMode) {
+      emitJson({
+        updatable: rows.map((row) => ({ name: row.name, state: row.state })),
+      });
+      return 0;
+    }
     console.log("Custom update check:");
     if (rows.length === 0) console.log("All custom skills are up to date.");
     for (const row of rows) console.log(`${row.name}  ${row.state}`);
@@ -283,10 +369,12 @@ function cmdCustom(argv: string[]): number {
       console.error(`not custom skills: ${unknown.join(", ")}`);
       return 2;
     }
-    if (!confirmedAction("Update Custom Skills", names, yes)) return 1;
+    const denied = confirmedAction("Update Custom Skills", names, yes);
+    if (denied) return denied;
     try {
       const updated = updateCustomFromRepo(new Set(names), lock);
-      console.log(`Updated: ${updated.join(", ")}`);
+      if (jsonMode) emitJson({ updated });
+      else console.log(`Updated: ${updated.join(", ")}`);
       return 0;
     } catch (error) {
       console.error(errorText(error));
@@ -302,7 +390,16 @@ function cmdDraft(argv: string[]): number {
   if (subcommand === "list") {
     const rows = draftRows(loadLock());
     if (rows.length === 0) {
-      console.log("No draft skills.");
+      if (!jsonMode) console.log("No draft skills.");
+      return 0;
+    }
+    if (jsonMode) {
+      for (const row of rows)
+        emitJson({
+          name: row.name,
+          category: row.category,
+          description: row.description,
+        });
       return 0;
     }
     console.log("Draft skills:");
@@ -326,7 +423,8 @@ function cmdDraft(argv: string[]): number {
       subcommand === "install"
         ? "Install Draft Skills"
         : "Promote Draft Skills";
-    if (!confirmedAction(label, skillNames, yes)) return 1;
+    const denied = confirmedAction(label, skillNames, yes);
+    if (denied) return denied;
     try {
       const [promoted, newLock, commitPaths] = promoteDrafts(
         new Set(skillNames),
@@ -339,6 +437,10 @@ function cmdDraft(argv: string[]): number {
       );
       if (subcommand === "install")
         installCustomFromRepo(new Set(promoted), newLock);
+      if (jsonMode) {
+        emitJson({ promoted, committed: commitNoteText(commitNote) });
+        return 0;
+      }
       console.log(`Promoted: ${promoted.join(", ")}${commitNote}`);
       return 0;
     } catch (error) {
@@ -361,6 +463,14 @@ function cmdDeck(argv: string[]): number {
   if (subcommand === "show") {
     try {
       const [deck, skills] = loadDeck(deckName, new Set(), true);
+      if (jsonMode) {
+        emitJson(
+          deck.description
+            ? { name: deckName, description: deck.description, skills }
+            : { name: deckName, skills }
+        );
+        return 0;
+      }
       console.log(`Project deck: ${deckName}`);
       if (deck.description) console.log(deck.description);
       for (const name of skills) console.log(`  ${name}`);
@@ -378,13 +488,22 @@ function cmdDeck(argv: string[]): number {
       );
       return 2;
     }
-    if (!confirmedAction(`Save Project Deck ${deckName}`, names, yes)) return 1;
+    const denied = confirmedAction(`Save Project Deck ${deckName}`, names, yes);
+    if (denied) return denied;
     try {
       const count = saveProjectDeckSelection(deckName, new Set(names));
       const commitNote = commitRepoChanges(
         `chore: save project deck ${deckName}`,
         [deckPath(deckName, true)]
       );
+      if (jsonMode) {
+        emitJson({
+          deck: deckName,
+          count,
+          committed: commitNoteText(commitNote),
+        });
+        return 0;
+      }
       console.log(
         `Saved deck: ${deckName} (${count} direct skills)${commitNote}`
       );
@@ -406,24 +525,38 @@ function cmdDeck(argv: string[]): number {
         subcommand,
         lock
       );
-      console.log(
-        `${subcommand === "merge" ? "Merge" : "Apply"} Project Deck ${deckName}`
-      );
-      const printNames = (label: string, names: Set<string>): void => {
-        console.log(`${label}: ${sortNames(names).join(", ") || "(none)"}`);
-      };
-      printNames("target", plan.target);
-      printNames("archive", plan.extra);
-      printNames("restore", plan.restore);
-      printNames("install", plan.install);
-      printNames("unresolved", plan.unresolved);
-      if (!confirmProceed(yes)) return 1;
+      const planJson = (applied: boolean) => ({
+        deck: deckName,
+        target: sortNames(plan.target),
+        archive: sortNames(plan.extra),
+        restore: sortNames(plan.restore),
+        install: sortNames(plan.install),
+        unresolved: sortNames(plan.unresolved),
+        applied,
+      });
+      if (jsonMode) emitJson(planJson(false));
+      else {
+        console.log(
+          `${subcommand === "merge" ? "Merge" : "Apply"} Project Deck ${deckName}`
+        );
+        const printNames = (label: string, names: Set<string>): void => {
+          console.log(`${label}: ${sortNames(names).join(", ") || "(none)"}`);
+        };
+        printNames("target", plan.target);
+        printNames("archive", plan.extra);
+        printNames("restore", plan.restore);
+        printNames("install", plan.install);
+        printNames("unresolved", plan.unresolved);
+      }
+      const denied = confirmProceed(yes);
+      if (denied) return denied;
       const result = applyProjectDeckPlan(plan, lock);
       if (result.unresolved.size > 0) {
         console.error(`Unresolved: ${sortNames(result.unresolved).join(", ")}`);
         return 2;
       }
-      console.log(`Applied deck: ${deckName}`);
+      if (jsonMode) emitJson(planJson(true));
+      else console.log(`Applied deck: ${deckName}`);
       return 0;
     } catch (error) {
       console.error(errorText(error));
@@ -445,6 +578,25 @@ function cmdAll(argv: string[]): number {
   const plan = planRestoreAll(lock);
   const active = visibleInstalledNames(lock, activeDir());
   const archived = visibleInstalledNames(lock, archiveDir());
+
+  if (jsonMode) {
+    const planJson = (applied: boolean) => ({
+      counts: {
+        active: active.size,
+        target: trackedSkills(lock).size,
+        archive: archived.size,
+      },
+      extra: sortNames(plan.extra),
+      restore: sortNames(plan.restore),
+      install: sortNames(plan.install),
+      applied,
+    });
+    emitJson(planJson(false));
+    if (!argv.includes("--apply")) return 0;
+    applyRestoreAllPlan(plan, lock);
+    emitJson(planJson(true));
+    return 0;
+  }
 
   console.log(`active:   ${active.size}`);
   console.log(`target:   ${trackedSkills(lock).size}`);
@@ -478,6 +630,7 @@ function cmdAll(argv: string[]): number {
  */
 function cmdLinkAgents(names: string[]): number {
   linkAgentSkillDirsMany(names);
+  if (jsonMode) emitJson({ linked: names });
   return 0;
 }
 
@@ -499,9 +652,21 @@ function cmdInstallDeck(name: string): number {
     return 1;
   }
   if (result.unresolved.size > 0) {
-    console.log("unresolved deck skills:");
-    for (const skill of sortNames(result.unresolved)) console.log(`  ${skill}`);
+    if (!jsonMode) {
+      console.log("unresolved deck skills:");
+      for (const skill of sortNames(result.unresolved))
+        console.log(`  ${skill}`);
+    }
     return 2;
+  }
+  if (jsonMode) {
+    emitJson({
+      deck: name,
+      alreadyActive: result.alreadyActive.size,
+      restored: result.restore.size,
+      installed: result.install.size,
+    });
+    return 0;
   }
   console.log(`deck:           ${name}`);
   console.log(`already active: ${result.alreadyActive.size}`);
@@ -575,10 +740,13 @@ function cmdSkill(argv: string[]): number {
     ])
   );
   if (changed.length === 0) {
-    console.log("No changes.");
+    if (jsonMode) emitJson({ state, changed, applied: false });
+    else console.log("No changes.");
     return 0;
   }
-  if (!confirmedAction(`Set ${state}`, changed, yes)) return 1;
+  if (jsonMode) emitJson({ state, changed, applied: false });
+  const denied = confirmedAction(`Set ${state}`, changed, yes);
+  if (denied) return denied;
 
   backupActiveToLast(lock);
   try {
@@ -595,7 +763,8 @@ function cmdSkill(argv: string[]): number {
     console.error(errorText(error));
     return 2;
   }
-  console.log(`Set ${state}: ${changed.join(", ")}`);
+  if (jsonMode) emitJson({ state, changed, applied: true });
+  else console.log(`Set ${state}: ${changed.join(", ")}`);
   return 0;
 }
 
@@ -613,7 +782,8 @@ function errorText(error: unknown): string {
  * EOF は空文字を返し、呼び出し側では「y ではない」= 中止になる。
  */
 function askLine(question: string): string {
-  process.stdout.write(question);
+  // `--json` では stdout をデータ専用にするため、プロンプトは stderr へ出す。
+  (jsonMode ? process.stderr : process.stdout).write(question);
   const byte = Buffer.alloc(1);
   let line = "";
   while (true) {
@@ -639,7 +809,20 @@ function confirmed(question: string): boolean {
 function cmdPresetList(): number {
   const presets = listUserPresets();
   if (presets.length === 0) {
-    console.log("No presets.");
+    if (!jsonMode) console.log("No presets.");
+    return 0;
+  }
+  if (jsonMode) {
+    for (const preset of presets)
+      emitJson(
+        preset.description
+          ? {
+              name: preset.name,
+              skillCount: preset.skillCount,
+              description: preset.description,
+            }
+          : { name: preset.name, skillCount: preset.skillCount }
+      );
     return 0;
   }
   for (const preset of presets) {
@@ -664,7 +847,9 @@ function cmdPresetSave(args: PresetArgs): number {
     console.error(errorText(error));
     return 2;
   }
-  console.log(`Saved preset ${saved.name} (${saved.skills.length} skills)`);
+  if (jsonMode) emitJson({ name: saved.name, skills: saved.skills });
+  else
+    console.log(`Saved preset ${saved.name} (${saved.skills.length} skills)`);
   return 0;
 }
 
@@ -678,16 +863,21 @@ function cmdPresetApply(args: PresetArgs): number {
     return 2;
   }
 
-  console.log(
-    formatPresetApplyPreview(
-      computePresetApplyPlan(new Set(preview.skills), lock)
-    )
-  );
+  const plan = computePresetApplyPlan(new Set(preview.skills), lock);
+  const planJson = (applied: boolean) => ({
+    target: preview.skills,
+    archive: sortNames(plan.extra),
+    restore: sortNames(plan.restore),
+    install: sortNames(plan.install),
+    unresolved: sortNames(plan.unresolved),
+    remove: sortNames(plan.remove),
+    applied,
+  });
+  if (jsonMode) emitJson(planJson(false));
+  else console.log(formatPresetApplyPreview(plan));
   if (preview.blocked) return 2;
-  if (!args.yes && !confirmed("Apply this preset? [y/N] ")) {
-    console.log("Aborted.");
-    return 1;
-  }
+  const denied = confirmProceed(args.yes, "Apply this preset? [y/N] ");
+  if (denied) return denied;
 
   try {
     applyNamedPreset(args.name, lock, true);
@@ -695,7 +885,8 @@ function cmdPresetApply(args: PresetArgs): number {
     console.error(errorText(error));
     return 2;
   }
-  console.log(`Applied preset: ${args.name}`);
+  if (jsonMode) emitJson(planJson(true));
+  else console.log(`Applied preset: ${args.name}`);
   return 0;
 }
 
@@ -708,10 +899,12 @@ function cmdPresetRestore(args: PresetArgs): number {
 
   // preview と同じ条件（_last のスナップショットへ戻す）で計画してから見せる。
   let plan: ReturnType<typeof computeSnapshotPlan>;
+  let targetActive: string[] = [];
   try {
     const last = loadPreset(PRESET_LAST_NAME);
+    targetActive = last.skills ?? [];
     plan = computeSnapshotPlan(
-      new Set(last.skills ?? []),
+      new Set(targetActive),
       new Set(last.archive ?? []),
       lock
     );
@@ -719,13 +912,24 @@ function cmdPresetRestore(args: PresetArgs): number {
     console.error(errorText(error));
     return 2;
   }
-  console.log(formatPresetApplyPreview(plan));
+  const planJson = (applied: boolean) => ({
+    target: targetActive,
+    archive: sortNames(plan.extra),
+    restore: sortNames(plan.restore),
+    install: sortNames(plan.install),
+    unresolved: sortNames(plan.unresolved),
+    remove: sortNames(plan.remove),
+    applied,
+  });
+  if (jsonMode) emitJson(planJson(false));
+  else console.log(formatPresetApplyPreview(plan));
   if (plan.unresolved.size > 0)
     console.error(`skip unresolved: ${sortNames(plan.unresolved).join(", ")}`);
-  if (!args.yes && !confirmed("Restore previous active set? [y/N] ")) {
-    console.log("Aborted.");
-    return 1;
-  }
+  const denied = confirmProceed(
+    args.yes,
+    "Restore previous active set? [y/N] "
+  );
+  if (denied) return denied;
 
   try {
     restorePreviousPreset(lock);
@@ -733,7 +937,8 @@ function cmdPresetRestore(args: PresetArgs): number {
     console.error(errorText(error));
     return 2;
   }
-  console.log("Restored previous active set");
+  if (jsonMode) emitJson(planJson(true));
+  else console.log("Restored previous active set");
   return 0;
 }
 
@@ -744,7 +949,8 @@ function cmdPresetDelete(args: PresetArgs): number {
     console.error(errorText(error));
     return 2;
   }
-  console.log(`Deleted preset: ${args.name}`);
+  if (jsonMode) emitJson({ deleted: args.name });
+  else console.log(`Deleted preset: ${args.name}`);
   return 0;
 }
 
@@ -802,7 +1008,9 @@ function cmdPreset(argv: string[]): number {
   }
 }
 
-const [command, ...rest] = Bun.argv.slice(2);
+const [command, ...rest] = jsonMode
+  ? Bun.argv.slice(2).filter((arg) => arg !== "--json")
+  : Bun.argv.slice(2);
 
 /** `argparse` が出す usage 行。no-args / unknown command で共通して使う。 */
 const USAGE =
