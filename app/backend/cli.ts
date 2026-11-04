@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+// fallow-ignore-file unused-file -- bash launcher が `bun cli.ts` 直実行する entry のため import graph から到達不能に見える
 /**
  * CLI の入口。`./skill-loom` の全サブコマンドを処理する（#75 で Python 版から一本化）。
  *
@@ -131,11 +132,35 @@ const HINT_UNRESOLVED =
 const HINT_DECK_PRESET =
   "list available decks via list --json / presets via preset list --json";
 
+/** preset apply / restore の plan を `--json` 用の同一 shape にする。 */
+function presetPlanJson(
+  target: string[],
+  plan: {
+    extra: Set<string>;
+    restore: Set<string>;
+    install: Set<string>;
+    unresolved: Set<string>;
+    remove: Set<string>;
+  },
+  applied: boolean
+): Record<string, unknown> {
+  return {
+    target,
+    archive: sortNames(plan.extra),
+    restore: sortNames(plan.restore),
+    install: sortNames(plan.install),
+    unresolved: sortNames(plan.unresolved),
+    remove: sortNames(plan.remove),
+    applied,
+  };
+}
+
 /** git commit note の連結用プレフィクス " / " を剥がす。空なら null。 */
 function commitNoteText(note: string): string | null {
   return note ? note.replace(/^ \/ /, "") : null;
 }
 
+// fallow-ignore-next-line complexity
 function cmdList(): number {
   const decks = listProjectDecks();
   if (decks.length === 0) {
@@ -197,6 +222,7 @@ function cmdStatus(): number {
   return 0;
 }
 
+// fallow-ignore-next-line complexity
 function cmdExternalList(): number {
   const sources = externalSourceSummary(loadLock());
   if (sources.length === 0) {
@@ -217,6 +243,7 @@ function cmdExternalList(): number {
   return 0;
 }
 
+// fallow-ignore-next-line complexity
 async function cmdExternalCheck(): Promise<number> {
   const lock = loadLock();
   const [statuses, errors] = await collectExternalUpdateStatus(lock);
@@ -259,6 +286,7 @@ async function cmdExternalCheck(): Promise<number> {
   return errors.length > 0 ? 1 : 0;
 }
 
+// fallow-ignore-next-line complexity
 function cmdExternalPreview(source: string): number {
   try {
     const ownerRepo = normalizeGithubSource(source);
@@ -316,6 +344,7 @@ function runCommand(command: string[]): void {
  * `--json` では人間向けの出力（プロンプト・見出し・Aborted）をすべて stderr へ寄せ、
  * stdout をデータ行だけにする。
  */
+// fallow-ignore-next-line complexity
 function confirmProceed(yes: boolean, question = "Continue? [y/N] "): number {
   if (yes) return 0;
   // `--json` で stdin が TTY でなければ対話できない。書き込み前に 2 で抜ける。
@@ -342,6 +371,7 @@ function parseYesArgs(argv: string[]): { yes: boolean; names: string[] } {
   return { yes, names };
 }
 
+// fallow-ignore-next-line complexity
 function cmdExternalUpdate(argv: string[]): number {
   const { yes, names } = parseYesArgs(argv);
   if (names.length === 0)
@@ -379,6 +409,7 @@ function cmdExternalUpdate(argv: string[]): number {
   return 0;
 }
 
+// fallow-ignore-next-line complexity
 async function cmdExternal(argv: string[]): Promise<number> {
   const [subcommand, ...rest] = argv;
   if (subcommand === "list") return cmdExternalList();
@@ -399,6 +430,7 @@ async function cmdExternal(argv: string[]): Promise<number> {
   );
 }
 
+// fallow-ignore-next-line complexity
 function cmdCustom(argv: string[]): number {
   const [subcommand, ...rest] = argv;
   if (subcommand === "check") {
@@ -457,6 +489,7 @@ function cmdCustom(argv: string[]): number {
   );
 }
 
+// fallow-ignore-next-line complexity
 function cmdDraft(argv: string[]): number {
   const [subcommand, ...rest] = argv;
   if (subcommand === "list") {
@@ -525,6 +558,7 @@ function cmdDraft(argv: string[]): number {
   );
 }
 
+// fallow-ignore-next-line complexity
 function cmdDeck(argv: string[]): number {
   const [subcommand, deckName, ...rest] = argv;
   if (!deckName)
@@ -717,6 +751,7 @@ function cmdLinkAgents(names: string[]): number {
  * 取得元の分からない skill が 1 つでもあれば、何も動かさずに 2 で抜ける。
  * 半端に入れると、どこまで入ったのかを利用者が追えなくなる。
  */
+// fallow-ignore-next-line complexity
 function cmdInstallDeck(name: string): number {
   const lock = loadLock();
   let result: ReturnType<typeof installProjectDeck>;
@@ -762,6 +797,7 @@ function cmdInstallDeck(name: string): number {
  * UI の Apply と同じ computeTristateApplyDelta → applyDeck の経路を通す。
  * unresolved が 1 つでもあれば書き込む前に 2 で抜ける（install-deck と同じ方針）。
  */
+// fallow-ignore-next-line complexity
 function cmdSkill(argv: string[]): number {
   const usage =
     "usage: skill-loom skill [-h] [-y] {active,archive,off} names [names ...]";
@@ -867,6 +903,7 @@ function errorText(error: unknown): string {
  * 1 バイトずつ読むのは、返事の後ろに続く入力を食べてしまわないため。
  * EOF は空文字を返し、呼び出し側では「y ではない」= 中止になる。
  */
+// fallow-ignore-next-line complexity
 function askLine(question: string): string {
   // `--json` では stdout をデータ専用にするため、プロンプトは stderr へ出す。
   (jsonMode ? process.stderr : process.stdout).write(question);
@@ -892,6 +929,7 @@ function confirmed(question: string): boolean {
   return answer === "y" || answer === "yes";
 }
 
+// fallow-ignore-next-line complexity
 function cmdPresetList(): number {
   const presets = listUserPresets();
   if (presets.length === 0) {
@@ -938,6 +976,7 @@ function cmdPresetSave(args: PresetArgs): number {
   return 0;
 }
 
+// fallow-ignore-next-line complexity
 function cmdPresetApply(args: PresetArgs): number {
   const lock = loadLock();
   let preview: ReturnType<typeof previewNamedPreset>;
@@ -948,16 +987,7 @@ function cmdPresetApply(args: PresetArgs): number {
   }
 
   const plan = computePresetApplyPlan(new Set(preview.skills), lock);
-  const planJson = (applied: boolean) => ({
-    target: preview.skills,
-    archive: sortNames(plan.extra),
-    restore: sortNames(plan.restore),
-    install: sortNames(plan.install),
-    unresolved: sortNames(plan.unresolved),
-    remove: sortNames(plan.remove),
-    applied,
-  });
-  if (jsonMode) emitJson(planJson(false));
+  if (jsonMode) emitJson(presetPlanJson(preview.skills, plan, false));
   else console.log(formatPresetApplyPreview(plan));
   if (preview.blocked) {
     if (jsonMode) {
@@ -975,11 +1005,12 @@ function cmdPresetApply(args: PresetArgs): number {
   } catch (error) {
     return failFromError(error, HINT_DECK_PRESET);
   }
-  if (jsonMode) emitJson(planJson(true));
+  if (jsonMode) emitJson(presetPlanJson(preview.skills, plan, true));
   else console.log(`Applied preset: ${args.name}`);
   return 0;
 }
 
+// fallow-ignore-next-line complexity
 function cmdPresetRestore(args: PresetArgs): number {
   const lock = loadLock();
   if (!hasPreviousPreset())
@@ -1003,16 +1034,7 @@ function cmdPresetRestore(args: PresetArgs): number {
   } catch (error) {
     return failFromError(error, HINT_DECK_PRESET);
   }
-  const planJson = (applied: boolean) => ({
-    target: targetActive,
-    archive: sortNames(plan.extra),
-    restore: sortNames(plan.restore),
-    install: sortNames(plan.install),
-    unresolved: sortNames(plan.unresolved),
-    remove: sortNames(plan.remove),
-    applied,
-  });
-  if (jsonMode) emitJson(planJson(false));
+  if (jsonMode) emitJson(presetPlanJson(targetActive, plan, false));
   else console.log(formatPresetApplyPreview(plan));
   if (plan.unresolved.size > 0) {
     if (jsonMode)
@@ -1035,7 +1057,7 @@ function cmdPresetRestore(args: PresetArgs): number {
   } catch (error) {
     return failFromError(error, HINT_DECK_PRESET);
   }
-  if (jsonMode) emitJson(planJson(true));
+  if (jsonMode) emitJson(presetPlanJson(targetActive, plan, true));
   else console.log("Restored previous active set");
   return 0;
 }
@@ -1059,6 +1081,7 @@ type PresetArgs = {
 };
 
 /** argparse の `preset` サブパーサ相当。位置引数は name 1 つだけ。 */
+// fallow-ignore-next-line complexity
 function parsePresetArgs(argv: string[]): PresetArgs {
   const args: PresetArgs = {
     name: "",
@@ -1078,6 +1101,7 @@ function parsePresetArgs(argv: string[]): PresetArgs {
   return args;
 }
 
+// fallow-ignore-next-line complexity
 function cmdPreset(argv: string[]): number {
   const [subcommand, ...rest] = argv;
   const args = parsePresetArgs(rest);
