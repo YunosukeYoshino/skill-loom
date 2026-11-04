@@ -200,6 +200,14 @@ test_ui_help() {
   assert_contains "$out" "--host" \
     && pass "test_ui_help: has --host" \
     || fail "test_ui_help: missing --host"
+
+  local out2
+  out2=$(./skill-loom --json ui --help 2>&1)
+  local rc2=$?
+
+  [ "$rc2" -eq 0 ] && assert_contains "$out2" "--port" \
+    && pass "test_ui_help: --json ui reaches the ui branch" \
+    || fail "test_ui_help: --json ui output was $out2"
 }
 
 test_install_deck_help() {

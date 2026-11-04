@@ -41,9 +41,15 @@ set -- "${ARGS[@]}"
 
 # ui は Hono が公開ポートを所有する（Vite を開発時だけ内部ポートで起動する）。
 # 他の全サブコマンドは TypeScript (app/backend/cli.ts) で処理する（#75 で Python 版を撤去）。
-if [[ "${1:-}" == "ui" ]]; then
-  shift
-  exec bun "$SCRIPT_DIR/app/backend/index.ts" "$@"
-fi
+# 最初の位置引数をコマンドとして拾うので、`--json` を先に挟んでも `ui` に届く。
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  if [[ "${args[i]}" != -* ]]; then
+    if [[ "${args[i]}" == "ui" ]]; then
+      exec bun "$SCRIPT_DIR/app/backend/index.ts" "${args[@]:0:i}" "${args[@]:i+1}"
+    fi
+    break
+  fi
+done
 
 exec bun "$SCRIPT_DIR/app/backend/cli.ts" "$@"
