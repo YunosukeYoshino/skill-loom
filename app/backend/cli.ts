@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+// fallow-ignore-file unused-file -- bash launcher が `bun cli.ts` 直実行する entry のため import graph から到達不能に見える
 /**
  * CLI の入口。`./skill-loom` の全サブコマンドを処理する（#75 で Python 版から一本化）。
  *
@@ -85,10 +86,96 @@ function padLeft(value: string, width: number): string {
     : " ".repeat(width - value.length) + value;
 }
 
+// ---- --json ----
+
+/**
+ * `--json` で stdout を機械可読にする opt-in。既定のテキスト出力は一切変えない。
+ * list 系は 1 件 1 行の JSON Lines、それ以外は 1 コマンド 1 オブジェクトを出す。
+ */
+const jsonMode = Bun.argv.slice(2).includes("--json");
+
+function emitJson(value: unknown): void {
+  console.log(JSON.stringify(value));
+}
+
+/** `--json` 時のエラーも stderr の 1 行 JSON。`hint` は次に打つべきコマンドを名指しする。 */
+function emitJsonError(
+  error: string,
+  hint: string,
+  extra?: Record<string, unknown>
+): void {
+  console.error(JSON.stringify({ error, ...extra, hint }));
+}
+
+/**
+ * エラー終了の共通部。`--json` では `{error, hint}` を stderr に出し、
+ * text では `textLines`（省略時は `hint` そのもの）を出して 2 を返す。
+ */
+function cliError(error: string, hint: string, ...textLines: string[]): number {
+  if (jsonMode) {
+    emitJsonError(error, hint);
+  } else {
+    for (const line of textLines.length > 0 ? textLines : [hint])
+      console.error(line);
+  }
+  return 2;
+}
+
+/** catch 節用。text では例外本文、JSON では本文を `error` にして `hint` を次の一手にする。 */
+function failFromError(error: unknown, hint: string): number {
+  const message = errorText(error);
+  return cliError(message, hint, message);
+}
+
+const HINT_UNRESOLVED =
+  "register the skill first (skills-add or draft promote), or check spelling via status --json";
+const HINT_DECK_PRESET =
+  "list available decks via list --json / presets via preset list --json";
+
+/** preset apply / restore の plan を `--json` 用の同一 shape にする。 */
+function presetPlanJson(
+  target: string[],
+  plan: {
+    extra: Set<string>;
+    restore: Set<string>;
+    install: Set<string>;
+    unresolved: Set<string>;
+    remove: Set<string>;
+  },
+  applied: boolean
+): Record<string, unknown> {
+  return {
+    target,
+    archive: sortNames(plan.extra),
+    restore: sortNames(plan.restore),
+    install: sortNames(plan.install),
+    unresolved: sortNames(plan.unresolved),
+    remove: sortNames(plan.remove),
+    applied,
+  };
+}
+
+/** git commit note の連結用プレフィクス " / " を剥がす。空なら null。 */
+function commitNoteText(note: string): string | null {
+  return note ? note.replace(/^ \/ /, "") : null;
+}
+
+// fallow-ignore-next-line complexity
 function cmdList(): number {
   const decks = listProjectDecks();
   if (decks.length === 0) {
-    console.log("No project decks.");
+    if (!jsonMode) console.log("No project decks.");
+    return 0;
+  }
+  if (jsonMode) {
+    for (const name of decks) {
+      const [deck, skills] = loadDeck(name, new Set(), true);
+      emitJson(
+        deck.description
+          ? { name, skills: skills.length, description: deck.description }
+          : { name, skills: skills.length }
+      );
+    }
     return 0;
   }
   console.log("Project decks:");
@@ -107,6 +194,18 @@ function cmdStatus(): number {
   const unmanaged = ignoredSkills();
   const active = visibleInstalledNames(lock, activeDir());
   const archived = visibleInstalledNames(lock, archiveDir());
+  const untracked = difference(active, known, unmanaged);
+
+  if (jsonMode) {
+    emitJson({
+      tracked: known.size,
+      ignored: unmanaged.size,
+      active: active.size,
+      archive: archived.size,
+      untracked: sortNames(untracked),
+    });
+    return 0;
+  }
 
   console.log(`tracked:  ${known.size}`);
   console.log(`ignored:  ${unmanaged.size}`);
@@ -114,7 +213,6 @@ function cmdStatus(): number {
   console.log(`archive:  ${archived.size}`);
   console.log("");
 
-  const untracked = difference(active, known, unmanaged);
   if (untracked.size > 0) {
     console.log("untracked active skills:");
     for (const name of sortNames(untracked)) console.log(`  ${name}`);
@@ -124,10 +222,16 @@ function cmdStatus(): number {
   return 0;
 }
 
+// fallow-ignore-next-line complexity
 function cmdExternalList(): number {
   const sources = externalSourceSummary(loadLock());
   if (sources.length === 0) {
-    console.log("No external sources.");
+    if (!jsonMode) console.log("No external sources.");
+    return 0;
+  }
+  if (jsonMode) {
+    for (const source of sources)
+      emitJson({ source: source.source, skills: source.skills });
     return 0;
   }
   console.log("External sources:");
@@ -139,9 +243,30 @@ function cmdExternalList(): number {
   return 0;
 }
 
+// fallow-ignore-next-line complexity
 async function cmdExternalCheck(): Promise<number> {
   const lock = loadLock();
   const [statuses, errors] = await collectExternalUpdateStatus(lock);
+  if (jsonMode) {
+    for (const source of externalSourceSummary(lock)) {
+      const status = statuses[source.source];
+      emitJson(
+        status?.checked
+          ? {
+              source: source.source,
+              checked: true,
+              updatable: status.updatable ?? [],
+            }
+          : {
+              source: source.source,
+              checked: false,
+              updatable: [],
+              error: status?.error ?? "unknown error",
+            }
+      );
+    }
+    return errors.length > 0 ? 1 : 0;
+  }
   console.log("External update check:");
   for (const source of externalSourceSummary(lock)) {
     const status = statuses[source.source];
@@ -161,10 +286,22 @@ async function cmdExternalCheck(): Promise<number> {
   return errors.length > 0 ? 1 : 0;
 }
 
+// fallow-ignore-next-line complexity
 function cmdExternalPreview(source: string): number {
   try {
     const ownerRepo = normalizeGithubSource(source);
     const candidates = externalSkillCandidates(ownerRepo);
+    if (jsonMode) {
+      emitJson({
+        source: ownerRepo,
+        candidates: candidates.map((candidate) =>
+          candidate.path
+            ? { name: candidate.name, path: candidate.path }
+            : { name: candidate.name }
+        ),
+      });
+      return 0;
+    }
     console.log(`External source: ${ownerRepo}`);
     if (candidates.length === 0) {
       console.log("No Skill candidates.");
@@ -176,6 +313,13 @@ function cmdExternalPreview(source: string): number {
     }
     return 0;
   } catch (error) {
+    if (jsonMode) {
+      emitJsonError(
+        errorText(error),
+        "check the source as owner/repo or a GitHub URL"
+      );
+      return 2;
+    }
     console.error(errorText(error));
     return 2;
   }
@@ -183,28 +327,40 @@ function cmdExternalPreview(source: string): number {
 
 function runCommand(command: string[]): void {
   const result = Bun.spawnSync(command, {
-    stdout: "inherit",
+    // `--json` では子プロセスの stdout がデータ行を汚さないよう stderr へ流す。
+    stdout: jsonMode ? "pipe" : "inherit",
     stderr: "inherit",
     timeout: 180_000,
   });
+  if (result.stdout) process.stderr.write(result.stdout);
   if (result.exitCode !== 0) {
     throw new Error(`Command failed with exit status ${result.exitCode}`);
   }
 }
 
-/** 確認プロンプトの共通部分。`-y` なら聞かず、断られれば Aborted。 */
-function confirmProceed(yes: boolean): boolean {
-  if (yes || confirmed("Continue? [y/N] ")) return true;
-  console.log("Aborted.");
-  return false;
+/**
+ * 確認プロンプトの共通部分。返り値はそのまま exit code（0 = 続行）。
+ *
+ * `--json` では人間向けの出力（プロンプト・見出し・Aborted）をすべて stderr へ寄せ、
+ * stdout をデータ行だけにする。
+ */
+// fallow-ignore-next-line complexity
+function confirmProceed(yes: boolean, question = "Continue? [y/N] "): number {
+  if (yes) return 0;
+  // `--json` で stdin が TTY でなければ対話できない。書き込み前に 2 で抜ける。
+  if (jsonMode && !process.stdin.isTTY) {
+    emitJsonError("confirmation required", "re-run with -y");
+    return 2;
+  }
+  if (confirmed(question)) return 0;
+  if (jsonMode) console.error(JSON.stringify({ aborted: true }));
+  else console.log("Aborted.");
+  return 1;
 }
 
-function confirmedAction(
-  label: string,
-  names: string[],
-  yes: boolean
-): boolean {
-  console.log(`${label}: ${names.join(", ")}`);
+function confirmedAction(label: string, names: string[], yes: boolean): number {
+  if (jsonMode) console.error(`${label}: ${names.join(", ")}`);
+  else console.log(`${label}: ${names.join(", ")}`);
   return confirmProceed(yes);
 }
 
@@ -215,54 +371,76 @@ function parseYesArgs(argv: string[]): { yes: boolean; names: string[] } {
   return { yes, names };
 }
 
+// fallow-ignore-next-line complexity
 function cmdExternalUpdate(argv: string[]): number {
   const { yes, names } = parseYesArgs(argv);
-  if (names.length === 0) {
-    console.error(
+  if (names.length === 0)
+    return cliError(
+      "missing required argument",
       "skill-loom external update: the following arguments are required: names"
     );
-    return 2;
-  }
   const lock = loadLock();
   const active = activeExternalSkillNames(lock);
   const inactive = names.filter((name) => !active.has(name));
   if (inactive.length > 0) {
+    if (jsonMode) {
+      emitJsonError(
+        "cannot update because not active",
+        `set them active first: skill-loom skill active ${inactive.join(" ")}`,
+        { names: inactive }
+      );
+      return 2;
+    }
     console.error(`cannot update because not active: ${inactive.join(", ")}`);
     return 2;
   }
-  if (!confirmedAction("Update External Skills", names, yes)) return 1;
+  const denied = confirmedAction("Update External Skills", names, yes);
+  if (denied) return denied;
   try {
     for (const name of names) runExternalSkillUpdate(name, lock, runCommand);
   } catch (error) {
-    console.error(errorText(error));
-    return 2;
+    return failFromError(
+      error,
+      "check update status via external check --json"
+    );
   }
-  console.log(`Updated: ${names.join(", ")}`);
+  if (jsonMode) emitJson({ updated: names });
+  else console.log(`Updated: ${names.join(", ")}`);
   return 0;
 }
 
+// fallow-ignore-next-line complexity
 async function cmdExternal(argv: string[]): Promise<number> {
   const [subcommand, ...rest] = argv;
   if (subcommand === "list") return cmdExternalList();
   if (subcommand === "check") return await cmdExternalCheck();
   if (subcommand === "preview") {
-    if (!rest[0]) {
-      console.error(
+    if (!rest[0])
+      return cliError(
+        "missing required argument",
         "skill-loom external preview: the following arguments are required: source"
       );
-      return 2;
-    }
     return cmdExternalPreview(rest[0]);
   }
   if (subcommand === "update") return cmdExternalUpdate(rest);
-  console.error(`skill-loom external: invalid choice: ${subcommand ?? ""}`);
-  return 2;
+  return cliError(
+    "invalid choice",
+    "usage: skill-loom external {list,check,preview,update} ...",
+    `skill-loom external: invalid choice: ${subcommand ?? ""}`
+  );
 }
 
+// fallow-ignore-next-line complexity
 function cmdCustom(argv: string[]): number {
   const [subcommand, ...rest] = argv;
   if (subcommand === "check") {
     const rows = collectCustomUpdatable(loadLock());
+    if (jsonMode) {
+      emitJson({
+        updatable: rows.map((row) => ({ name: row.name, state: row.state })),
+      });
+      return 0;
+    }
     console.log("Custom update check:");
     if (rows.length === 0) console.log("All custom skills are up to date.");
     for (const row of rows) console.log(`${row.name}  ${row.state}`);
@@ -270,39 +448,63 @@ function cmdCustom(argv: string[]): number {
   }
   if (subcommand === "update") {
     const { yes, names } = parseYesArgs(rest);
-    if (names.length === 0) {
-      console.error(
+    if (names.length === 0)
+      return cliError(
+        "missing required argument",
         "skill-loom custom update: the following arguments are required: names"
       );
-      return 2;
-    }
     const lock = loadLock();
     const custom = lock.custom?.skills ?? {};
     const unknown = names.filter((name) => !(name in custom));
     if (unknown.length > 0) {
+      if (jsonMode) {
+        emitJsonError(
+          "not custom skills",
+          "check custom skill names via custom check --json",
+          { names: unknown }
+        );
+        return 2;
+      }
       console.error(`not custom skills: ${unknown.join(", ")}`);
       return 2;
     }
-    if (!confirmedAction("Update Custom Skills", names, yes)) return 1;
+    const denied = confirmedAction("Update Custom Skills", names, yes);
+    if (denied) return denied;
     try {
       const updated = updateCustomFromRepo(new Set(names), lock);
-      console.log(`Updated: ${updated.join(", ")}`);
+      if (jsonMode) emitJson({ updated });
+      else console.log(`Updated: ${updated.join(", ")}`);
       return 0;
     } catch (error) {
-      console.error(errorText(error));
-      return 2;
+      return failFromError(
+        error,
+        "check the custom skill state via custom check --json"
+      );
     }
   }
-  console.error(`skill-loom custom: invalid choice: ${subcommand ?? ""}`);
-  return 2;
+  return cliError(
+    "invalid choice",
+    "usage: skill-loom custom {check,update} ...",
+    `skill-loom custom: invalid choice: ${subcommand ?? ""}`
+  );
 }
 
+// fallow-ignore-next-line complexity
 function cmdDraft(argv: string[]): number {
   const [subcommand, ...rest] = argv;
   if (subcommand === "list") {
     const rows = draftRows(loadLock());
     if (rows.length === 0) {
-      console.log("No draft skills.");
+      if (!jsonMode) console.log("No draft skills.");
+      return 0;
+    }
+    if (jsonMode) {
+      for (const row of rows)
+        emitJson({
+          name: row.name,
+          category: row.category,
+          description: row.description,
+        });
       return 0;
     }
     console.log("Draft skills:");
@@ -316,17 +518,17 @@ function cmdDraft(argv: string[]): number {
     const { yes, names } = parseYesArgs(rest);
     const force = rest.includes("--force");
     const skillNames = names.filter((arg) => arg !== "--force");
-    if (skillNames.length === 0) {
-      console.error(
+    if (skillNames.length === 0)
+      return cliError(
+        "missing required argument",
         `skill-loom draft ${subcommand}: the following arguments are required: names`
       );
-      return 2;
-    }
     const label =
       subcommand === "install"
         ? "Install Draft Skills"
         : "Promote Draft Skills";
-    if (!confirmedAction(label, skillNames, yes)) return 1;
+    const denied = confirmedAction(label, skillNames, yes);
+    if (denied) return denied;
     try {
       const [promoted, newLock, commitPaths] = promoteDrafts(
         new Set(skillNames),
@@ -339,59 +541,79 @@ function cmdDraft(argv: string[]): number {
       );
       if (subcommand === "install")
         installCustomFromRepo(new Set(promoted), newLock);
+      if (jsonMode) {
+        emitJson({ promoted, committed: commitNoteText(commitNote) });
+        return 0;
+      }
       console.log(`Promoted: ${promoted.join(", ")}${commitNote}`);
       return 0;
     } catch (error) {
-      console.error(errorText(error));
-      return 2;
+      return failFromError(error, "check draft names via draft list --json");
     }
   }
-  console.error(`skill-loom draft: invalid choice: ${subcommand ?? ""}`);
-  return 2;
+  return cliError(
+    "invalid choice",
+    "usage: skill-loom draft {list,promote,install} ...",
+    `skill-loom draft: invalid choice: ${subcommand ?? ""}`
+  );
 }
 
+// fallow-ignore-next-line complexity
 function cmdDeck(argv: string[]): number {
   const [subcommand, deckName, ...rest] = argv;
-  if (!deckName) {
-    console.error(
+  if (!deckName)
+    return cliError(
+      "missing required argument",
       `skill-loom deck ${subcommand ?? ""}: the following arguments are required: name`
     );
-    return 2;
-  }
   if (subcommand === "show") {
     try {
       const [deck, skills] = loadDeck(deckName, new Set(), true);
+      if (jsonMode) {
+        emitJson(
+          deck.description
+            ? { name: deckName, description: deck.description, skills }
+            : { name: deckName, skills }
+        );
+        return 0;
+      }
       console.log(`Project deck: ${deckName}`);
       if (deck.description) console.log(deck.description);
       for (const name of skills) console.log(`  ${name}`);
       return 0;
     } catch (error) {
-      console.error(errorText(error));
-      return 2;
+      return failFromError(error, HINT_DECK_PRESET);
     }
   }
   if (subcommand === "save") {
     const { yes, names } = parseYesArgs(rest);
-    if (names.length === 0) {
-      console.error(
+    if (names.length === 0)
+      return cliError(
+        "missing required argument",
         "skill-loom deck save: the following arguments are required: names"
       );
-      return 2;
-    }
-    if (!confirmedAction(`Save Project Deck ${deckName}`, names, yes)) return 1;
+    const denied = confirmedAction(`Save Project Deck ${deckName}`, names, yes);
+    if (denied) return denied;
     try {
       const count = saveProjectDeckSelection(deckName, new Set(names));
       const commitNote = commitRepoChanges(
         `chore: save project deck ${deckName}`,
         [deckPath(deckName, true)]
       );
+      if (jsonMode) {
+        emitJson({
+          deck: deckName,
+          count,
+          committed: commitNoteText(commitNote),
+        });
+        return 0;
+      }
       console.log(
         `Saved deck: ${deckName} (${count} direct skills)${commitNote}`
       );
       return 0;
     } catch (error) {
-      console.error(errorText(error));
-      return 2;
+      return failFromError(error, HINT_DECK_PRESET);
     }
   }
   if (subcommand === "apply" || subcommand === "merge") {
@@ -406,32 +628,58 @@ function cmdDeck(argv: string[]): number {
         subcommand,
         lock
       );
-      console.log(
-        `${subcommand === "merge" ? "Merge" : "Apply"} Project Deck ${deckName}`
-      );
-      const printNames = (label: string, names: Set<string>): void => {
-        console.log(`${label}: ${sortNames(names).join(", ") || "(none)"}`);
+      const planJson = (applied: boolean) => ({
+        deck: deckName,
+        target: sortNames(plan.target),
+        archive: sortNames(plan.extra),
+        restore: sortNames(plan.restore),
+        install: sortNames(plan.install),
+        unresolved: sortNames(plan.unresolved),
+        applied,
+      });
+      const printPlan = (write: (text: string) => void): void => {
+        write(
+          `${subcommand === "merge" ? "Merge" : "Apply"} Project Deck ${deckName}`
+        );
+        const printNames = (label: string, names: Set<string>): void => {
+          write(`${label}: ${sortNames(names).join(", ") || "(none)"}`);
+        };
+        printNames("target", plan.target);
+        printNames("archive", plan.extra);
+        printNames("restore", plan.restore);
+        printNames("install", plan.install);
+        printNames("unresolved", plan.unresolved);
       };
-      printNames("target", plan.target);
-      printNames("archive", plan.extra);
-      printNames("restore", plan.restore);
-      printNames("install", plan.install);
-      printNames("unresolved", plan.unresolved);
-      if (!confirmProceed(yes)) return 1;
+      printPlan(jsonMode ? console.error : console.log);
+      const denied = confirmProceed(yes);
+      if (denied) {
+        if (jsonMode) emitJson(planJson(false));
+        return denied;
+      }
       const result = applyProjectDeckPlan(plan, lock);
       if (result.unresolved.size > 0) {
+        if (jsonMode) {
+          emitJson(planJson(false));
+          emitJsonError("unresolved skills", HINT_UNRESOLVED, {
+            names: sortNames(result.unresolved),
+          });
+          return 2;
+        }
         console.error(`Unresolved: ${sortNames(result.unresolved).join(", ")}`);
         return 2;
       }
-      console.log(`Applied deck: ${deckName}`);
+      if (jsonMode) emitJson(planJson(true));
+      else console.log(`Applied deck: ${deckName}`);
       return 0;
     } catch (error) {
-      console.error(errorText(error));
-      return 2;
+      return failFromError(error, HINT_DECK_PRESET);
     }
   }
-  console.error(`skill-loom deck: invalid choice: ${subcommand ?? ""}`);
-  return 2;
+  return cliError(
+    "invalid choice",
+    "usage: skill-loom deck {show,save,apply,merge} name ...",
+    `skill-loom deck: invalid choice: ${subcommand ?? ""}`
+  );
 }
 
 /**
@@ -445,6 +693,27 @@ function cmdAll(argv: string[]): number {
   const plan = planRestoreAll(lock);
   const active = visibleInstalledNames(lock, activeDir());
   const archived = visibleInstalledNames(lock, archiveDir());
+
+  if (jsonMode) {
+    const planJson = (applied: boolean) => ({
+      counts: {
+        active: active.size,
+        target: trackedSkills(lock).size,
+        archive: archived.size,
+      },
+      extra: sortNames(plan.extra),
+      restore: sortNames(plan.restore),
+      install: sortNames(plan.install),
+      applied,
+    });
+    if (!argv.includes("--apply")) {
+      emitJson(planJson(false));
+      return 0;
+    }
+    applyRestoreAllPlan(plan, lock);
+    emitJson(planJson(true));
+    return 0;
+  }
 
   console.log(`active:   ${active.size}`);
   console.log(`target:   ${trackedSkills(lock).size}`);
@@ -478,6 +747,7 @@ function cmdAll(argv: string[]): number {
  */
 function cmdLinkAgents(names: string[]): number {
   linkAgentSkillDirsMany(names);
+  if (jsonMode) emitJson({ linked: names });
   return 0;
 }
 
@@ -487,6 +757,7 @@ function cmdLinkAgents(names: string[]): number {
  * 取得元の分からない skill が 1 つでもあれば、何も動かさずに 2 で抜ける。
  * 半端に入れると、どこまで入ったのかを利用者が追えなくなる。
  */
+// fallow-ignore-next-line complexity
 function cmdInstallDeck(name: string): number {
   const lock = loadLock();
   let result: ReturnType<typeof installProjectDeck>;
@@ -495,13 +766,29 @@ function cmdInstallDeck(name: string): number {
   } catch (error) {
     // 移行前は `SystemExit(f"Unknown project deck: ...")`。メッセージだけ出して 1 で抜ける。
     if (!(error instanceof UnknownDeckError)) throw error;
-    console.error(errorText(error));
+    if (jsonMode) emitJsonError(errorText(error), HINT_DECK_PRESET);
+    else console.error(errorText(error));
     return 1;
   }
   if (result.unresolved.size > 0) {
+    if (jsonMode) {
+      emitJsonError("unresolved skills", HINT_UNRESOLVED, {
+        names: sortNames(result.unresolved),
+      });
+      return 2;
+    }
     console.log("unresolved deck skills:");
     for (const skill of sortNames(result.unresolved)) console.log(`  ${skill}`);
     return 2;
+  }
+  if (jsonMode) {
+    emitJson({
+      deck: name,
+      alreadyActive: result.alreadyActive.size,
+      restored: result.restore.size,
+      installed: result.install.size,
+    });
+    return 0;
   }
   console.log(`deck:           ${name}`);
   console.log(`already active: ${result.alreadyActive.size}`);
@@ -516,27 +803,28 @@ function cmdInstallDeck(name: string): number {
  * UI の Apply と同じ computeTristateApplyDelta → applyDeck の経路を通す。
  * unresolved が 1 つでもあれば書き込む前に 2 で抜ける（install-deck と同じ方針）。
  */
+// fallow-ignore-next-line complexity
 function cmdSkill(argv: string[]): number {
   const usage =
     "usage: skill-loom skill [-h] [-y] {active,archive,off} names [names ...]";
   const { yes, names: args } = parseYesArgs(argv);
   const [desired, ...names] = args;
-  if (desired === undefined || !TRISTATE_VALUES.has(desired)) {
-    console.error(usage);
-    console.error(
+  if (desired === undefined || !TRISTATE_VALUES.has(desired))
+    return cliError(
+      desired === undefined ? "missing required argument" : "invalid choice",
+      usage,
+      usage,
       desired === undefined
         ? "skill-loom skill: error: the following arguments are required: state, names"
         : `skill-loom skill: error: argument state: invalid choice: '${desired}' (choose from active,archive,off)`
     );
-    return 2;
-  }
-  if (names.length === 0) {
-    console.error(usage);
-    console.error(
+  if (names.length === 0)
+    return cliError(
+      "missing required argument",
+      usage,
+      usage,
       "skill-loom skill: error: the following arguments are required: names"
     );
-    return 2;
-  }
 
   const lock = loadLock();
   const state = desired as Selection;
@@ -562,6 +850,12 @@ function cmdSkill(argv: string[]): number {
   );
   const unresolved = sortNames(new Set([...blocked, ...delta.unresolved]));
   if (unresolved.length > 0) {
+    if (jsonMode) {
+      emitJsonError("unresolved skills", HINT_UNRESOLVED, {
+        names: unresolved,
+      });
+      return 2;
+    }
     console.error(`Unresolved: ${unresolved.join(", ")}`);
     return 2;
   }
@@ -575,10 +869,15 @@ function cmdSkill(argv: string[]): number {
     ])
   );
   if (changed.length === 0) {
-    console.log("No changes.");
+    if (jsonMode) emitJson({ state, changed, applied: false });
+    else console.log("No changes.");
     return 0;
   }
-  if (!confirmedAction(`Set ${state}`, changed, yes)) return 1;
+  const denied = confirmedAction(`Set ${state}`, changed, yes);
+  if (denied) {
+    if (jsonMode) emitJson({ state, changed, applied: false });
+    return denied;
+  }
 
   backupActiveToLast(lock);
   try {
@@ -592,10 +891,10 @@ function cmdSkill(argv: string[]): number {
     );
     if (warning) console.error("warning: could not update the skills CLI lock");
   } catch (error) {
-    console.error(errorText(error));
-    return 2;
+    return failFromError(error, "check skill state via status --json");
   }
-  console.log(`Set ${state}: ${changed.join(", ")}`);
+  if (jsonMode) emitJson({ state, changed, applied: true });
+  else console.log(`Set ${state}: ${changed.join(", ")}`);
   return 0;
 }
 
@@ -612,8 +911,10 @@ function errorText(error: unknown): string {
  * 1 バイトずつ読むのは、返事の後ろに続く入力を食べてしまわないため。
  * EOF は空文字を返し、呼び出し側では「y ではない」= 中止になる。
  */
+// fallow-ignore-next-line complexity
 function askLine(question: string): string {
-  process.stdout.write(question);
+  // `--json` では stdout をデータ専用にするため、プロンプトは stderr へ出す。
+  (jsonMode ? process.stderr : process.stdout).write(question);
   const byte = Buffer.alloc(1);
   let line = "";
   while (true) {
@@ -636,10 +937,24 @@ function confirmed(question: string): boolean {
   return answer === "y" || answer === "yes";
 }
 
+// fallow-ignore-next-line complexity
 function cmdPresetList(): number {
   const presets = listUserPresets();
   if (presets.length === 0) {
-    console.log("No presets.");
+    if (!jsonMode) console.log("No presets.");
+    return 0;
+  }
+  if (jsonMode) {
+    for (const preset of presets)
+      emitJson(
+        preset.description
+          ? {
+              name: preset.name,
+              skillCount: preset.skillCount,
+              description: preset.description,
+            }
+          : { name: preset.name, skillCount: preset.skillCount }
+      );
     return 0;
   }
   for (const preset of presets) {
@@ -661,79 +976,104 @@ function cmdPresetSave(args: PresetArgs): number {
       args.overwrite
     );
   } catch (error) {
-    console.error(errorText(error));
-    return 2;
+    return failFromError(error, HINT_DECK_PRESET);
   }
-  console.log(`Saved preset ${saved.name} (${saved.skills.length} skills)`);
+  if (jsonMode) emitJson({ name: saved.name, skills: saved.skills });
+  else
+    console.log(`Saved preset ${saved.name} (${saved.skills.length} skills)`);
   return 0;
 }
 
+// fallow-ignore-next-line complexity
 function cmdPresetApply(args: PresetArgs): number {
   const lock = loadLock();
   let preview: ReturnType<typeof previewNamedPreset>;
   try {
     preview = previewNamedPreset(args.name, lock);
   } catch (error) {
-    console.error(errorText(error));
-    return 2;
+    return failFromError(error, HINT_DECK_PRESET);
   }
 
-  console.log(
-    formatPresetApplyPreview(
-      computePresetApplyPlan(new Set(preview.skills), lock)
-    )
-  );
-  if (preview.blocked) return 2;
-  if (!args.yes && !confirmed("Apply this preset? [y/N] ")) {
-    console.log("Aborted.");
-    return 1;
+  const plan = computePresetApplyPlan(new Set(preview.skills), lock);
+  if (jsonMode) console.error(formatPresetApplyPreview(plan));
+  else console.log(formatPresetApplyPreview(plan));
+  if (preview.blocked) {
+    if (jsonMode) {
+      emitJson(presetPlanJson(preview.skills, plan, false));
+      emitJsonError("unresolved skills", HINT_UNRESOLVED, {
+        names: sortNames(plan.unresolved),
+      });
+    }
+    return 2;
+  }
+  const denied = confirmProceed(args.yes, "Apply this preset? [y/N] ");
+  if (denied) {
+    if (jsonMode) emitJson(presetPlanJson(preview.skills, plan, false));
+    return denied;
   }
 
   try {
     applyNamedPreset(args.name, lock, true);
   } catch (error) {
-    console.error(errorText(error));
-    return 2;
+    return failFromError(error, HINT_DECK_PRESET);
   }
-  console.log(`Applied preset: ${args.name}`);
+  if (jsonMode) emitJson(presetPlanJson(preview.skills, plan, true));
+  else console.log(`Applied preset: ${args.name}`);
   return 0;
 }
 
+// fallow-ignore-next-line complexity
 function cmdPresetRestore(args: PresetArgs): number {
   const lock = loadLock();
-  if (!hasPreviousPreset()) {
-    console.error("No previous state saved");
-    return 2;
-  }
+  if (!hasPreviousPreset())
+    return cliError(
+      "no previous state saved",
+      "presets save a snapshot before each apply/skill change",
+      "No previous state saved"
+    );
 
   // preview と同じ条件（_last のスナップショットへ戻す）で計画してから見せる。
   let plan: ReturnType<typeof computeSnapshotPlan>;
+  let targetActive: string[] = [];
   try {
     const last = loadPreset(PRESET_LAST_NAME);
+    targetActive = last.skills ?? [];
     plan = computeSnapshotPlan(
-      new Set(last.skills ?? []),
+      new Set(targetActive),
       new Set(last.archive ?? []),
       lock
     );
   } catch (error) {
-    console.error(errorText(error));
-    return 2;
+    return failFromError(error, HINT_DECK_PRESET);
   }
-  console.log(formatPresetApplyPreview(plan));
-  if (plan.unresolved.size > 0)
-    console.error(`skip unresolved: ${sortNames(plan.unresolved).join(", ")}`);
-  if (!args.yes && !confirmed("Restore previous active set? [y/N] ")) {
-    console.log("Aborted.");
-    return 1;
+  if (jsonMode) console.error(formatPresetApplyPreview(plan));
+  else console.log(formatPresetApplyPreview(plan));
+  if (plan.unresolved.size > 0) {
+    if (jsonMode)
+      emitJsonError("skip unresolved", HINT_UNRESOLVED, {
+        names: sortNames(plan.unresolved),
+      });
+    else
+      console.error(
+        `skip unresolved: ${sortNames(plan.unresolved).join(", ")}`
+      );
+  }
+  const denied = confirmProceed(
+    args.yes,
+    "Restore previous active set? [y/N] "
+  );
+  if (denied) {
+    if (jsonMode) emitJson(presetPlanJson(targetActive, plan, false));
+    return denied;
   }
 
   try {
     restorePreviousPreset(lock);
   } catch (error) {
-    console.error(errorText(error));
-    return 2;
+    return failFromError(error, HINT_DECK_PRESET);
   }
-  console.log("Restored previous active set");
+  if (jsonMode) emitJson(presetPlanJson(targetActive, plan, true));
+  else console.log("Restored previous active set");
   return 0;
 }
 
@@ -741,10 +1081,10 @@ function cmdPresetDelete(args: PresetArgs): number {
   try {
     deletePreset(args.name);
   } catch (error) {
-    console.error(errorText(error));
-    return 2;
+    return failFromError(error, HINT_DECK_PRESET);
   }
-  console.log(`Deleted preset: ${args.name}`);
+  if (jsonMode) emitJson({ deleted: args.name });
+  else console.log(`Deleted preset: ${args.name}`);
   return 0;
 }
 
@@ -756,6 +1096,7 @@ type PresetArgs = {
 };
 
 /** argparse の `preset` サブパーサ相当。位置引数は name 1 つだけ。 */
+// fallow-ignore-next-line complexity
 function parsePresetArgs(argv: string[]): PresetArgs {
   const args: PresetArgs = {
     name: "",
@@ -775,6 +1116,7 @@ function parsePresetArgs(argv: string[]): PresetArgs {
   return args;
 }
 
+// fallow-ignore-next-line complexity
 function cmdPreset(argv: string[]): number {
   const [subcommand, ...rest] = argv;
   const args = parsePresetArgs(rest);
@@ -785,24 +1127,28 @@ function cmdPreset(argv: string[]): number {
     case "save":
     case "apply":
     case "delete":
-      if (!args.name) {
-        console.error(
+      if (!args.name)
+        return cliError(
+          "missing required argument",
           `skill-loom preset ${subcommand}: the following arguments are required: name`
         );
-        return 2;
-      }
       if (subcommand === "save") return cmdPresetSave(args);
       if (subcommand === "apply") return cmdPresetApply(args);
       return cmdPresetDelete(args);
     case "restore":
       return cmdPresetRestore(args);
     default:
-      console.error(`skill-loom preset: invalid choice: ${subcommand ?? ""}`);
-      return 2;
+      return cliError(
+        "invalid choice",
+        "usage: skill-loom preset {list,save,apply,restore,delete} ...",
+        `skill-loom preset: invalid choice: ${subcommand ?? ""}`
+      );
   }
 }
 
-const [command, ...rest] = Bun.argv.slice(2);
+const [command, ...rest] = jsonMode
+  ? Bun.argv.slice(2).filter((arg) => arg !== "--json")
+  : Bun.argv.slice(2);
 
 /** `argparse` が出す usage 行。no-args / unknown command で共通して使う。 */
 const USAGE =
@@ -839,13 +1185,15 @@ if (command === "-h" || command === "--help") {
   process.stdout.write(HELP);
   process.exit(0);
 }
-if (command === undefined) {
-  console.error(USAGE);
-  console.error(
-    "skill-loom: error: the following arguments are required: command"
+if (command === undefined)
+  process.exit(
+    cliError(
+      "missing required argument",
+      USAGE,
+      USAGE,
+      "skill-loom: error: the following arguments are required: command"
+    )
   );
-  process.exit(2);
-}
 
 switch (command) {
   case "list":
@@ -858,25 +1206,29 @@ switch (command) {
     process.exit(cmdAll(rest));
     break;
   case "install-deck":
-    if (rest.length !== 1 || !rest[0]) {
-      // argparse が出していた 2 行をそのまま再現する。
-      console.error("usage: skill-loom install-deck [-h] name");
-      console.error(
-        "skill-loom install-deck: error: the following arguments are required: name"
+    // argparse が出していた 2 行をそのまま再現する。
+    if (rest.length !== 1 || !rest[0])
+      process.exit(
+        cliError(
+          "missing required argument",
+          "usage: skill-loom install-deck [-h] name",
+          "usage: skill-loom install-deck [-h] name",
+          "skill-loom install-deck: error: the following arguments are required: name"
+        )
       );
-      process.exit(2);
-    }
     process.exit(cmdInstallDeck(rest[0]));
     break;
   case "link-agents":
-    if (rest.length === 0) {
-      // argparse (nargs="+") が出していた 2 行をそのまま再現する。
-      console.error("usage: skill-loom link-agents [-h] names [names ...]");
-      console.error(
-        "skill-loom link-agents: error: the following arguments are required: names"
+    // argparse (nargs="+") が出していた 2 行をそのまま再現する。
+    if (rest.length === 0)
+      process.exit(
+        cliError(
+          "missing required argument",
+          "usage: skill-loom link-agents [-h] names [names ...]",
+          "usage: skill-loom link-agents [-h] names [names ...]",
+          "skill-loom link-agents: error: the following arguments are required: names"
+        )
       );
-      process.exit(2);
-    }
     process.exit(cmdLinkAgents(rest));
     break;
   case "preset":
@@ -899,9 +1251,12 @@ switch (command) {
     break;
   default:
     // argparse の invalid choice。stdout ではなく stderr へ。
-    console.error(USAGE);
-    console.error(
-      `skill-loom: error: argument command: invalid choice: '${command}' (choose from list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill)`
+    process.exit(
+      cliError(
+        "invalid choice",
+        USAGE,
+        USAGE,
+        `skill-loom: error: argument command: invalid choice: '${command}' (choose from list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill)`
+      )
     );
-    process.exit(2);
 }
