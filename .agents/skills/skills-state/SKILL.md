@@ -21,7 +21,7 @@ Verify: `MY_SKILLS_CATALOG_DIR` is set and points at an existing `skills.lock.js
 "$ENGINE_ROOT/skill-loom" --catalog-dir "$MY_SKILLS_CATALOG_DIR" status --json | jq '{tracked, active, archive, untracked}'
 ```
 
-Verify: `.active`, `.archive`, and `.tracked` report the counts and `.untracked` lists active skills outside the Inventory; the skill names the user gave are part of the tracked Inventory.
+Verify: `.active`, `.archive`, and `.tracked` report the counts and `.untracked` lists active skills outside the Inventory. Unknown skill names are rejected in Step 3 (exit 2, before any write).
 
 ### Step 3: Set the state
 

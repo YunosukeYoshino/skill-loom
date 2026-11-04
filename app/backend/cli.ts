@@ -637,25 +637,29 @@ function cmdDeck(argv: string[]): number {
         unresolved: sortNames(plan.unresolved),
         applied,
       });
-      if (jsonMode) emitJson(planJson(false));
-      else {
-        console.log(
+      const printPlan = (write: (text: string) => void): void => {
+        write(
           `${subcommand === "merge" ? "Merge" : "Apply"} Project Deck ${deckName}`
         );
         const printNames = (label: string, names: Set<string>): void => {
-          console.log(`${label}: ${sortNames(names).join(", ") || "(none)"}`);
+          write(`${label}: ${sortNames(names).join(", ") || "(none)"}`);
         };
         printNames("target", plan.target);
         printNames("archive", plan.extra);
         printNames("restore", plan.restore);
         printNames("install", plan.install);
         printNames("unresolved", plan.unresolved);
-      }
+      };
+      printPlan(jsonMode ? console.error : console.log);
       const denied = confirmProceed(yes);
-      if (denied) return denied;
+      if (denied) {
+        if (jsonMode) emitJson(planJson(false));
+        return denied;
+      }
       const result = applyProjectDeckPlan(plan, lock);
       if (result.unresolved.size > 0) {
         if (jsonMode) {
+          emitJson(planJson(false));
           emitJsonError("unresolved skills", HINT_UNRESOLVED, {
             names: sortNames(result.unresolved),
           });
@@ -702,8 +706,10 @@ function cmdAll(argv: string[]): number {
       install: sortNames(plan.install),
       applied,
     });
-    emitJson(planJson(false));
-    if (!argv.includes("--apply")) return 0;
+    if (!argv.includes("--apply")) {
+      emitJson(planJson(false));
+      return 0;
+    }
     applyRestoreAllPlan(plan, lock);
     emitJson(planJson(true));
     return 0;
@@ -867,9 +873,11 @@ function cmdSkill(argv: string[]): number {
     else console.log("No changes.");
     return 0;
   }
-  if (jsonMode) emitJson({ state, changed, applied: false });
   const denied = confirmedAction(`Set ${state}`, changed, yes);
-  if (denied) return denied;
+  if (denied) {
+    if (jsonMode) emitJson({ state, changed, applied: false });
+    return denied;
+  }
 
   backupActiveToLast(lock);
   try {
@@ -987,10 +995,11 @@ function cmdPresetApply(args: PresetArgs): number {
   }
 
   const plan = computePresetApplyPlan(new Set(preview.skills), lock);
-  if (jsonMode) emitJson(presetPlanJson(preview.skills, plan, false));
+  if (jsonMode) console.error(formatPresetApplyPreview(plan));
   else console.log(formatPresetApplyPreview(plan));
   if (preview.blocked) {
     if (jsonMode) {
+      emitJson(presetPlanJson(preview.skills, plan, false));
       emitJsonError("unresolved skills", HINT_UNRESOLVED, {
         names: sortNames(plan.unresolved),
       });
@@ -998,7 +1007,10 @@ function cmdPresetApply(args: PresetArgs): number {
     return 2;
   }
   const denied = confirmProceed(args.yes, "Apply this preset? [y/N] ");
-  if (denied) return denied;
+  if (denied) {
+    if (jsonMode) emitJson(presetPlanJson(preview.skills, plan, false));
+    return denied;
+  }
 
   try {
     applyNamedPreset(args.name, lock, true);
@@ -1034,7 +1046,7 @@ function cmdPresetRestore(args: PresetArgs): number {
   } catch (error) {
     return failFromError(error, HINT_DECK_PRESET);
   }
-  if (jsonMode) emitJson(presetPlanJson(targetActive, plan, false));
+  if (jsonMode) console.error(formatPresetApplyPreview(plan));
   else console.log(formatPresetApplyPreview(plan));
   if (plan.unresolved.size > 0) {
     if (jsonMode)
@@ -1050,7 +1062,10 @@ function cmdPresetRestore(args: PresetArgs): number {
     args.yes,
     "Restore previous active set? [y/N] "
   );
-  if (denied) return denied;
+  if (denied) {
+    if (jsonMode) emitJson(presetPlanJson(targetActive, plan, false));
+    return denied;
+  }
 
   try {
     restorePreviousPreset(lock);
