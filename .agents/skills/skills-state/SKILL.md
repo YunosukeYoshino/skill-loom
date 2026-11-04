@@ -18,10 +18,10 @@ Verify: `MY_SKILLS_CATALOG_DIR` is set and points at an existing `skills.lock.js
 ### Step 2: Check the current state
 
 ```bash
-"$ENGINE_ROOT/skill-loom" --catalog-dir "$MY_SKILLS_CATALOG_DIR" status
+"$ENGINE_ROOT/skill-loom" --catalog-dir "$MY_SKILLS_CATALOG_DIR" status --json | jq '{tracked, active, archive, untracked}'
 ```
 
-Verify: the skill names the user gave are part of the tracked Inventory.
+Verify: `.active`, `.archive`, and `.tracked` report the counts and `.untracked` lists active skills outside the Inventory; the skill names the user gave are part of the tracked Inventory.
 
 ### Step 3: Set the state
 
@@ -33,7 +33,7 @@ Verify: the skill names the user gave are part of the tracked Inventory.
 - `archive`: moves the files to `~/.agents/skills-archive`, removes the agent-facing symlinks, and drops the skill from the skills CLI lock so a later `skills update` won't resurrect it.
 - `off`: trashes the Projection copies and drops the skill from the skills CLI lock.
 
-Verify: rerun `status`; the counts moved. For `active`, `~/.claude/skills/<name>` resolves into the Active directory.
+Verify: rerun `status --json`; the counts moved. For `active`, `~/.claude/skills/<name>` resolves into the Active directory.
 
 ## Safety
 

@@ -18,11 +18,11 @@ Verify: `MY_SKILLS_CATALOG_DIR` is set and points at an existing `skills.lock.js
 ### Step 2: Preview the selected Catalog
 
 ```bash
-"$ENGINE_ROOT/skill-loom" --catalog-dir "$MY_SKILLS_CATALOG_DIR" status
-"$ENGINE_ROOT/skill-loom" --catalog-dir "$MY_SKILLS_CATALOG_DIR" list
+"$ENGINE_ROOT/skill-loom" --catalog-dir "$MY_SKILLS_CATALOG_DIR" status --json
+"$ENGINE_ROOT/skill-loom" --catalog-dir "$MY_SKILLS_CATALOG_DIR" list --json
 ```
 
-Verify: both commands report the Inventory of the selected Catalog without errors.
+Verify: `status --json` reports the counts (`.active`, `.archive`) and `list --json` one deck object per line, both without errors.
 
 ### Step 3: Start the HTML checklist
 
