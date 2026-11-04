@@ -97,6 +97,20 @@ function emitJson(value: unknown): void {
   console.log(JSON.stringify(value));
 }
 
+/** `--json` 時のエラーも stderr の 1 行 JSON。`hint` は次に打つべきコマンドを名指しする。 */
+function emitJsonError(
+  error: string,
+  hint: string,
+  extra?: Record<string, unknown>
+): void {
+  console.error(JSON.stringify({ error, ...extra, hint }));
+}
+
+const HINT_UNRESOLVED =
+  "register the skill first (skills-add or draft promote), or check spelling via status --json";
+const HINT_DECK_PRESET =
+  "list available decks via list --json / presets via preset list --json";
+
 /** git commit note の連結用プレフィクス " / " を剥がす。空なら null。 */
 function commitNoteText(note: string): string | null {
   return note ? note.replace(/^ \/ /, "") : null;
@@ -251,6 +265,13 @@ function cmdExternalPreview(source: string): number {
     }
     return 0;
   } catch (error) {
+    if (jsonMode) {
+      emitJsonError(
+        errorText(error),
+        "check the source as owner/repo or a GitHub URL"
+      );
+      return 2;
+    }
     console.error(errorText(error));
     return 2;
   }
@@ -258,10 +279,12 @@ function cmdExternalPreview(source: string): number {
 
 function runCommand(command: string[]): void {
   const result = Bun.spawnSync(command, {
-    stdout: "inherit",
+    // `--json` では子プロセスの stdout がデータ行を汚さないよう stderr へ流す。
+    stdout: jsonMode ? "pipe" : "inherit",
     stderr: "inherit",
     timeout: 180_000,
   });
+  if (result.stdout) process.stderr.write(result.stdout);
   if (result.exitCode !== 0) {
     throw new Error(`Command failed with exit status ${result.exitCode}`);
   }
@@ -274,7 +297,13 @@ function runCommand(command: string[]): void {
  * stdout をデータ行だけにする。
  */
 function confirmProceed(yes: boolean, question = "Continue? [y/N] "): number {
-  if (yes || confirmed(question)) return 0;
+  if (yes) return 0;
+  // `--json` で stdin が TTY でなければ対話できない。書き込み前に 2 で抜ける。
+  if (jsonMode && !process.stdin.isTTY) {
+    emitJsonError("confirmation required", "re-run with -y");
+    return 2;
+  }
+  if (confirmed(question)) return 0;
   if (jsonMode) console.error(JSON.stringify({ aborted: true }));
   else console.log("Aborted.");
   return 1;
@@ -296,6 +325,13 @@ function parseYesArgs(argv: string[]): { yes: boolean; names: string[] } {
 function cmdExternalUpdate(argv: string[]): number {
   const { yes, names } = parseYesArgs(argv);
   if (names.length === 0) {
+    if (jsonMode) {
+      emitJsonError(
+        "missing required argument",
+        "skill-loom external update: the following arguments are required: names"
+      );
+      return 2;
+    }
     console.error(
       "skill-loom external update: the following arguments are required: names"
     );
@@ -305,6 +341,14 @@ function cmdExternalUpdate(argv: string[]): number {
   const active = activeExternalSkillNames(lock);
   const inactive = names.filter((name) => !active.has(name));
   if (inactive.length > 0) {
+    if (jsonMode) {
+      emitJsonError(
+        "cannot update because not active",
+        `set them active first: skill-loom skill active ${inactive.join(" ")}`,
+        { names: inactive }
+      );
+      return 2;
+    }
     console.error(`cannot update because not active: ${inactive.join(", ")}`);
     return 2;
   }
@@ -313,6 +357,13 @@ function cmdExternalUpdate(argv: string[]): number {
   try {
     for (const name of names) runExternalSkillUpdate(name, lock, runCommand);
   } catch (error) {
+    if (jsonMode) {
+      emitJsonError(
+        errorText(error),
+        "check update status via external check --json"
+      );
+      return 2;
+    }
     console.error(errorText(error));
     return 2;
   }
@@ -327,6 +378,13 @@ async function cmdExternal(argv: string[]): Promise<number> {
   if (subcommand === "check") return await cmdExternalCheck();
   if (subcommand === "preview") {
     if (!rest[0]) {
+      if (jsonMode) {
+        emitJsonError(
+          "missing required argument",
+          "skill-loom external preview: the following arguments are required: source"
+        );
+        return 2;
+      }
       console.error(
         "skill-loom external preview: the following arguments are required: source"
       );
@@ -335,6 +393,13 @@ async function cmdExternal(argv: string[]): Promise<number> {
     return cmdExternalPreview(rest[0]);
   }
   if (subcommand === "update") return cmdExternalUpdate(rest);
+  if (jsonMode) {
+    emitJsonError(
+      "invalid choice",
+      "usage: skill-loom external {list,check,preview,update} ..."
+    );
+    return 2;
+  }
   console.error(`skill-loom external: invalid choice: ${subcommand ?? ""}`);
   return 2;
 }
@@ -357,6 +422,13 @@ function cmdCustom(argv: string[]): number {
   if (subcommand === "update") {
     const { yes, names } = parseYesArgs(rest);
     if (names.length === 0) {
+      if (jsonMode) {
+        emitJsonError(
+          "missing required argument",
+          "skill-loom custom update: the following arguments are required: names"
+        );
+        return 2;
+      }
       console.error(
         "skill-loom custom update: the following arguments are required: names"
       );
@@ -366,6 +438,14 @@ function cmdCustom(argv: string[]): number {
     const custom = lock.custom?.skills ?? {};
     const unknown = names.filter((name) => !(name in custom));
     if (unknown.length > 0) {
+      if (jsonMode) {
+        emitJsonError(
+          "not custom skills",
+          "check custom skill names via custom check --json",
+          { names: unknown }
+        );
+        return 2;
+      }
       console.error(`not custom skills: ${unknown.join(", ")}`);
       return 2;
     }
@@ -377,9 +457,23 @@ function cmdCustom(argv: string[]): number {
       else console.log(`Updated: ${updated.join(", ")}`);
       return 0;
     } catch (error) {
+      if (jsonMode) {
+        emitJsonError(
+          errorText(error),
+          "check the custom skill state via custom check --json"
+        );
+        return 2;
+      }
       console.error(errorText(error));
       return 2;
     }
+  }
+  if (jsonMode) {
+    emitJsonError(
+      "invalid choice",
+      "usage: skill-loom custom {check,update} ..."
+    );
+    return 2;
   }
   console.error(`skill-loom custom: invalid choice: ${subcommand ?? ""}`);
   return 2;
@@ -414,6 +508,13 @@ function cmdDraft(argv: string[]): number {
     const force = rest.includes("--force");
     const skillNames = names.filter((arg) => arg !== "--force");
     if (skillNames.length === 0) {
+      if (jsonMode) {
+        emitJsonError(
+          "missing required argument",
+          `skill-loom draft ${subcommand}: the following arguments are required: names`
+        );
+        return 2;
+      }
       console.error(
         `skill-loom draft ${subcommand}: the following arguments are required: names`
       );
@@ -444,9 +545,23 @@ function cmdDraft(argv: string[]): number {
       console.log(`Promoted: ${promoted.join(", ")}${commitNote}`);
       return 0;
     } catch (error) {
+      if (jsonMode) {
+        emitJsonError(
+          errorText(error),
+          "check draft names via draft list --json"
+        );
+        return 2;
+      }
       console.error(errorText(error));
       return 2;
     }
+  }
+  if (jsonMode) {
+    emitJsonError(
+      "invalid choice",
+      "usage: skill-loom draft {list,promote,install} ..."
+    );
+    return 2;
   }
   console.error(`skill-loom draft: invalid choice: ${subcommand ?? ""}`);
   return 2;
@@ -455,6 +570,13 @@ function cmdDraft(argv: string[]): number {
 function cmdDeck(argv: string[]): number {
   const [subcommand, deckName, ...rest] = argv;
   if (!deckName) {
+    if (jsonMode) {
+      emitJsonError(
+        "missing required argument",
+        `skill-loom deck ${subcommand ?? ""}: the following arguments are required: name`
+      );
+      return 2;
+    }
     console.error(
       `skill-loom deck ${subcommand ?? ""}: the following arguments are required: name`
     );
@@ -476,6 +598,10 @@ function cmdDeck(argv: string[]): number {
       for (const name of skills) console.log(`  ${name}`);
       return 0;
     } catch (error) {
+      if (jsonMode) {
+        emitJsonError(errorText(error), HINT_DECK_PRESET);
+        return 2;
+      }
       console.error(errorText(error));
       return 2;
     }
@@ -483,6 +609,13 @@ function cmdDeck(argv: string[]): number {
   if (subcommand === "save") {
     const { yes, names } = parseYesArgs(rest);
     if (names.length === 0) {
+      if (jsonMode) {
+        emitJsonError(
+          "missing required argument",
+          "skill-loom deck save: the following arguments are required: names"
+        );
+        return 2;
+      }
       console.error(
         "skill-loom deck save: the following arguments are required: names"
       );
@@ -509,6 +642,10 @@ function cmdDeck(argv: string[]): number {
       );
       return 0;
     } catch (error) {
+      if (jsonMode) {
+        emitJsonError(errorText(error), HINT_DECK_PRESET);
+        return 2;
+      }
       console.error(errorText(error));
       return 2;
     }
@@ -552,6 +689,12 @@ function cmdDeck(argv: string[]): number {
       if (denied) return denied;
       const result = applyProjectDeckPlan(plan, lock);
       if (result.unresolved.size > 0) {
+        if (jsonMode) {
+          emitJsonError("unresolved skills", HINT_UNRESOLVED, {
+            names: sortNames(result.unresolved),
+          });
+          return 2;
+        }
         console.error(`Unresolved: ${sortNames(result.unresolved).join(", ")}`);
         return 2;
       }
@@ -559,9 +702,20 @@ function cmdDeck(argv: string[]): number {
       else console.log(`Applied deck: ${deckName}`);
       return 0;
     } catch (error) {
+      if (jsonMode) {
+        emitJsonError(errorText(error), HINT_DECK_PRESET);
+        return 2;
+      }
       console.error(errorText(error));
       return 2;
     }
+  }
+  if (jsonMode) {
+    emitJsonError(
+      "invalid choice",
+      "usage: skill-loom deck {show,save,apply,merge} name ..."
+    );
+    return 2;
   }
   console.error(`skill-loom deck: invalid choice: ${subcommand ?? ""}`);
   return 2;
@@ -648,15 +802,19 @@ function cmdInstallDeck(name: string): number {
   } catch (error) {
     // 移行前は `SystemExit(f"Unknown project deck: ...")`。メッセージだけ出して 1 で抜ける。
     if (!(error instanceof UnknownDeckError)) throw error;
-    console.error(errorText(error));
+    if (jsonMode) emitJsonError(errorText(error), HINT_DECK_PRESET);
+    else console.error(errorText(error));
     return 1;
   }
   if (result.unresolved.size > 0) {
-    if (!jsonMode) {
-      console.log("unresolved deck skills:");
-      for (const skill of sortNames(result.unresolved))
-        console.log(`  ${skill}`);
+    if (jsonMode) {
+      emitJsonError("unresolved skills", HINT_UNRESOLVED, {
+        names: sortNames(result.unresolved),
+      });
+      return 2;
     }
+    console.log("unresolved deck skills:");
+    for (const skill of sortNames(result.unresolved)) console.log(`  ${skill}`);
     return 2;
   }
   if (jsonMode) {
@@ -687,6 +845,13 @@ function cmdSkill(argv: string[]): number {
   const { yes, names: args } = parseYesArgs(argv);
   const [desired, ...names] = args;
   if (desired === undefined || !TRISTATE_VALUES.has(desired)) {
+    if (jsonMode) {
+      emitJsonError(
+        desired === undefined ? "missing required argument" : "invalid choice",
+        usage
+      );
+      return 2;
+    }
     console.error(usage);
     console.error(
       desired === undefined
@@ -696,6 +861,10 @@ function cmdSkill(argv: string[]): number {
     return 2;
   }
   if (names.length === 0) {
+    if (jsonMode) {
+      emitJsonError("missing required argument", usage);
+      return 2;
+    }
     console.error(usage);
     console.error(
       "skill-loom skill: error: the following arguments are required: names"
@@ -727,6 +896,12 @@ function cmdSkill(argv: string[]): number {
   );
   const unresolved = sortNames(new Set([...blocked, ...delta.unresolved]));
   if (unresolved.length > 0) {
+    if (jsonMode) {
+      emitJsonError("unresolved skills", HINT_UNRESOLVED, {
+        names: unresolved,
+      });
+      return 2;
+    }
     console.error(`Unresolved: ${unresolved.join(", ")}`);
     return 2;
   }
@@ -760,6 +935,10 @@ function cmdSkill(argv: string[]): number {
     );
     if (warning) console.error("warning: could not update the skills CLI lock");
   } catch (error) {
+    if (jsonMode) {
+      emitJsonError(errorText(error), "check skill state via status --json");
+      return 2;
+    }
     console.error(errorText(error));
     return 2;
   }
@@ -844,6 +1023,10 @@ function cmdPresetSave(args: PresetArgs): number {
       args.overwrite
     );
   } catch (error) {
+    if (jsonMode) {
+      emitJsonError(errorText(error), HINT_DECK_PRESET);
+      return 2;
+    }
     console.error(errorText(error));
     return 2;
   }
@@ -859,6 +1042,10 @@ function cmdPresetApply(args: PresetArgs): number {
   try {
     preview = previewNamedPreset(args.name, lock);
   } catch (error) {
+    if (jsonMode) {
+      emitJsonError(errorText(error), HINT_DECK_PRESET);
+      return 2;
+    }
     console.error(errorText(error));
     return 2;
   }
@@ -875,13 +1062,24 @@ function cmdPresetApply(args: PresetArgs): number {
   });
   if (jsonMode) emitJson(planJson(false));
   else console.log(formatPresetApplyPreview(plan));
-  if (preview.blocked) return 2;
+  if (preview.blocked) {
+    if (jsonMode) {
+      emitJsonError("unresolved skills", HINT_UNRESOLVED, {
+        names: sortNames(plan.unresolved),
+      });
+    }
+    return 2;
+  }
   const denied = confirmProceed(args.yes, "Apply this preset? [y/N] ");
   if (denied) return denied;
 
   try {
     applyNamedPreset(args.name, lock, true);
   } catch (error) {
+    if (jsonMode) {
+      emitJsonError(errorText(error), HINT_DECK_PRESET);
+      return 2;
+    }
     console.error(errorText(error));
     return 2;
   }
@@ -893,6 +1091,13 @@ function cmdPresetApply(args: PresetArgs): number {
 function cmdPresetRestore(args: PresetArgs): number {
   const lock = loadLock();
   if (!hasPreviousPreset()) {
+    if (jsonMode) {
+      emitJsonError(
+        "no previous state saved",
+        "presets save a snapshot before each apply/skill change"
+      );
+      return 2;
+    }
     console.error("No previous state saved");
     return 2;
   }
@@ -909,6 +1114,10 @@ function cmdPresetRestore(args: PresetArgs): number {
       lock
     );
   } catch (error) {
+    if (jsonMode) {
+      emitJsonError(errorText(error), HINT_DECK_PRESET);
+      return 2;
+    }
     console.error(errorText(error));
     return 2;
   }
@@ -923,8 +1132,16 @@ function cmdPresetRestore(args: PresetArgs): number {
   });
   if (jsonMode) emitJson(planJson(false));
   else console.log(formatPresetApplyPreview(plan));
-  if (plan.unresolved.size > 0)
-    console.error(`skip unresolved: ${sortNames(plan.unresolved).join(", ")}`);
+  if (plan.unresolved.size > 0) {
+    if (jsonMode)
+      emitJsonError("skip unresolved", HINT_UNRESOLVED, {
+        names: sortNames(plan.unresolved),
+      });
+    else
+      console.error(
+        `skip unresolved: ${sortNames(plan.unresolved).join(", ")}`
+      );
+  }
   const denied = confirmProceed(
     args.yes,
     "Restore previous active set? [y/N] "
@@ -934,6 +1151,10 @@ function cmdPresetRestore(args: PresetArgs): number {
   try {
     restorePreviousPreset(lock);
   } catch (error) {
+    if (jsonMode) {
+      emitJsonError(errorText(error), HINT_DECK_PRESET);
+      return 2;
+    }
     console.error(errorText(error));
     return 2;
   }
@@ -946,6 +1167,10 @@ function cmdPresetDelete(args: PresetArgs): number {
   try {
     deletePreset(args.name);
   } catch (error) {
+    if (jsonMode) {
+      emitJsonError(errorText(error), HINT_DECK_PRESET);
+      return 2;
+    }
     console.error(errorText(error));
     return 2;
   }
@@ -992,6 +1217,13 @@ function cmdPreset(argv: string[]): number {
     case "apply":
     case "delete":
       if (!args.name) {
+        if (jsonMode) {
+          emitJsonError(
+            "missing required argument",
+            `skill-loom preset ${subcommand}: the following arguments are required: name`
+          );
+          return 2;
+        }
         console.error(
           `skill-loom preset ${subcommand}: the following arguments are required: name`
         );
@@ -1003,6 +1235,13 @@ function cmdPreset(argv: string[]): number {
     case "restore":
       return cmdPresetRestore(args);
     default:
+      if (jsonMode) {
+        emitJsonError(
+          "invalid choice",
+          "usage: skill-loom preset {list,save,apply,restore,delete} ..."
+        );
+        return 2;
+      }
       console.error(`skill-loom preset: invalid choice: ${subcommand ?? ""}`);
       return 2;
   }
@@ -1048,6 +1287,10 @@ if (command === "-h" || command === "--help") {
   process.exit(0);
 }
 if (command === undefined) {
+  if (jsonMode) {
+    emitJsonError("missing required argument", USAGE);
+    process.exit(2);
+  }
   console.error(USAGE);
   console.error(
     "skill-loom: error: the following arguments are required: command"
@@ -1067,6 +1310,13 @@ switch (command) {
     break;
   case "install-deck":
     if (rest.length !== 1 || !rest[0]) {
+      if (jsonMode) {
+        emitJsonError(
+          "missing required argument",
+          "usage: skill-loom install-deck [-h] name"
+        );
+        process.exit(2);
+      }
       // argparse が出していた 2 行をそのまま再現する。
       console.error("usage: skill-loom install-deck [-h] name");
       console.error(
@@ -1078,6 +1328,13 @@ switch (command) {
     break;
   case "link-agents":
     if (rest.length === 0) {
+      if (jsonMode) {
+        emitJsonError(
+          "missing required argument",
+          "usage: skill-loom link-agents [-h] names [names ...]"
+        );
+        process.exit(2);
+      }
       // argparse (nargs="+") が出していた 2 行をそのまま再現する。
       console.error("usage: skill-loom link-agents [-h] names [names ...]");
       console.error(
@@ -1106,6 +1363,10 @@ switch (command) {
     process.exit(cmdSkill(rest));
     break;
   default:
+    if (jsonMode) {
+      emitJsonError("invalid choice", USAGE);
+      process.exit(2);
+    }
     // argparse の invalid choice。stdout ではなく stderr へ。
     console.error(USAGE);
     console.error(
