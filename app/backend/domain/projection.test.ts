@@ -875,6 +875,16 @@ describe("runSkillsCli の失敗メッセージ", () => {
     expect(message).toContain("NPX_REASON");
   });
 
+  test("端末への書き戻しで EPIPE が起きてもプロセスを落とさない", () => {
+    fakeBin("cli-stub", 1, "ERR_REPO_NOT_FOUND");
+    failure(["cli-stub", "skills", "add", "owner/repo"]);
+
+    const epipe = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    // リスナーが無い 'error' は emit が投げる。実際の非同期 EPIPE は uncaught exception になる。
+    expect(() => process.stdout.emit("error", epipe)).not.toThrow();
+    expect(() => process.stderr.emit("error", epipe)).not.toThrow();
+  });
+
   test("bunx が失敗しても npx が成功すれば投げない", () => {
     fakeBin("bunx", 2, "BUNX_REASON");
     fakeBin("npx", 0, "fine");

@@ -334,6 +334,32 @@ const CLI_OUTPUT_TAIL_CHARS = 500;
 
 type SkillsCliAttempt = { cmd: string[]; exitCode: number; output: string };
 
+let epipeIgnored = false;
+
+/**
+ * 端末の pipe が閉じていると write は EPIPE を非同期の 'error' で返す。リスナーが
+ * 無いと uncaught になり、server ごと落ちて CLI の失敗も UI へ届かない。
+ * 書き戻しは表示の再現にすぎないので、EPIPE だけは捨てる。
+ */
+function ignoreTerminalEpipe(): void {
+  if (epipeIgnored) return;
+  epipeIgnored = true;
+  for (const stream of [process.stdout, process.stderr]) {
+    stream.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code !== "EPIPE") throw error;
+    });
+  }
+}
+
+function replayToTerminal(stream: NodeJS.WriteStream, data: Uint8Array): void {
+  ignoreTerminalEpipe();
+  try {
+    stream.write(data);
+  } catch {
+    // 同期で投げられても、書き戻しの失敗で install の結果は変えない。
+  }
+}
+
 /**
  * stdout / stderr は pipe で捕まえ、終わってから端末へ流し直す。
  * inherit のままだと失敗理由が server の端末にしか残らず、UI へ渡せない。
@@ -344,8 +370,8 @@ function spawnSkillsCli(cmd: string[]): SkillsCliAttempt {
     stdout: "pipe",
     stderr: "pipe",
   });
-  process.stdout.write(result.stdout);
-  process.stderr.write(result.stderr);
+  replayToTerminal(process.stdout, result.stdout);
+  replayToTerminal(process.stderr, result.stderr);
   const output = stripVTControlCharacters(
     `${result.stdout.toString()}\n${result.stderr.toString()}`
   ).trim();
