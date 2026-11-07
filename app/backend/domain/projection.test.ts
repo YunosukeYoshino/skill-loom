@@ -48,6 +48,7 @@ import {
   planProjection,
   planRestoreAll,
   restorePreviousPreset,
+  runSkillsCli,
   syncSkillMdName,
 } from "./projection";
 
@@ -810,6 +811,75 @@ describe("planRestoreAll / applyRestoreAllPlan", () => {
     applyRestoreAllPlan(planRestoreAll(customOnly), customOnly, false);
 
     expect(existsSync(dir("presets", "_last.json"))).toBe(false);
+  });
+});
+
+describe("runSkillsCli の失敗メッセージ", () => {
+  const originalPath = process.env.PATH;
+
+  /** PATH の先頭に偽の実行ファイルを置く。stderr に理由を書いて指定コードで終わる。 */
+  function fakeBin(name: string, exitCode: number, stderr: string): void {
+    mkdirSync(dir("fake-bin"), { recursive: true });
+    writeFileSync(
+      dir("fake-bin", name),
+      `#!/usr/bin/env bash\necho '${stderr}' >&2\nexit ${exitCode}\n`
+    );
+    chmodSync(dir("fake-bin", name), 0o755);
+    process.env.PATH = `${dir("fake-bin")}:${originalPath}`;
+  }
+
+  afterEach(() => {
+    process.env.PATH = originalPath;
+  });
+
+  function failure(cmd: string[]): string {
+    try {
+      runSkillsCli(cmd);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProjectionInstallError);
+      return (error as Error).message;
+    }
+    throw new Error("runSkillsCli did not throw");
+  }
+
+  test("失敗した CLI の stderr 末尾とコマンドを含める", () => {
+    fakeBin("cli-stub", 1, "ERR_REPO_NOT_FOUND owner/repo");
+
+    const message = failure(["cli-stub", "skills", "add", "owner/repo"]);
+
+    expect(message).toContain("skills CLI failed (1): cli-stub skills add");
+    expect(message).toContain("ERR_REPO_NOT_FOUND owner/repo");
+  });
+
+  test("出力が長いときは末尾 500 文字だけを残す", () => {
+    fakeBin("cli-stub", 1, `HEAD-MARKER ${"x".repeat(2000)} TAIL-MARKER`);
+
+    const message = failure(["cli-stub", "skills", "add", "owner/repo"]);
+
+    expect(message).toContain("TAIL-MARKER");
+    expect(message).not.toContain("HEAD-MARKER");
+    expect(message.length).toBeLessThan(800);
+  });
+
+  test("bunx と npx の両方が失敗したら両方の理由を残す", () => {
+    fakeBin("bunx", 2, "BUNX_REASON bun registry down");
+    fakeBin("npx", 3, "NPX_REASON npm 404");
+
+    const message = failure(["bunx", "skills", "add", "owner/repo"]);
+
+    expect(message).toContain("bunx skills add owner/repo");
+    expect(message).toContain("(2)");
+    expect(message).toContain("BUNX_REASON");
+    expect(message).toContain("npx skills add owner/repo");
+    expect(message).toContain("(3)");
+    expect(message).toContain("NPX_REASON");
+  });
+
+  test("bunx が失敗しても npx が成功すれば投げない", () => {
+    fakeBin("bunx", 2, "BUNX_REASON");
+    fakeBin("npx", 0, "fine");
+
+    expect(() => runSkillsCli(["bunx", "skills", "add", "o/r"])).not.toThrow();
   });
 });
 
