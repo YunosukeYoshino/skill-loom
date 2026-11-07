@@ -28,6 +28,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import {
   activeDir,
   archiveDir,
@@ -328,31 +329,76 @@ export function installCommands(missing: Set<string>, lock: Lock): string[][] {
 
 export class ProjectionInstallError extends Error {}
 
-export function runSkillsCli(cmd: string[]): void {
+/** エラーメッセージに残す CLI 出力の長さ。UI に出すので全文は載せない。 */
+const CLI_OUTPUT_TAIL_CHARS = 500;
+
+type SkillsCliAttempt = { cmd: string[]; exitCode: number; output: string };
+
+let epipeIgnored = false;
+
+/**
+ * 端末の pipe が閉じていると write は EPIPE を非同期の 'error' で返す。リスナーが
+ * 無いと uncaught になり、server ごと落ちて CLI の失敗も UI へ届かない。
+ * 書き戻しは表示の再現にすぎないので、EPIPE だけは捨てる。
+ */
+function ignoreTerminalEpipe(): void {
+  if (epipeIgnored) return;
+  epipeIgnored = true;
+  for (const stream of [process.stdout, process.stderr]) {
+    stream.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code !== "EPIPE") throw error;
+    });
+  }
+}
+
+function replayToTerminal(stream: NodeJS.WriteStream, data: Uint8Array): void {
+  ignoreTerminalEpipe();
+  try {
+    stream.write(data);
+  } catch {
+    // 同期で投げられても、書き戻しの失敗で install の結果は変えない。
+  }
+}
+
+/**
+ * stdout / stderr は pipe で捕まえ、終わってから端末へ流し直す。
+ * inherit のままだと失敗理由が server の端末にしか残らず、UI へ渡せない。
+ */
+function spawnSkillsCli(cmd: string[]): SkillsCliAttempt {
   const result = Bun.spawnSync(cmd, {
     env: process.env,
-    stdout: "inherit",
-    stderr: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  if (result.exitCode === 0) return;
+  replayToTerminal(process.stdout, result.stdout);
+  replayToTerminal(process.stderr, result.stderr);
+  const output = stripVTControlCharacters(
+    `${result.stdout.toString()}\n${result.stderr.toString()}`
+  ).trim();
+  return { cmd, exitCode: result.exitCode, output };
+}
+
+function describeAttempt(attempt: SkillsCliAttempt): string {
+  const head = `skills CLI failed (${attempt.exitCode}): ${attempt.cmd.join(" ")}`;
+  const tail = attempt.output.slice(-CLI_OUTPUT_TAIL_CHARS);
+  return tail ? `${head}\n${tail}` : head;
+}
+
+export function runSkillsCli(cmd: string[]): void {
+  const first = spawnSkillsCli(cmd);
+  if (first.exitCode === 0) return;
 
   // bunx が無い環境向けの逃げ道。Python 側と同じ条件でだけ npx に落とす。
   if (cmd[0] === "bunx" && Bun.which("npx")) {
     const fallback = ["npx", ...cmd.slice(1)];
     console.error(`+ ${fallback.join(" ")}  # bunx failed, retrying with npx`);
-    const retry = Bun.spawnSync(fallback, {
-      env: process.env,
-      stdout: "inherit",
-      stderr: "inherit",
-    });
+    const retry = spawnSkillsCli(fallback);
     if (retry.exitCode === 0) return;
     throw new ProjectionInstallError(
-      `skills CLI failed (${retry.exitCode}): ${fallback.join(" ")}`
+      `${describeAttempt(retry)}\n\nearlier attempt:\n${describeAttempt(first)}`
     );
   }
-  throw new ProjectionInstallError(
-    `skills CLI failed (${result.exitCode}): ${cmd.join(" ")}`
-  );
+  throw new ProjectionInstallError(describeAttempt(first));
 }
 
 export function installCustomFromRepo(names: Set<string>, lock: Lock): void {
