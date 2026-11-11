@@ -38,6 +38,7 @@ import {
   externalSourceActivity,
   updateExternalGlobal,
 } from "./external-source-model";
+import { githubRepoUrl } from "./github-repo-url";
 import { DialogFrame, useConfirm } from "@/components/dialog";
 import { useListViewSearch } from "@/router-search";
 import { useT, useUiSettings } from "@/settings/react";
@@ -383,10 +384,12 @@ function ExternalSourceMeta({
 }
 
 function OgpBanner({ source }: { source: string }) {
+  const t = useT();
   const q = useOgp(source);
   if (!q.data || (!q.data.image && !q.data.description)) return null;
-  return (
-    <div className="mb-3 flex gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3">
+  const href = githubRepoUrl(q.data.source);
+  const card = (
+    <>
       {q.data.image ? (
         <img
           src={q.data.image}
@@ -408,7 +411,21 @@ function OgpBanner({ source }: { source: string }) {
           </p>
         ) : null}
       </div>
-    </div>
+    </>
+  );
+  const className =
+    "relative mb-3 flex gap-3 rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--surface)] p-3";
+  if (!href) return <div className={className}>{card}</div>;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`${className} text-inherit no-underline transition-[background,border-color] duration-100 ease-out hover:border-[var(--color-rule-strong)] hover:bg-[var(--color-paper-2)]`}
+    >
+      {card}
+      <span className="sr-only">{t("detail.openGithub")}</span>
+    </a>
   );
 }
 
