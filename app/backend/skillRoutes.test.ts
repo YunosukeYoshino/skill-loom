@@ -835,3 +835,19 @@ test.each(["duplicate", "inventory", "workspace", "cli", "tracking"])(
     ).toBe(true);
   }
 );
+
+test("編集中の Markdown を閲覧時と同じ描画器で HTML にし、保存や作業用コピーを作らない", async () => {
+  const response = await post("preview", { content: "# Draft\n\n**bold**\n" });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    html: Bun.markdown.html("# Draft\n\n**bold**\n"),
+  });
+  expect(existsSync(join(root, ".skill-loom"))).toBe(false);
+});
+
+test("プレビュー描画は文字列以外と編集上限を超える内容を拒否する", async () => {
+  expect((await post("preview", { content: 1 })).status).toBe(400);
+  expect(
+    (await post("preview", { content: "a".repeat(1024 * 1024 + 1) })).status
+  ).toBe(400);
+});

@@ -177,6 +177,15 @@ function atomicSkillWrite(
   renameSync(temporary, file);
 }
 
+export function renderSkillMarkdown(content: unknown): string {
+  if (
+    typeof content !== "string" ||
+    Buffer.byteLength(content) > SKILL_TEXT_LIMIT
+  )
+    throw new ValueError("Text exceeds the 1 MiB edit limit");
+  return Bun.markdown.html(content);
+}
+
 export function requireWorkspace(ref: SkillRef): SkillWorkspace {
   ref = checkedRef(ref);
   const workspace = loadSkillWorkspace(ref.name);
@@ -584,7 +593,7 @@ function readSkillContent(root: string, file: string) {
     content,
     html:
       content !== null && /\.md$/i.test(file)
-        ? Bun.markdown.html(content)
+        ? renderSkillMarkdown(content)
         : null,
     binary: selected.binary,
     truncated: selected.size > SKILL_TEXT_LIMIT,
