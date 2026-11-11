@@ -29,7 +29,6 @@ function SafeMarkdown({ html, failure }: { html: string; failure: string }) {
     const container = ref.current;
     if (!container) return;
     let cancelled = false;
-    container.replaceChildren();
     setError(false);
     // 同じ許可リストを使い、未信頼のHTMLを再パースせずDOMへ挿入する。
     const elements = [
@@ -89,11 +88,13 @@ function SafeMarkdown({ html, failure }: { html: string; failure: string }) {
       }
     }
     void render(container).catch(() => {
-      if (!cancelled) setError(true);
+      if (cancelled) return;
+      container.replaceChildren();
+      setError(true);
     });
+    // 先に空にするとライブプレビューのスクロール位置が先頭へ戻るため、描画時に置き換える。
     return () => {
       cancelled = true;
-      container.replaceChildren();
     };
   }, [html]);
   return (

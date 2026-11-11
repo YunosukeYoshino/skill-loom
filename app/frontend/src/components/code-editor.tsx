@@ -280,6 +280,7 @@ export default function CodeEditor({
   return <div ref={host} className="h-full min-h-0" />;
 }
 
+// editable を切るとフォーカスが外れ、読み取り専用表示で検索や選択もできなくなる。
 function accessExtension(readOnly: boolean): Extension {
-  return [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)];
+  return EditorState.readOnly.of(readOnly);
 }
