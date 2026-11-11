@@ -271,3 +271,130 @@ h3 {
     bottom: calc(8.5rem + env(safe-area-inset-bottom));
   }
 }
+
+/* Markdown プレビュー — 読み物として組み、装飾はトークンの罫線と面だけにする */
+.skill-prose {
+  max-width: 72ch;
+  font-size: var(--text-md);
+  line-height: 1.7;
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+.skill-prose > :first-child {
+  margin-top: 0;
+}
+.skill-prose > :last-child {
+  margin-bottom: 0;
+}
+.skill-prose :where(h1, h2, h3, h4, h5, h6) {
+  margin: 1.75em 0 0.6em;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
+}
+.skill-prose h1 {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 600;
+}
+.skill-prose h2 {
+  padding-bottom: 0.35em;
+  border-bottom: 1px solid var(--color-rule);
+  font-size: 1.3rem;
+}
+.skill-prose h3 {
+  font-size: 1.1rem;
+}
+.skill-prose :where(h4, h5, h6) {
+  font-size: var(--text-md);
+}
+.skill-prose :where(p, ul, ol, blockquote, pre, table, details) {
+  margin: 0 0 1em;
+}
+.skill-prose :where(ul, ol) {
+  padding-left: 1.4em;
+}
+.skill-prose ul {
+  list-style: disc;
+}
+.skill-prose ol {
+  list-style: decimal;
+}
+.skill-prose li + li {
+  margin-top: 0.3em;
+}
+.skill-prose li::marker {
+  color: var(--color-ink-2);
+}
+.skill-prose a {
+  color: var(--color-accent-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(
+    in oklch,
+    var(--color-accent) 40%,
+    transparent
+  );
+  text-underline-offset: 0.2em;
+}
+.skill-prose a:hover {
+  text-decoration-color: currentColor;
+}
+.skill-prose strong {
+  font-weight: 650;
+}
+.skill-prose :not(pre) > code {
+  padding: 0.12em 0.36em;
+  border: 1px solid var(--color-rule);
+  border-radius: 6px;
+  background: var(--color-paper-2);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+.skill-prose pre {
+  overflow: auto;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-md);
+  background: var(--color-paper-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+.skill-prose blockquote {
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 3px solid var(--color-rule-strong);
+  color: var(--color-ink-2);
+}
+.skill-prose hr {
+  margin: 2em 0;
+  border: 0;
+  border-top: 1px solid var(--color-rule);
+}
+.skill-prose table {
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.skill-prose :where(th, td) {
+  padding: 0.45em 0.8em;
+  border: 1px solid var(--color-rule);
+  text-align: left;
+  vertical-align: top;
+}
+.skill-prose th {
+  background: var(--color-paper-2);
+  font-weight: 600;
+}
+.skill-prose details {
+  padding: 0.5em 0.9em;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+}
+.skill-prose summary {
+  cursor: pointer;
+  font-weight: 600;
+}

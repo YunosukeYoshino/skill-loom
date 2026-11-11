@@ -73,6 +73,8 @@ export const skillWorkspaceApi = {
       choice?: "work" | "upstream";
     }
   ) => request<SkillView>(`/${action}`, { ref, ...fields }),
+  preview: (content: string, signal?: AbortSignal) =>
+    request<{ html: string }>("/preview", { content }, signal),
   codex: (ref: SkillRef, signal?: AbortSignal) =>
     request<SkillCodexState>(`/codex?${query(ref)}`, undefined, signal),
   start: (ref: SkillRef, prompt: string) =>
