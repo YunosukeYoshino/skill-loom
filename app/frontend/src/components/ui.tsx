@@ -546,10 +546,19 @@ export type WorkbenchShellProps = {
   decks?: string[];
   /** 右ドロワーに置くパネル (更新・プリセット等)。狭い画面ではステージ下に回る。 */
   drawer?: ReactNode;
+  /** ドロワーがないとき、右列を空けずにステージを広げる */
+  fillEmptyDrawer?: boolean;
   /** トップバーにグローバル検索を出す (リスト絞り込みに接続) */
   searchable?: boolean;
   children: ReactNode;
 };
+
+// ドロワー列は常に確保し、ページが望むときだけ空の列を省く。
+function drawerColumn(drawer: ReactNode, fillEmptyDrawer = false) {
+  return drawer || !fillEmptyDrawer
+    ? "xl:[grid-template-columns:236px_minmax(0,1fr)_318px]"
+    : "";
+}
 
 export function WorkbenchShell({
   title,
@@ -559,6 +568,7 @@ export function WorkbenchShell({
   current,
   decks,
   drawer,
+  fillEmptyDrawer,
   searchable,
   children,
 }: WorkbenchShellProps) {
@@ -577,7 +587,9 @@ export function WorkbenchShell({
         searchable={searchable}
         onMenu={() => setNavOpen(true)}
       />
-      <div className="relative z-[1] mx-auto grid w-full max-w-[1480px] items-start gap-4 px-4 pt-4 pb-11 [grid-template-columns:minmax(0,1fr)] max-md:pb-32 md:px-6 md:[grid-template-columns:60px_minmax(0,1fr)] lg:[grid-template-columns:236px_minmax(0,1fr)] xl:[grid-template-columns:236px_minmax(0,1fr)_318px]">
+      <div
+        className={`relative z-[1] mx-auto grid w-full max-w-[1480px] items-start gap-4 px-4 pt-4 pb-11 [grid-template-columns:minmax(0,1fr)] max-md:pb-32 md:px-6 md:[grid-template-columns:60px_minmax(0,1fr)] lg:[grid-template-columns:236px_minmax(0,1fr)] ${drawerColumn(drawer, fillEmptyDrawer)}`}
+      >
         <div className="sticky top-[70px] max-md:hidden">
           <div className="lg:hidden">
             <RailNav

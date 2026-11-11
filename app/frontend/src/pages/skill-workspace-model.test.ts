@@ -8,6 +8,9 @@ import {
   workspaceLocks,
   shouldReviewDiff,
   codexFailure,
+  editorAfterAction,
+  modeAfterAction,
+  splitsEditor,
 } from "./skill-workspace-model";
 
 const view: SkillView = {
@@ -209,4 +212,47 @@ test("upstream errors never display a known lag, and merges require an available
   ).toBe(true);
   expect(upstreamState(behind, true, true).mergeDisabled).toBe(true);
   expect(upstreamState(behind, false, false).mergeDisabled).toBe(true);
+});
+
+test("保存後は同じファイルの編集を続け、保存した内容と版を基準にする", () => {
+  const editor = {
+    path: "SKILL.md",
+    content: "# Edited",
+    original: "# Example",
+    revision: "before",
+  };
+  const saved = { ...view, content: "# Edited", revision: "after" };
+  expect(editorAfterAction("save", editor, saved)).toEqual({
+    path: "SKILL.md",
+    content: "# Edited",
+    original: "# Edited",
+    revision: "after",
+  });
+  expect(editorAfterAction("discard", editor, saved)).toBeNull();
+  expect(editorAfterAction("save", null, saved)).toBeNull();
+  expect(
+    editorAfterAction("save", editor, { ...saved, selectedFile: "other.md" })
+  ).toBeNull();
+  expect(
+    editorAfterAction("save", editor, { ...saved, truncated: true })
+  ).toBeNull();
+  expect(
+    editorAfterAction("save", editor, { ...saved, content: null })
+  ).toBeNull();
+});
+
+test("上流や元の版を取り込んだ後は差分を、それ以外はソースを表示する", () => {
+  expect(modeAfterAction("merge-upstream")).toBe("diff");
+  expect(modeAfterAction("reconcile-source")).toBe("diff");
+  expect(modeAfterAction("save")).toBe("source");
+});
+
+test("Markdown を編集している間だけエディタとプレビューを並べる", () => {
+  const editor = { path: "SKILL.md", content: "", original: "", revision: "" };
+  expect(splitsEditor("editor", editor)).toBe(true);
+  expect(splitsEditor("source", editor)).toBe(false);
+  expect(splitsEditor("editor", null)).toBe(false);
+  expect(splitsEditor("editor", { ...editor, path: "scripts/run.sh" })).toBe(
+    false
+  );
 });

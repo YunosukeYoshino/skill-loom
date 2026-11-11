@@ -15,6 +15,7 @@ import {
   forkSkill,
   mergeSkillUpdates,
   reconcileSkillSource,
+  renderSkillMarkdown,
   requireWorkspace,
   resolveSkillConflict,
   saveSkillFile,
@@ -171,6 +172,10 @@ export function createSkillRoutes(): Hono {
         saveSkillFile(ref, body.path, body.content, body.revision)
       )
     );
+  });
+  app.post("/preview", async (c) => {
+    const body = await requestBody(c.req.raw);
+    return c.json({ html: renderSkillMarkdown(body.content) });
   });
   app.post("/validate", async (c) => {
     const body = await requestBody(c.req.raw);

@@ -17,7 +17,7 @@ import {
   skillVersionLabels,
 } from "@/components/skill-workspace-controls";
 import { useWorkspaceSession, useUnsavedEditor } from "./use-skill-workspace";
-import type { Localize } from "./skill-workspace-model";
+import { splitsEditor, type Localize } from "./skill-workspace-model";
 
 export function SkillWorkspacePage({
   name,
@@ -62,6 +62,7 @@ export function SkillWorkspacePage({
       current={source ? "external-sources" : "global"}
       overline={heading.overline}
       sub={heading.sub}
+      fillEmptyDrawer
       drawer={
         chat ? (
           <CodexConversation
@@ -106,6 +107,13 @@ export function SkillWorkspacePage({
   );
 }
 
+// 並べて編集する間はファイル一覧を上に回し、横幅を本文に譲る。
+function filesGrid(splitEditor: boolean) {
+  return splitEditor
+    ? "grid items-start gap-3"
+    : "grid items-start gap-3 min-[1100px]:grid-cols-[minmax(130px,0.3fr)_minmax(0,1fr)]";
+}
+
 function WorkspaceBody({
   session,
   leaveEditor,
@@ -138,6 +146,7 @@ function WorkspaceBody({
   const data = view.data;
   const versions = skillVersionLabels(l);
   if (!data) return null;
+  const splitEditor = splitsEditor(mode, editor);
   return (
     <>
       <WorkspaceNotices
@@ -178,11 +187,12 @@ function WorkspaceBody({
         }
         l={l}
       />
-      <div className="grid items-start gap-3 min-[1100px]:grid-cols-[minmax(130px,0.3fr)_minmax(0,1fr)]">
+      <div className={filesGrid(splitEditor)}>
         <FileList
           files={data.files}
           selectedFile={data.selectedFile}
           busy={busy}
+          compact={splitEditor}
           l={l}
           onSelect={async (path) => {
             if (await leaveEditor()) {

@@ -177,6 +177,29 @@ function atomicSkillWrite(
   renameSync(temporary, file);
 }
 
+export function renderSkillMarkdown(content: unknown): string {
+  if (
+    typeof content !== "string" ||
+    Buffer.byteLength(content) > SKILL_TEXT_LIMIT
+  )
+    throw new ValueError("Text exceeds the 1 MiB edit limit");
+  return skillMarkdownHtml(content);
+}
+
+const FRONTMATTER = /^---\r?\n([\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/;
+
+// 先頭の frontmatter は Markdown として描画すると罫線と見出しになるため、YAML のまま見せる。
+function skillMarkdownHtml(content: string): string {
+  const match = FRONTMATTER.exec(content);
+  if (!match) return Bun.markdown.html(content);
+  const yaml = (match[1] ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+  return `<details open><summary>frontmatter</summary><pre><code>${yaml}</code></pre></details>\n${Bun.markdown.html(content.slice(match[0].length))}`;
+}
+
 export function requireWorkspace(ref: SkillRef): SkillWorkspace {
   ref = checkedRef(ref);
   const workspace = loadSkillWorkspace(ref.name);
@@ -584,7 +607,7 @@ function readSkillContent(root: string, file: string) {
     content,
     html:
       content !== null && /\.md$/i.test(file)
-        ? Bun.markdown.html(content)
+        ? skillMarkdownHtml(content)
         : null,
     binary: selected.binary,
     truncated: selected.size > SKILL_TEXT_LIMIT,

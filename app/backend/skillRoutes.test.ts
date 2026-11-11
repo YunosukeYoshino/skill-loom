@@ -835,3 +835,60 @@ test.each(["duplicate", "inventory", "workspace", "cli", "tracking"])(
     ).toBe(true);
   }
 );
+
+test("編集中の Markdown を閲覧時と同じ描画器で HTML にし、保存や作業用コピーを作らない", async () => {
+  const response = await post("preview", { content: "# Draft\n\n**bold**\n" });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    html: Bun.markdown.html("# Draft\n\n**bold**\n"),
+  });
+  expect(existsSync(join(root, ".skill-loom"))).toBe(false);
+});
+
+test("プレビュー描画は文字列以外と編集上限を超える内容を拒否する", async () => {
+  expect((await post("preview", { content: 1 })).status).toBe(400);
+  expect(
+    (await post("preview", { content: "a".repeat(1024 * 1024 + 1) })).status
+  ).toBe(400);
+});
+
+test("1 MiB 境界で多バイト文字が切れる Markdown も省略表示できる", async () => {
+  place(
+    "skills/alpha/references/large.md",
+    `${"a".repeat(1024 * 1024 - 1)}あいう\n`
+  );
+  const response = await app.request(
+    "/api/skill?name=alpha&file=references%2Flarge.md"
+  );
+  expect(response.status).toBe(200);
+  const view = await response.json();
+  expect(view.truncated).toBe(true);
+  expect(typeof view.html).toBe("string");
+});
+
+test("先頭の frontmatter は見出しにせず、YAML のままコードブロックとして描画する", async () => {
+  const content = '---\nname: demo\ndescription: "a <b> & c"\n---\n# Title\n';
+  const html = (await (await post("preview", { content })).json()).html;
+  expect(html).toStartWith(
+    "<details open><summary>frontmatter</summary><pre><code>name: demo\ndescription: &quot;a &lt;b&gt; &amp; c&quot;\n</code></pre></details>\n"
+  );
+  expect(html).toContain("<h1>Title</h1>");
+  expect(html).not.toContain("<h2>");
+  expect(html).not.toContain("<hr");
+  const view = await (await app.request("/api/skill?name=alpha")).json();
+  expect(view.html).toStartWith(
+    "<details open><summary>frontmatter</summary><pre><code>name: alpha\n"
+  );
+});
+
+test("frontmatter として閉じていない先頭の区切り線は通常の Markdown として描画する", async () => {
+  const content = "---\n# Not frontmatter\n";
+  const html = (await (await post("preview", { content })).json()).html;
+  expect(html).toBe(Bun.markdown.html(content));
+});
+
+test("閉じ行が `---` だけで終わらない場合は frontmatter として扱わない", async () => {
+  const content = "---\nname: demo\n----\n# Title\n";
+  const html = (await (await post("preview", { content })).json()).html;
+  expect(html).toBe(Bun.markdown.html(content));
+});
