@@ -865,3 +865,24 @@ test("1 MiB 境界で多バイト文字が切れる Markdown も省略表示で�
   expect(view.truncated).toBe(true);
   expect(typeof view.html).toBe("string");
 });
+
+test("先頭の frontmatter は見出しにせず、YAML のままコードブロックとして描画する", async () => {
+  const content = '---\nname: demo\ndescription: "a <b> & c"\n---\n# Title\n';
+  const html = (await (await post("preview", { content })).json()).html;
+  expect(html).toStartWith(
+    "<details open><summary>frontmatter</summary><pre><code>name: demo\ndescription: &quot;a &lt;b&gt; &amp; c&quot;\n</code></pre></details>\n"
+  );
+  expect(html).toContain("<h1>Title</h1>");
+  expect(html).not.toContain("<h2>");
+  expect(html).not.toContain("<hr");
+  const view = await (await app.request("/api/skill?name=alpha")).json();
+  expect(view.html).toStartWith(
+    "<details open><summary>frontmatter</summary><pre><code>name: alpha\n"
+  );
+});
+
+test("frontmatter として閉じていない先頭の区切り線は通常の Markdown として描画する", async () => {
+  const content = "---\n# Not frontmatter\n";
+  const html = (await (await post("preview", { content })).json()).html;
+  expect(html).toBe(Bun.markdown.html(content));
+});
