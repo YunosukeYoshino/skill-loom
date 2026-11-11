@@ -886,3 +886,9 @@ test("frontmatter として閉じていない先頭の区切り線は通常の M
   const html = (await (await post("preview", { content })).json()).html;
   expect(html).toBe(Bun.markdown.html(content));
 });
+
+test("閉じ行が `---` だけで終わらない場合は frontmatter として扱わない", async () => {
+  const content = "---\nname: demo\n----\n# Title\n";
+  const html = (await (await post("preview", { content })).json()).html;
+  expect(html).toBe(Bun.markdown.html(content));
+});

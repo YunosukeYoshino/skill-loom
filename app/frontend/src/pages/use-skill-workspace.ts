@@ -242,7 +242,8 @@ export function useWorkspaceSession(
       const resumed =
         operation === "save" ? editorAfterSave(editor, result) : null;
       if (resumed) {
-        setEditor(resumed);
+        // 保存中に打った文字を落とさないよう、応答時点の編集内容に基準だけ重ねる。
+        setEditor((current) => editorAfterSave(current, result));
         setVersion(result.version);
         setFile(result.selectedFile);
         setValidated("");
