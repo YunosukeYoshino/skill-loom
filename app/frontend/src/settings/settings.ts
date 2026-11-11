@@ -293,6 +293,7 @@ const en = {
 
   // external source detail page
   "detail.back": "Back to sources",
+  "detail.openGithub": "Opens in a new tab",
   "detail.updateAll": "Update all in this source ({count})",
   "detail.allGlobalOn": "All global on",
   "detail.hasUpdate": "Update available",
@@ -506,6 +507,7 @@ const ja: MessageCatalog = {
   "sources.unpin": "{source} のPinを外す",
 
   "detail.back": "sourcesに戻る",
+  "detail.openGithub": "新しいタブで開く",
   "detail.updateAll": "このsourceをすべてupdate ({count})",
   "detail.allGlobalOn": "すべて global オン",
   "detail.hasUpdate": "更新あり",
