@@ -851,3 +851,17 @@ test("プレビュー描画は文字列以外と編集上限を超える内容�
     (await post("preview", { content: "a".repeat(1024 * 1024 + 1) })).status
   ).toBe(400);
 });
+
+test("1 MiB 境界で多バイト文字が切れる Markdown も省略表示できる", async () => {
+  place(
+    "skills/alpha/references/large.md",
+    `${"a".repeat(1024 * 1024 - 1)}あいう\n`
+  );
+  const response = await app.request(
+    "/api/skill?name=alpha&file=references%2Flarge.md"
+  );
+  expect(response.status).toBe(200);
+  const view = await response.json();
+  expect(view.truncated).toBe(true);
+  expect(typeof view.html).toBe("string");
+});

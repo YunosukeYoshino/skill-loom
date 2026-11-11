@@ -593,7 +593,7 @@ function readSkillContent(root: string, file: string) {
     content,
     html:
       content !== null && /\.md$/i.test(file)
-        ? renderSkillMarkdown(content)
+        ? Bun.markdown.html(content)
         : null,
     binary: selected.binary,
     truncated: selected.size > SKILL_TEXT_LIMIT,
