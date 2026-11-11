@@ -553,6 +553,13 @@ export type WorkbenchShellProps = {
   children: ReactNode;
 };
 
+// ドロワー列は常に確保し、ページが望むときだけ空の列を省く。
+function drawerColumn(drawer: ReactNode, fillEmptyDrawer = false) {
+  return drawer || !fillEmptyDrawer
+    ? "xl:[grid-template-columns:236px_minmax(0,1fr)_318px]"
+    : "";
+}
+
 export function WorkbenchShell({
   title,
   overline,
@@ -581,7 +588,7 @@ export function WorkbenchShell({
         onMenu={() => setNavOpen(true)}
       />
       <div
-        className={`relative z-[1] mx-auto grid w-full max-w-[1480px] items-start gap-4 px-4 pt-4 pb-11 [grid-template-columns:minmax(0,1fr)] max-md:pb-32 md:px-6 md:[grid-template-columns:60px_minmax(0,1fr)] lg:[grid-template-columns:236px_minmax(0,1fr)] ${drawer || !fillEmptyDrawer ? "xl:[grid-template-columns:236px_minmax(0,1fr)_318px]" : ""}`}
+        className={`relative z-[1] mx-auto grid w-full max-w-[1480px] items-start gap-4 px-4 pt-4 pb-11 [grid-template-columns:minmax(0,1fr)] max-md:pb-32 md:px-6 md:[grid-template-columns:60px_minmax(0,1fr)] lg:[grid-template-columns:236px_minmax(0,1fr)] ${drawerColumn(drawer, fillEmptyDrawer)}`}
       >
         <div className="sticky top-[70px] max-md:hidden">
           <div className="lg:hidden">

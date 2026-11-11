@@ -4,6 +4,7 @@ import type {
   SkillView,
   SkillUpstreamStatus,
 } from "../../../shared/skill-workspace-types";
+import { codeLanguage } from "../components/code-language";
 
 export type Editor = {
   path: string;
@@ -78,11 +79,14 @@ export function editorDisabled(
 }
 
 // 保存後も同じファイルを編集し続けられるよう、保存結果を新しい基準にする。
-export function editorAfterSave(
+// 保存以外の操作や、編集を続けられない結果では編集を終える。
+export function editorAfterAction(
+  action: string,
   editor: Editor | null,
   saved: SkillView
 ): Editor | null {
   if (
+    action !== "save" ||
     !editor ||
     saved.selectedFile !== editor.path ||
     saved.truncated ||
@@ -90,6 +94,20 @@ export function editorAfterSave(
   )
     return null;
   return { ...editor, original: saved.content, revision: saved.revision };
+}
+
+// 編集を終えた後の表示。上流や元の版を取り込んだ操作は差分を見せる。
+export function modeAfterAction(action: string): ViewMode {
+  return ["merge-upstream", "reconcile-source"].includes(action)
+    ? "diff"
+    : "source";
+}
+
+// Markdown の編集中だけ、エディタとプレビューを並べる幅をファイル一覧から譲る。
+export function splitsEditor(mode: ViewMode, editor: Editor | null) {
+  return (
+    mode === "editor" && !!editor && codeLanguage(editor.path) === "markdown"
+  );
 }
 
 export function validationState(

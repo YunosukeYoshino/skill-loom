@@ -17,39 +17,35 @@ import {
   syntaxHighlighting,
 } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
-import { codeLanguage } from "./code-language";
+import { codeLanguage, type CodeLanguage } from "./code-language";
+
+const loaders: Record<CodeLanguage, (path: string) => Promise<Extension>> = {
+  markdown: async () => {
+    const [{ markdown }, { yamlFrontmatter }] = await Promise.all([
+      import("@codemirror/lang-markdown"),
+      import("@codemirror/lang-yaml"),
+    ]);
+    return yamlFrontmatter({ content: markdown() });
+  },
+  yaml: async () => (await import("@codemirror/lang-yaml")).yaml(),
+  json: async () => (await import("@codemirror/lang-json")).json(),
+  python: async () => (await import("@codemirror/lang-python")).python(),
+  shell: async () =>
+    StreamLanguage.define(
+      (await import("@codemirror/legacy-modes/mode/shell")).shell
+    ),
+  javascript: async () =>
+    (await import("@codemirror/lang-javascript")).javascript({ jsx: true }),
+  typescript: async (path) =>
+    (await import("@codemirror/lang-javascript")).javascript({
+      typescript: true,
+      jsx: /x$/i.test(path),
+    }),
+};
 
 async function loadLanguage(path: string): Promise<Extension> {
-  switch (codeLanguage(path)) {
-    case "markdown": {
-      const [{ markdown }, { yamlFrontmatter }] = await Promise.all([
-        import("@codemirror/lang-markdown"),
-        import("@codemirror/lang-yaml"),
-      ]);
-      return yamlFrontmatter({ content: markdown() });
-    }
-    case "yaml":
-      return (await import("@codemirror/lang-yaml")).yaml();
-    case "json":
-      return (await import("@codemirror/lang-json")).json();
-    case "python":
-      return (await import("@codemirror/lang-python")).python();
-    case "shell":
-      return StreamLanguage.define(
-        (await import("@codemirror/legacy-modes/mode/shell")).shell
-      );
-    case "javascript":
-      return (await import("@codemirror/lang-javascript")).javascript({
-        jsx: true,
-      });
-    case "typescript":
-      return (await import("@codemirror/lang-javascript")).javascript({
-        typescript: true,
-        jsx: /x$/i.test(path),
-      });
-    default:
-      return [];
-  }
+  const language = codeLanguage(path);
+  return language ? loaders[language](path) : [];
 }
 
 // DESIGN.md のトークンだけで配色し、アクセント以外の色相を増やさない。

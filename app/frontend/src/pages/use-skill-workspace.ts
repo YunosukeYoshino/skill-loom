@@ -12,9 +12,10 @@ import {
 } from "@/api/skill-workspace";
 import { useConfirm } from "@/components/dialog";
 import {
-  editorAfterSave,
+  editorAfterAction,
   isActive,
   isForkableSkill,
+  modeAfterAction,
   skillQueryKeys,
   workspaceLocks,
   shouldReviewDiff,
@@ -239,28 +240,19 @@ export function useWorkspaceSession(
     file,
     unsaved,
     (result, operation) => {
-      const resumed =
-        operation === "save" ? editorAfterSave(editor, result) : null;
-      if (resumed) {
-        // 保存中に打った文字を落とさないよう、応答時点の編集内容に基準だけ重ねる。
-        setEditor((current) => editorAfterSave(current, result));
-        setVersion(result.version);
-        setFile(result.selectedFile);
-        setValidated("");
-        setReviewed("");
-      } else if (!["validate", "check-upstream"].includes(operation)) {
-        setEditor(null);
-        setVersion(result.version);
-        setFile(result.selectedFile);
-        setMode(
-          ["merge-upstream", "reconcile-source"].includes(operation)
-            ? "diff"
-            : "source"
-        );
-        setValidated("");
-        setReviewed("");
-      }
       if (operation === "validate") setValidated(result.revision);
+      if (["validate", "check-upstream"].includes(operation)) return;
+      setVersion(result.version);
+      setFile(result.selectedFile);
+      setValidated("");
+      setReviewed("");
+      if (editorAfterAction(operation, editor, result)) {
+        // 保存中に打った文字を落とさないよう、応答時点の編集内容に基準だけ重ねる。
+        setEditor((current) => editorAfterAction(operation, current, result));
+        return;
+      }
+      setEditor(null);
+      setMode(modeAfterAction(operation));
     },
     () => {
       setPrompt("");

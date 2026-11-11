@@ -105,6 +105,24 @@ function SafeMarkdown({ html, failure }: { html: string; failure: string }) {
   );
 }
 
+// 編集とプレビューを並べる間は、一覧を上に横並びで置いて幅を譲る。
+const fileListLayouts = {
+  compact: {
+    aside: "flex flex-wrap items-center gap-2 py-2",
+    heading: "",
+    list: "flex flex-wrap gap-1",
+    item: "py-1",
+    size: "sr-only",
+  },
+  column: {
+    aside: "",
+    heading: "mb-2",
+    list: "max-h-[65vh] overflow-auto",
+    item: "py-2",
+    size: "",
+  },
+};
+
 export function FileList({
   files,
   selectedFile,
@@ -116,34 +134,32 @@ export function FileList({
   files: SkillView["files"];
   selectedFile: string;
   busy: boolean;
-  /** 編集とプレビューを並べる間は、上に横並びで置いて幅を譲る */
   compact?: boolean;
   onSelect: (path: string) => void;
   l: Localize;
 }) {
+  const layout = fileListLayouts[compact ? "compact" : "column"];
   return (
     <aside
-      className={`${panel} ${compact ? "flex flex-wrap items-center gap-2 py-2" : ""}`}
+      className={`${panel} ${layout.aside}`}
       aria-label={l("ファイル一覧", "Files")}
     >
-      <h2 className={`m-0 text-sm font-semibold ${compact ? "" : "mb-2"}`}>
+      <h2 className={`m-0 text-sm font-semibold ${layout.heading}`}>
         {l("ファイル", "Files")}
       </h2>
-      <ul
-        className={`m-0 list-none p-0 ${compact ? "flex flex-wrap gap-1" : "max-h-[65vh] overflow-auto"}`}
-      >
+      <ul className={`m-0 list-none p-0 ${layout.list}`}>
         {files.map((item) => (
           <li key={item.path}>
             <button
               type="button"
               disabled={busy}
               aria-current={item.path === selectedFile ? "true" : undefined}
-              className={`w-full cursor-pointer rounded px-2 text-left text-xs break-all hover:bg-[var(--color-paper-2)] ${compact ? "py-1" : "py-2"} ${item.path === selectedFile ? "bg-[var(--color-accent-soft)] font-semibold" : ""}`}
+              className={`w-full cursor-pointer rounded px-2 text-left text-xs break-all hover:bg-[var(--color-paper-2)] ${layout.item} ${item.path === selectedFile ? "bg-[var(--color-accent-soft)] font-semibold" : ""}`}
               onClick={() => onSelect(item.path)}
             >
               {item.path}
               <span
-                className={`mt-1 block font-normal text-[var(--color-ink-2)] ${compact ? "sr-only" : ""}`}
+                className={`mt-1 block font-normal text-[var(--color-ink-2)] ${layout.size}`}
               >
                 {item.size.toLocaleString()} B ·{" "}
                 {item.binary ? l("バイナリ", "Binary") : l("テキスト", "Text")}
@@ -208,62 +224,32 @@ function FileEditor({
   l: Localize;
 }) {
   const t = useT();
-  const markdown = codeLanguage(editor.path) === "markdown";
-  const [pane, setPane] = useState<"edit" | "preview">("edit");
   const canSave = !locked && unsaved;
   const editorPane = (
-    <div
-      className={`h-[60vh] min-w-0 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-rule)] focus-within:border-[var(--color-focus)] focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)] ${locked ? "opacity-60" : ""}`}
-    >
-      <Suspense fallback={<EditorFallback l={l} />}>
-        <CodeEditor
-          value={editor.content}
-          path={editor.path}
-          label={`${l("ファイルを編集", "Edit file")} ${editor.path}`}
-          readOnly={locked}
-          onChange={(content) => onChange({ ...editor, content })}
-          onSave={() => {
-            if (canSave) onSave();
-          }}
-        />
-      </Suspense>
-    </div>
+    <EditorPane
+      editor={editor}
+      locked={locked}
+      onChange={onChange}
+      onSave={() => {
+        if (canSave) onSave();
+      }}
+      l={l}
+    />
   );
   return (
     <>
-      {markdown ? (
-        <div className="@container">
-          <div
-            className="mb-2 flex gap-2 @4xl:hidden"
-            role="group"
-            aria-label={l("編集画面の表示", "Editor view")}
-          >
-            <Button
-              aria-pressed={pane === "edit"}
-              onClick={() => setPane("edit")}
-            >
-              {l("エディタ", "Editor")}
-            </Button>
-            <Button
-              aria-pressed={pane === "preview"}
-              onClick={() => setPane("preview")}
-            >
-              {l("プレビュー", "Preview")}
-            </Button>
-          </div>
-          <div className="grid gap-3 @4xl:grid-cols-2">
-            <div className={pane === "edit" ? "" : "hidden @4xl:block"}>
-              {editorPane}
-            </div>
-            <div className={pane === "preview" ? "" : "hidden @4xl:block"}>
-              <LivePreview
-                content={editor.content}
-                initialHtml={initialHtml}
-                l={l}
-              />
-            </div>
-          </div>
-        </div>
+      {codeLanguage(editor.path) === "markdown" ? (
+        <SplitPanes
+          editor={editorPane}
+          preview={
+            <LivePreview
+              content={editor.content}
+              initialHtml={initialHtml}
+              l={l}
+            />
+          }
+          l={l}
+        />
       ) : (
         editorPane
       )}
@@ -278,6 +264,77 @@ function FileEditor({
         </span>
       </div>
     </>
+  );
+}
+
+function EditorPane({
+  editor,
+  locked,
+  onChange,
+  onSave,
+  l,
+}: {
+  editor: Editor;
+  locked: boolean;
+  onChange: (editor: Editor) => void;
+  onSave: () => void;
+  l: Localize;
+}) {
+  return (
+    <div
+      className={`h-[60vh] min-w-0 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-rule)] focus-within:border-[var(--color-focus)] focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)] ${locked ? "opacity-60" : ""}`}
+    >
+      <Suspense fallback={<EditorFallback l={l} />}>
+        <CodeEditor
+          value={editor.content}
+          path={editor.path}
+          label={`${l("ファイルを編集", "Edit file")} ${editor.path}`}
+          readOnly={locked}
+          onChange={(content) => onChange({ ...editor, content })}
+          onSave={onSave}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
+// 広い領域では左右に並べ、狭い領域ではタブで片方ずつ見せる。
+function paneVisibility(shown: boolean) {
+  return shown ? "" : "hidden @4xl:block";
+}
+
+function SplitPanes({
+  editor,
+  preview,
+  l,
+}: {
+  editor: ReactNode;
+  preview: ReactNode;
+  l: Localize;
+}) {
+  const [pane, setPane] = useState<"edit" | "preview">("edit");
+  return (
+    <div className="@container">
+      <div
+        className="mb-2 flex gap-2 @4xl:hidden"
+        role="group"
+        aria-label={l("編集画面の表示", "Editor view")}
+      >
+        <Button aria-pressed={pane === "edit"} onClick={() => setPane("edit")}>
+          {l("エディタ", "Editor")}
+        </Button>
+        <Button
+          aria-pressed={pane === "preview"}
+          onClick={() => setPane("preview")}
+        >
+          {l("プレビュー", "Preview")}
+        </Button>
+      </div>
+      <div className="grid gap-3 @4xl:grid-cols-2">
+        <div className={paneVisibility(pane === "edit")}>{editor}</div>
+        <div className={paneVisibility(pane === "preview")}>{preview}</div>
+      </div>
+    </div>
   );
 }
 
