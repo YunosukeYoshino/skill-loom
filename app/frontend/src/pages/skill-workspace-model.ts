@@ -77,6 +77,21 @@ export function editorDisabled(
   );
 }
 
+// 保存後も同じファイルを編集し続けられるよう、保存結果を新しい基準にする。
+export function editorAfterSave(
+  editor: Editor | null,
+  saved: SkillView
+): Editor | null {
+  if (
+    !editor ||
+    saved.selectedFile !== editor.path ||
+    saved.truncated ||
+    saved.content === null
+  )
+    return null;
+  return { ...editor, original: saved.content, revision: saved.revision };
+}
+
 export function validationState(
   data: SkillView,
   state: {

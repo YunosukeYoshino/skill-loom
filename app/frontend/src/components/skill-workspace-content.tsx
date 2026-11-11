@@ -64,7 +64,7 @@ function SafeMarkdown({ html, failure }: { html: string; failure: string }) {
       "details",
       "summary",
     ];
-    const attributes = ["href", "title", "colspan", "rowspan", "start"];
+    const attributes = ["href", "title", "colspan", "rowspan", "start", "open"];
     async function render(container: HTMLDivElement) {
       if ("setHTML" in container && typeof container.setHTML === "function") {
         (
@@ -109,32 +109,42 @@ export function FileList({
   files,
   selectedFile,
   busy,
+  compact = false,
   onSelect,
   l,
 }: {
   files: SkillView["files"];
   selectedFile: string;
   busy: boolean;
+  /** 編集とプレビューを並べる間は、上に横並びで置いて幅を譲る */
+  compact?: boolean;
   onSelect: (path: string) => void;
   l: Localize;
 }) {
   return (
-    <aside className={panel} aria-label={l("ファイル一覧", "Files")}>
-      <h2 className="m-0 mb-2 text-sm font-semibold">
+    <aside
+      className={`${panel} ${compact ? "flex flex-wrap items-center gap-2 py-2" : ""}`}
+      aria-label={l("ファイル一覧", "Files")}
+    >
+      <h2 className={`m-0 text-sm font-semibold ${compact ? "" : "mb-2"}`}>
         {l("ファイル", "Files")}
       </h2>
-      <ul className="m-0 max-h-[65vh] list-none overflow-auto p-0">
+      <ul
+        className={`m-0 list-none p-0 ${compact ? "flex flex-wrap gap-1" : "max-h-[65vh] overflow-auto"}`}
+      >
         {files.map((item) => (
           <li key={item.path}>
             <button
               type="button"
               disabled={busy}
               aria-current={item.path === selectedFile ? "true" : undefined}
-              className={`w-full cursor-pointer rounded px-2 py-2 text-left text-xs break-all hover:bg-[var(--color-paper-2)] ${item.path === selectedFile ? "bg-[var(--color-accent-soft)] font-semibold" : ""}`}
+              className={`w-full cursor-pointer rounded px-2 text-left text-xs break-all hover:bg-[var(--color-paper-2)] ${compact ? "py-1" : "py-2"} ${item.path === selectedFile ? "bg-[var(--color-accent-soft)] font-semibold" : ""}`}
               onClick={() => onSelect(item.path)}
             >
               {item.path}
-              <span className="mt-1 block font-normal text-[var(--color-ink-2)]">
+              <span
+                className={`mt-1 block font-normal text-[var(--color-ink-2)] ${compact ? "sr-only" : ""}`}
+              >
                 {item.size.toLocaleString()} B ·{" "}
                 {item.binary ? l("バイナリ", "Binary") : l("テキスト", "Text")}
               </span>

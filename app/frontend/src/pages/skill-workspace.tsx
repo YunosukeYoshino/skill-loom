@@ -16,6 +16,7 @@ import {
   WorkspaceNotices,
   skillVersionLabels,
 } from "@/components/skill-workspace-controls";
+import { codeLanguage } from "@/components/code-language";
 import { useWorkspaceSession, useUnsavedEditor } from "./use-skill-workspace";
 import type { Localize } from "./skill-workspace-model";
 
@@ -62,6 +63,7 @@ export function SkillWorkspacePage({
       current={source ? "external-sources" : "global"}
       overline={heading.overline}
       sub={heading.sub}
+      fillEmptyDrawer
       drawer={
         chat ? (
           <CodexConversation
@@ -138,6 +140,8 @@ function WorkspaceBody({
   const data = view.data;
   const versions = skillVersionLabels(l);
   if (!data) return null;
+  const splitEditor =
+    mode === "editor" && !!editor && codeLanguage(editor.path) === "markdown";
   return (
     <>
       <WorkspaceNotices
@@ -178,11 +182,14 @@ function WorkspaceBody({
         }
         l={l}
       />
-      <div className="grid items-start gap-3 min-[1100px]:grid-cols-[minmax(130px,0.3fr)_minmax(0,1fr)]">
+      <div
+        className={`grid items-start gap-3 ${splitEditor ? "" : "min-[1100px]:grid-cols-[minmax(130px,0.3fr)_minmax(0,1fr)]"}`}
+      >
         <FileList
           files={data.files}
           selectedFile={data.selectedFile}
           busy={busy}
+          compact={splitEditor}
           l={l}
           onSelect={async (path) => {
             if (await leaveEditor()) {

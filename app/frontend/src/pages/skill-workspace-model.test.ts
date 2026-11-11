@@ -8,6 +8,7 @@ import {
   workspaceLocks,
   shouldReviewDiff,
   codexFailure,
+  editorAfterSave,
 } from "./skill-workspace-model";
 
 const view: SkillView = {
@@ -209,4 +210,26 @@ test("upstream errors never display a known lag, and merges require an available
   ).toBe(true);
   expect(upstreamState(behind, true, true).mergeDisabled).toBe(true);
   expect(upstreamState(behind, false, false).mergeDisabled).toBe(true);
+});
+
+test("保存後は同じファイルの編集を続け、保存した内容と版を基準にする", () => {
+  const editor = {
+    path: "SKILL.md",
+    content: "# Edited",
+    original: "# Example",
+    revision: "before",
+  };
+  const saved = { ...view, content: "# Edited", revision: "after" };
+  expect(editorAfterSave(editor, saved)).toEqual({
+    path: "SKILL.md",
+    content: "# Edited",
+    original: "# Edited",
+    revision: "after",
+  });
+  expect(editorAfterSave(null, saved)).toBeNull();
+  expect(
+    editorAfterSave(editor, { ...saved, selectedFile: "other.md" })
+  ).toBeNull();
+  expect(editorAfterSave(editor, { ...saved, truncated: true })).toBeNull();
+  expect(editorAfterSave(editor, { ...saved, content: null })).toBeNull();
 });

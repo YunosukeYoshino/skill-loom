@@ -398,3 +398,25 @@ h3 {
   cursor: pointer;
   font-weight: 600;
 }
+/* 先頭の frontmatter — 本文より一段控えめなメタデータとして見せる */
+.skill-prose > details:first-child {
+  margin-bottom: 1.5em;
+  background: var(--color-paper-2);
+  color: var(--color-ink-2);
+}
+.skill-prose > details:first-child > summary {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.skill-prose > details:first-child > pre {
+  margin: 0.5em 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

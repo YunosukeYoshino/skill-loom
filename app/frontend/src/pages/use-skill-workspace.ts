@@ -12,6 +12,7 @@ import {
 } from "@/api/skill-workspace";
 import { useConfirm } from "@/components/dialog";
 import {
+  editorAfterSave,
   isActive,
   isForkableSkill,
   skillQueryKeys,
@@ -238,7 +239,15 @@ export function useWorkspaceSession(
     file,
     unsaved,
     (result, operation) => {
-      if (!["validate", "check-upstream"].includes(operation)) {
+      const resumed =
+        operation === "save" ? editorAfterSave(editor, result) : null;
+      if (resumed) {
+        setEditor(resumed);
+        setVersion(result.version);
+        setFile(result.selectedFile);
+        setValidated("");
+        setReviewed("");
+      } else if (!["validate", "check-upstream"].includes(operation)) {
         setEditor(null);
         setVersion(result.version);
         setFile(result.selectedFile);
