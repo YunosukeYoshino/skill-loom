@@ -3,10 +3,11 @@
  * check-vendor-updates — upstream 更新と未管理スキルの棚卸し（TypeScript 版）
  *
  * check-vendor-updates SKILL.md の inline スクリプトを置き換える。3 つの棚卸しをまとめて出力する。
- * 期待される /tmp/skills-check.txt は `bunx skills check -g 2>&1 | tee /tmp/skills-check.txt` の結果。
+ * --check-output には `bunx skills@1.7.6 check -g 2>&1 | tee "$SKILLS_CHECK_FILE"` の出力先を渡す。
+ * 共有の固定パスは他ユーザーに差し替えられうるので、mktemp で作ったファイルを使う。
  *
  * 使い方:
- *   bun check-vendor-updates.ts [--catalog-dir PATH]
+ *   bun check-vendor-updates.ts [--catalog-dir PATH] [--check-output PATH]
  */
 
 import fs from "node:fs";
@@ -33,6 +34,12 @@ function resolveCatalogRoot(): string {
   const env = process.env.MY_SKILLS_CATALOG_DIR;
   if (env) return path.resolve(env.replace(/^~(?=$|\/)/, os.homedir()));
   return process.cwd();
+}
+
+/** `skills check` の出力ファイル。未指定ならクロスリファレンスは 0 件になる。 */
+function resolveCheckOutput(): string {
+  const index = process.argv.indexOf("--check-output");
+  return index !== -1 ? (process.argv[index + 1] ?? "") : "";
 }
 
 /** ANSI escape code を除去して `✓ Updated <name>` 行からスキル名を抽出する。 */
@@ -81,8 +88,8 @@ function main(): void {
   }
   process.stdout.write("\n");
 
-  // --- Step 4: /tmp/skills-check.txt とのクロスリファレンス ---
-  const updated = parseUpdatedSkills("/tmp/skills-check.txt");
+  // --- Step 4: skills check 出力とのクロスリファレンス ---
+  const updated = parseUpdatedSkills(resolveCheckOutput());
   const inLock = [...updated].filter((n) => externalNames.includes(n)).sort();
   const notInLock = [...updated]
     .filter((n) => !externalNames.includes(n) && !ignored.has(n))

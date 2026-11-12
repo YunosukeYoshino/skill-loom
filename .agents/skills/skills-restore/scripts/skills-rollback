@@ -61,4 +61,4 @@ rmdir "$ARCHIVE_DIR/claude-skills" 2>/dev/null || true
 rmdir "$ARCHIVE_DIR" 2>/dev/null || true
 
 echo ""
-echo "=== Done. Run 'npx skills ls -g' to verify. ==="
+echo "=== Done. Run 'npx skills@1.7.6 ls -g' to verify. ==="

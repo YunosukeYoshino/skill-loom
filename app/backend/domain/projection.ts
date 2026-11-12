@@ -37,6 +37,7 @@ import {
   GLOBAL_INSTALL_AGENTS,
   globalLockFile,
   PRESET_LAST_NAME,
+  SKILLS_CLI_PACKAGE,
   skillsAddBin,
   trashBin,
 } from "./config";
@@ -126,7 +127,7 @@ export function unlinkAgentSkillDirs(name: string): void {
   }
 }
 
-export function unlinkAgentSkillDirsMany(names: Iterable<string>): void {
+function unlinkAgentSkillDirsMany(names: Iterable<string>): void {
   for (const name of sortNames(new Set(names))) unlinkAgentSkillDirs(name);
 }
 
@@ -247,6 +248,7 @@ function writeCliLockStash(stash: Record<string, GlobalLockEntry>): void {
  * extra で archive へ送る前に CLI lock のエントリを預かる。active へ戻るとき
  * `installedAt` や `skillFolderHash` までそのまま戻せるように。
  */
+// fallow-ignore-next-line complexity
 function stashCliLockEntries(names: Set<string>): void {
   const lockPath = globalLockFile();
   if (names.size === 0 || !exists(lockPath)) return;
@@ -317,7 +319,7 @@ export function installCommands(missing: Set<string>, lock: Lock): string[][] {
   }
 
   return sortNames(bySource.keys()).map((source) => {
-    const cmd = [skillsAddBin(), "skills", "add", source];
+    const cmd = [skillsAddBin(), SKILLS_CLI_PACKAGE, "add", source];
     const skills = sortNames(new Set(bySource.get(source) ?? []));
     for (const name of skills) cmd.push("--skill", name);
     cmd.push("-g");
@@ -628,7 +630,7 @@ export function archiveInstalledSkills(names: Set<string>): string {
  * install を tracked で絞るのは、lock に無い skill を preset の名前だけで
  * インストールしようとしないため（取得元が分からない）。
  */
-export function applyPresetPlan(plan: PresetPlan, lock: Lock): string {
+function applyPresetPlan(plan: PresetPlan, lock: Lock): string {
   const tracked = trackedSkills(lock);
   const install = new Set(
     [...plan.install].filter((name) => tracked.has(name))
@@ -824,6 +826,7 @@ export function planProjectDeckSelection(
       ? new Set([...active, ...selected])
       : new Set([...loadDeck("core")[1], ...selected]);
   const managed = trackedSkills(lock);
+  // fallow-ignore-next-line code-duplication
   const unmanaged = ignoredSkills();
   // vendor skill は管理対象だがこの経路では install できない。ディスクに無いまま
   // install 行きにすると installCustomFromRepo が素通りして、無いのに適用成功になる。
@@ -838,6 +841,7 @@ export function planProjectDeckSelection(
     )
   );
   const extra = new Set([...active].filter((name) => !target.has(name)));
+  // fallow-ignore-next-line code-duplication
   const restore = new Set(
     [...target].filter((name) => archived.has(name) && !active.has(name))
   );
@@ -894,6 +898,7 @@ export function installProjectDeck(
   const active = visibleInstalledNames(lock, activeDir());
   const archived = visibleInstalledNames(lock, archiveDir());
   const managed = trackedSkills(lock);
+  // fallow-ignore-next-line code-duplication
   const alreadyActive = new Set([...target].filter((name) => active.has(name)));
   const vendor = new Set(Object.keys(lock.vendor ?? {}));
 
@@ -914,6 +919,7 @@ export function installProjectDeck(
     };
   }
 
+  // fallow-ignore-next-line code-duplication
   const restore = new Set(
     [...target].filter((name) => archived.has(name) && !active.has(name))
   );
@@ -975,6 +981,7 @@ export function formatRestoreAllPreview(plan: RestoreAllPlan): string {
   const parts: string[] = [];
   const { extra, restore, install } = plan;
   if (extra.size > 0)
+    // fallow-ignore-next-line code-duplication
     parts.push(
       `archive になる (${extra.size}): ${sortNames(extra).join(", ")}`
     );

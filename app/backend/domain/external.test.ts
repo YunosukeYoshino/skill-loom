@@ -304,7 +304,7 @@ describe("外部 CLI のコマンド", () => {
 
     expect(externalUpdateCommand("alpha")).toEqual([
       "/tmp/update-stub",
-      "skills",
+      "skills@1.7.6",
       "update",
       "alpha",
       "-g",
@@ -312,7 +312,7 @@ describe("外部 CLI のコマンド", () => {
     ]);
     expect(externalRemoveCommand("alpha")).toEqual([
       "/tmp/remove-stub",
-      "skills",
+      "skills@1.7.6",
       "remove",
       "alpha",
       "-g",
@@ -803,7 +803,7 @@ describe("externalSourceDetailPayload", () => {
     );
 
     expect(detail.installed[0]?.updateCommand).toBe(
-      "'/tmp/update stub;echo pwned' skills update alpha -g -y"
+      "'/tmp/update stub;echo pwned' skills@1.7.6 update alpha -g -y"
     );
   });
 });

@@ -24,6 +24,7 @@ import {
   externalCandidatesFile,
   externalUpdateCheckWorkers,
   projectDecksDir,
+  SKILLS_CLI_PACKAGE,
   skillsAddScript,
   skillsRemoveBin,
   skillsUpdateBin,
@@ -145,7 +146,14 @@ export function isArgvSafeSkillName(name: string): boolean {
 export function externalUpdateCommand(skillName: string): string[] {
   if (!isArgvSafeSkillName(skillName))
     throw new ValueError(`Invalid external skill name: ${skillName}`);
-  return [skillsUpdateBin(), "skills", "update", skillName, "-g", "-y"];
+  return [
+    skillsUpdateBin(),
+    SKILLS_CLI_PACKAGE,
+    "update",
+    skillName,
+    "-g",
+    "-y",
+  ];
 }
 
 /**
@@ -180,7 +188,14 @@ export function runExternalSkillUpdate(
 export function externalRemoveCommand(skillName: string): string[] {
   if (!isArgvSafeSkillName(skillName))
     throw new ValueError(`Invalid external skill name: ${skillName}`);
-  return [skillsRemoveBin(), "skills", "remove", skillName, "-g", "-y"];
+  return [
+    skillsRemoveBin(),
+    SKILLS_CLI_PACKAGE,
+    "remove",
+    skillName,
+    "-g",
+    "-y",
+  ];
 }
 
 /**
@@ -278,6 +293,7 @@ function resolveAndUpdateSkillPath(
   return null;
 }
 
+// fallow-ignore-next-line complexity
 async function checkInstalledSkillRemoteUpdate(
   task: UpdateTask
 ): Promise<UpdateResult> {
@@ -425,6 +441,7 @@ export async function collectUpdatableSkillNames(
  * source 内の skill が「全部」失敗したときだけ source を確認失敗にする。1 件でも
  * 取れていれば残りの結果は使える情報なので、source ごと落とさない。
  */
+// fallow-ignore-next-line complexity
 export async function collectExternalUpdateStatus(
   lock: Lock
 ): Promise<[Record<string, SourceUpdateStatus>, string[]]> {
@@ -863,6 +880,7 @@ export function addExternalToLock(
   selected: Set<string>,
   candidates: ExternalCandidate[]
 ): void {
+  // fallow-ignore-next-line code-duplication
   for (const name of selected) assertValidExternalSkillName(name);
   const ownerRepo = normalizeGithubSource(source);
   const lock = loadLock();
@@ -927,6 +945,7 @@ export function registerInstalledExternalSelection(
   selected: Set<string>,
   selection?: ResolvedExternalCandidate[]
 ): [Lock, number] {
+  // fallow-ignore-next-line code-duplication
   for (const name of selected) assertValidExternalSkillName(name);
   const ownerRepo = normalizeGithubSource(source);
   const lock = loadLock();

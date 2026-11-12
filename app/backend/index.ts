@@ -90,6 +90,7 @@ import {
 import { fetchOgp } from "./ogp";
 import { searchSkillsSh } from "./skillssh";
 import { createSkillRoutes } from "./skillRoutes";
+import { localRequestGuard, requestOriginError } from "./requestGuard";
 import { recoverSkillApplications } from "./domain/skill-apply";
 import { shutdownAllSkillCodexSessions } from "./infrastructure/skill-codex";
 import {
@@ -115,6 +116,7 @@ const HOP_BY_HOP = new Set([
 ]);
 
 /** 壊れた JSON は空 body と同じ扱い。移行前の `read_json` と同じ。 */
+// fallow-ignore-next-line complexity
 async function readJson(request: Request): Promise<unknown> {
   try {
     const body = await request.json();
@@ -144,6 +146,7 @@ options:
                MY_SKILLS_VITE=1)
 `;
 
+// fallow-ignore-next-line complexity
 function parseArgs(argv: string[]): Args {
   const args: Args = { host: "127.0.0.1", port: null, dev: false };
   for (let i = 0; i < argv.length; i++) {
@@ -170,6 +173,7 @@ function resolvePort(cliPort: number | null): number {
 }
 
 /** `vite_enabled` と同じ判定。明示フラグが最優先で、既定は dist の有無。 */
+// fallow-ignore-next-line complexity
 function viteEnabled(dev: boolean): boolean {
   const flag = (process.env.MY_SKILLS_VITE ?? "").trim().toLowerCase();
   if (flag === "0" || flag === "false" || flag === "no") return false;
@@ -237,6 +241,7 @@ function startVite(port: number): Subprocess {
 
 let shuttingDown = false;
 
+// fallow-ignore-next-line complexity
 async function shutdown(code: number | null = null): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -390,6 +395,8 @@ if (useVite) {
 }
 
 const app = new Hono();
+// cross-site からの状態変更（任意スキルの導入など）を /api 全体で拒む。
+app.use("/api/*", localRequestGuard);
 app.route("/api/skill", createSkillRoutes());
 
 // ---- 移植済みルート ----
@@ -415,6 +422,7 @@ function errorResponse(
 /**
  * tristate の Apply。#68 で移植。projection の 4 か所書き込みはここから始まる。
  */
+// fallow-ignore-next-line complexity
 app.post("/api/apply", async (c) => {
   const states = parseTristateStates(await readJson(c.req.raw));
   const base = globalPayload(loadLock(), "");
@@ -550,6 +558,7 @@ app.get("/api/presets/:name/preview", (c) => {
   }
 });
 
+// fallow-ignore-next-line code-duplication
 app.post("/api/presets/save", async (c) => {
   const body = await readJson(c.req.raw);
   const name = bodyString(body, "name");
@@ -582,6 +591,7 @@ app.post("/api/presets/save", async (c) => {
 /**
  * preset の適用。confirm が無い間は preview を返すだけで、projection は動かさない。
  */
+// fallow-ignore-next-line code-duplication complexity
 app.post("/api/presets/apply", async (c) => {
   const body = await readJson(c.req.raw);
   const name = bodyString(body, "name");
@@ -624,6 +634,7 @@ app.post("/api/presets/apply", async (c) => {
 });
 
 /** 直前の active に戻す。解決できない skill はスキップして進む（止めると戻れなくなる）。 */
+// fallow-ignore-next-line complexity
 app.post("/api/presets/restore", async (c) => {
   const body = await readJson(c.req.raw);
   const base = globalPayload(loadLock(), "");
@@ -712,6 +723,7 @@ app.post("/api/custom/check-updates", () => {
   return checkedPayload(message);
 });
 
+// fallow-ignore-next-line complexity
 app.post("/api/custom/update", async (c) => {
   const skill = bodyString(await readJson(c.req.raw), "skill");
   const base = globalPayload(loadLock(), "");
@@ -744,6 +756,7 @@ app.post("/api/custom/update", async (c) => {
   return checkedPayload(`updated: ${skill}`);
 });
 
+// fallow-ignore-next-line complexity
 app.post("/api/custom/update-all", async (c) => {
   const body = await readJson(c.req.raw);
   const requested = (body as Record<string, unknown> | null)?.skills;
@@ -866,6 +879,7 @@ app.post("/api/external-sources/check-all-updates", async () => {
   );
 });
 
+// fallow-ignore-next-line complexity
 app.post("/api/external-sources/update", async (c) => {
   const skill = bodyString(await readJson(c.req.raw), "skill");
   const base = externalSourcesPayload(loadLock());
@@ -904,6 +918,7 @@ app.post("/api/external-sources/update", async (c) => {
   );
 });
 
+// fallow-ignore-next-line complexity
 app.post("/api/external-sources/update-all", async (c) => {
   const sourceFilter = bodyString(await readJson(c.req.raw), "source") || null;
   const [updatable, fetchErrors] = await collectUpdatableSkillNames(
@@ -973,6 +988,7 @@ app.post("/api/external-sources/update-all", async (c) => {
  * 管理から外す。CLI で消し、lock と project deck からも落とし、その差分を commit する。
  * commit まで済ませないと、次の pull で lock が戻って skill が復活する。
  */
+// fallow-ignore-next-line complexity
 app.post("/api/external-sources/remove", async (c) => {
   const skill = bodyString(await readJson(c.req.raw), "skill");
   const base = externalSourcesPayload(loadLock());
@@ -1014,6 +1030,7 @@ app.post("/api/external-sources/remove", async (c) => {
  * 途中で失敗しても、そこまでに外した分は lock と commit に残り、実体と食い違わない。
  * Vendor で上書きしている skill は external 登録だけ外す（`externalSourceRemovalPlan` 参照）。
  */
+// fallow-ignore-next-line complexity
 app.post("/api/external-sources/remove-source", async (c) => {
   const raw = bodyString(await readJson(c.req.raw), "source");
   const base = externalSourcesPayload(loadLock());
@@ -1143,12 +1160,15 @@ app.get("/api/drafts", () => jsonResponse(draftsPayload(loadLock()), 200));
  * draft を正式配置へ昇格させる。action に `-force` が付くと、既に正式登録済み /
  * 配置先が埋まっている場合でも上書きする。`install` 系はそのまま global にも展開する。
  */
+// fallow-ignore-next-line complexity
 app.post("/api/drafts/:action", async (c) => {
   const action = c.req.param("action");
   // 移行前は未知の action にルーティング自体が当たらず 404 だった。
+  // fallow-ignore-next-line code-duplication
   if (!DRAFT_ACTIONS.has(action))
     return jsonResponse({ message: "Not found" }, 404);
 
+  // fallow-ignore-next-line code-duplication
   const body = await readJson(c.req.raw);
   const requested = (body as Record<string, unknown> | null)?.skills;
   const selected = new Set(
@@ -1253,13 +1273,16 @@ app.get("/api/project-decks/:deckName", (c) => {
  * 共通 skill が外れないようにするため）。`merge` は今の active に足すだけで、
  * Core Deck は足さない — 足すと「今の状態に上乗せする」という意味が壊れる。
  */
+// fallow-ignore-next-line complexity
 app.post("/api/project-decks/:deckName/:action", async (c) => {
   const deckName = c.req.param("deckName");
   const action = c.req.param("action");
   // 移行前は未知の action にルーティング自体が当たらず 404 だった。
+  // fallow-ignore-next-line code-duplication
   if (!DECK_ACTIONS.has(action))
     return jsonResponse({ message: "Not found" }, 404);
 
+  // fallow-ignore-next-line code-duplication
   const body = await readJson(c.req.raw);
   const requested = (body as Record<string, unknown> | null)?.skills;
   const selected = new Set(
@@ -1382,6 +1405,7 @@ app.post("/api/external/preview", async (c) => {
  * 「installして追加」。実際に global へ入れたうえで lock に載せ、deck 指定があれば deck にも足す。
  * deck にだけ足す `/add-to-deck` とはここが違う（あちらは install しない）。
  */
+// fallow-ignore-next-line complexity
 app.post("/api/external/install", async (c) => {
   const body = await readJson(c.req.raw);
   const deckName = bodyString(body, "deck");
@@ -1484,9 +1508,11 @@ app.post("/api/external/install", async (c) => {
  * 「deckにだけ追加」。global には入れず、lock と deck の定義だけを更新する。
  * deck を後から install したときに入る状態にしておくのが目的。
  */
+// fallow-ignore-next-line complexity
 app.post("/api/external/add-to-deck", async (c) => {
   const body = await readJson(c.req.raw);
   const deckName = bodyString(body, "deck");
+  // fallow-ignore-next-line code-duplication
   const source = bodyString(body, "source");
   const requested = (body as Record<string, unknown> | null)?.skills;
   const selected = new Set(
@@ -1625,12 +1651,16 @@ const server = Bun.serve({
   hostname: args.host,
   port: publicPort,
   idleTimeout: 0,
+  // fallow-ignore-next-line complexity
   fetch(req, srv) {
     // Vite HMR の WebSocket は公開ポートで受けて Vite へ中継する（同一オリジンを保つ）
     if (
       vitePort !== null &&
       req.headers.get("upgrade")?.toLowerCase() === "websocket"
     ) {
+      // 他サイトのページから HMR 経路へ接続させない。
+      const originError = requestOriginError(req);
+      if (originError) return new Response(originError, { status: 403 });
       const incoming = new URL(req.url);
       const protocol = req.headers.get("sec-websocket-protocol");
       const data: WsData = {

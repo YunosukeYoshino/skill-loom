@@ -420,7 +420,7 @@ describe("runExternalSkillUpdate", () => {
       (cmd) => calls.push(cmd)
     );
     expect(calls).toEqual([
-      ["update-stub", "skills", "update", "ext", "-g", "-y"],
+      ["update-stub", "skills@1.7.6", "update", "ext", "-g", "-y"],
     ]);
   });
 
@@ -443,7 +443,7 @@ describe("runExternalSkillUpdate", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.slice(0, 6)).toEqual([
       "add-stub",
-      "skills",
+      "skills@1.7.6",
       "add",
       "owner/repo",
       "--skill",
@@ -500,7 +500,7 @@ describe("runExternalSkillUpdate", () => {
     };
     expect(externalSkillUpdateCommand("ext", mixedLock)).toEqual([
       "update-stub",
-      "skills",
+      "skills@1.7.6",
       "update",
       "ext",
       "-g",
@@ -906,7 +906,7 @@ describe("installCommands", () => {
     expect(installCommands(new Set(["a", "b", "c"]), many)).toEqual([
       [
         "bunx",
-        "skills",
+        "skills@1.7.6",
         "add",
         "o/r",
         "--skill",
@@ -924,7 +924,7 @@ describe("installCommands", () => {
       ],
       [
         "bunx",
-        "skills",
+        "skills@1.7.6",
         "add",
         "z/other",
         "--skill",
@@ -964,7 +964,7 @@ describe("installCommands", () => {
     ).toEqual([
       [
         "bunx",
-        "skills",
+        "skills@1.7.6",
         "add",
         "owner/repo",
         "--skill",

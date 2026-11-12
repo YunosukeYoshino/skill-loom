@@ -26,6 +26,10 @@ AGENTS_SKILLS_DIR="$HOME/.agents/skills"
 CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
 AGENTS_ARCHIVE_DIR="$HOME/.agents/skills-archive"
 
+# Keep in sync with SKILLS_CLI_PACKAGE in app/backend/domain/config.ts.
+SKILLS_CLI_PACKAGE="skills@1.7.6"
+# Stop the skills CLI from sending install telemetry to skills.sh.
+export DO_NOT_TRACK=1
 DRY_RUN=false
 CLEAN=false
 
@@ -130,7 +134,7 @@ fi
 echo ""
 echo "=== 2/3 Installing custom + vendor skills ==="
 REPO=$(bun "$SCRIPT_DIR/lock-repo.ts" "$LOCK_FILE")
-run npx skills add "$REPO" --skill '*' -g -a claude-code -a codex -a antigravity -y
+run npx "$SKILLS_CLI_PACKAGE" add "$REPO" --skill '*' -g -a claude-code -a codex -a antigravity -y
 
 echo ""
 echo "=== 3/3 Installing agents ==="
@@ -149,5 +153,5 @@ fi
 echo ""
 echo "=== Done ==="
 if [ "$DRY_RUN" = false ]; then
-  npx skills ls -g
+  npx "$SKILLS_CLI_PACKAGE" ls -g
 fi

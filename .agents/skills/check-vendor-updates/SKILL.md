@@ -35,21 +35,30 @@ bun "$ENGINE_ROOT/.agents/skills/check-vendor-updates/scripts/check-vendor-updat
 ```bash
 # 全グローバルスキルの更新チェック（時間がかかるためユーザーに待ち時間を伝える）
 # ※ このコマンドは実際に更新を実行する副作用がある
-bunx skills check -g 2>&1 | tee /tmp/skills-check.txt
+# 出力先は共有の固定パスにせず mktemp で作る。表示されたパスを以降のステップで使う
+SKILLS_CHECK_FILE=$(mktemp "${TMPDIR:-/tmp}/skills-check.XXXXXX")
+echo "SKILLS_CHECK_FILE=$SKILLS_CHECK_FILE"
+bunx skills@1.7.6 check -g 2>&1 | tee "$SKILLS_CHECK_FILE"
 ```
+
+各 bash ブロックは別シェルで動くため、以降のブロックでは先頭で `SKILLS_CHECK_FILE=<上で表示されたパス>` を設定し直す。
 
 出力から更新があったスキル名を抽出（ANSI escape code を strip してから grep）:
 
 ```bash
 # ANSI escape codes を除去してからパース（数字始まりのサマリー行を除外）
-sed 's/\x1b\[[0-9;]*m//g' /tmp/skills-check.txt | grep '✓ Updated' | awk '{print $3}' | grep -E '^[a-z][a-z0-9-]*$'
+sed 's/\x1b\[[0-9;]*m//g' "$SKILLS_CHECK_FILE" | grep '✓ Updated' | awk '{print $3}' | grep -E '^[a-z][a-z0-9-]*$'
 ```
 
-完了基準: `/tmp/skills-check.txt` が生成され、更新ありスキル名の抽出が済んでいること（0 件なら空でよい）。
+完了基準: `$SKILLS_CHECK_FILE` が生成され、更新ありスキル名の抽出が済んでいること（0 件なら空でよい）。
 
 ### Step 4: lock.json external スキルとのクロスリファレンス
 
-Step 2 と同じスクリプトを再実行する。同スクリプトは external 一覧・更新クロスリファレンス・未管理スキルの棚卸しをまとめて出力し、クロスリファレンスには Step 3 の `/tmp/skills-check.txt` が必要。
+Step 2 と同じスクリプトを、Step 3 の出力ファイルを渡して再実行する。同スクリプトは external 一覧・更新クロスリファレンス・未管理スキルの棚卸しをまとめて出力する。
+
+```bash
+bun "$ENGINE_ROOT/.agents/skills/check-vendor-updates/scripts/check-vendor-updates.ts" --catalog-dir "$CATALOG_ROOT" --check-output "$SKILLS_CHECK_FILE"
+```
 
 完了基準: 「更新あり (lock管理)」と「更新あり (未管理)」の件数が出力されていること。
 
@@ -73,7 +82,7 @@ ls -d "$CATALOG_ROOT/vendor/"*/ 2>/dev/null | sed "s|$CATALOG_ROOT/vendor/||;s|/
 
 ```bash
 vendor_names=$(ls -d "$CATALOG_ROOT/vendor/"*/ 2>/dev/null | sed "s|$CATALOG_ROOT/vendor/||;s|/||" | sort)
-updatable=$(sed 's/\x1b\[[0-9;]*m//g' /tmp/skills-check.txt | grep '✓ Updated' | awk '{print $3}' | grep -E '^[a-z][a-z0-9-]*$' || true)
+updatable=$(sed 's/\x1b\[[0-9;]*m//g' "$SKILLS_CHECK_FILE" | grep '✓ Updated' | awk '{print $3}' | grep -E '^[a-z][a-z0-9-]*$' || true)
 
 has_update=false
 for name in $vendor_names; do

@@ -137,9 +137,11 @@ describe("skills-restore", () => {
     );
     expect(out.exitCode).toBe(0);
     expect(out.stdout).toContain(
-      "npx skills add owner/external --skill external"
+      "npx skills@1.7.6 add owner/external --skill external"
     );
-    expect(out.stdout).toContain("npx skills add owner/catalog --skill *");
+    expect(out.stdout).toContain(
+      "npx skills@1.7.6 add owner/catalog --skill *"
+    );
     expect(out.stdout).toContain(path.join(catalog, "agents"));
   }, 20_000);
 });
@@ -713,4 +715,149 @@ printf -- '---\\nname: alpha\\n---\\nincoming\\n' > "$MY_SKILLS_ACTIVE_DIR/alpha
     );
     expect(fs.existsSync(path.join(f.active, "owner--alpha"))).toBe(false);
   }, 20_000);
+});
+
+describe("skills CLI pin", () => {
+  test("shell entrypoints run the same pinned version as the backend", async () => {
+    const { SKILLS_CLI_PACKAGE } = await import("../app/backend/domain/config");
+    expect(SKILLS_CLI_PACKAGE).toMatch(/^skills@\d+\.\d+\.\d+$/);
+    for (const script of [
+      ".agents/skills/skills-add/scripts/run-skills-cli.sh",
+      ".agents/skills/skills-restore/scripts/skills-restore",
+    ]) {
+      const text = fs.readFileSync(path.join(REPO_ROOT, script), "utf8");
+      expect(text).toContain(`SKILLS_CLI_PACKAGE="${SKILLS_CLI_PACKAGE}"`);
+    }
+  });
+});
+
+describe("skills CLI telemetry opt-out", () => {
+  /** 呼ばれるたびに DO_NOT_TRACK と argv を 1 行ずつ記録する stub。 */
+  function recorder(bin: string, name: string, log: string, exit = 0): void {
+    fs.mkdirSync(bin, { recursive: true });
+    const file = path.join(bin, name);
+    fs.writeFileSync(
+      file,
+      `#!/usr/bin/env bash\necho "${name} DO_NOT_TRACK=\${DO_NOT_TRACK:-} $*" >> "${log}"\nexit ${exit}\n`
+    );
+    fs.chmodSync(file, 0o755);
+  }
+
+  function cleanEnv(extra: Record<string, string>): Record<string, string> {
+    const env = { ...(process.env as Record<string, string>), ...extra };
+    // runBash は process.env を重ねるので、削除ではなく空にして持ち込みを防ぐ。
+    env.DO_NOT_TRACK = "";
+    return env;
+  }
+
+  function calls(log: string): string[] {
+    return fs.readFileSync(log, "utf8").trim().split("\n");
+  }
+
+  test("run-skills-cli.sh sets DO_NOT_TRACK on bunx and the npx fallback", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mgmt-telemetry-"));
+    const bin = path.join(root, "bin");
+    const log = path.join(root, "calls.log");
+    recorder(bin, "bunx", log, 1);
+    recorder(bin, "npx", log);
+    const result = Bun.spawnSync(
+      [
+        "bash",
+        "-c",
+        `source "${SKILLS_ADD_DIR}/run-skills-cli.sh"; skills_cli add owner/repo -y`,
+      ],
+      { env: cleanEnv({ PATH: `${bin}:${process.env.PATH ?? ""}` }) }
+    );
+    expect(result.exitCode).toBe(0);
+    const lines = calls(log);
+    expect(lines).toHaveLength(2);
+    for (const line of lines) expect(line).toContain("DO_NOT_TRACK=1 skills@");
+  });
+
+  test("restore-lock --install and skills-restore set DO_NOT_TRACK", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mgmt-telemetry-"));
+    const catalog = path.join(root, "catalog");
+    fs.mkdirSync(catalog, { recursive: true });
+    const lock = path.join(catalog, "skills.lock.json");
+    fs.writeFileSync(
+      lock,
+      JSON.stringify({
+        version: 1,
+        custom: { repo: "owner/catalog", skills: {} },
+        external: { external: { source: "owner/external" } },
+        vendor: {},
+      })
+    );
+    const bin = path.join(root, "bin");
+    const log = path.join(root, "calls.log");
+    recorder(bin, "npx", log);
+    const env = cleanEnv({
+      HOME: path.join(root, "home"),
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+    });
+
+    const direct = Bun.spawnSync(
+      [
+        process.execPath,
+        path.join(
+          REPO_ROOT,
+          ".agents/skills/skills-restore/scripts/restore-lock.ts"
+        ),
+        "--install",
+        lock,
+      ],
+      { env }
+    );
+    expect(direct.exitCode).toBe(0);
+    expect(calls(log)).toEqual([
+      expect.stringContaining("npx DO_NOT_TRACK=1 skills@"),
+    ]);
+
+    // skills-restore の呼び出しは別のログへ記録し、上の結果と混ぜない。
+    const restoreBin = path.join(root, "restore-bin");
+    const restoreLog = path.join(root, "restore-calls.log");
+    recorder(restoreBin, "npx", restoreLog);
+    const restore = runBash(SKILLS_RESTORE, ["--catalog-dir", catalog], {
+      env: { ...env, PATH: `${restoreBin}:${process.env.PATH ?? ""}` },
+    });
+    expect(restore.exitCode).toBe(0);
+    const lines = calls(restoreLog);
+    expect(lines.length).toBeGreaterThanOrEqual(3);
+    for (const line of lines) expect(line).toContain("DO_NOT_TRACK=1 skills@");
+  }, 20_000);
+});
+
+describe("check-vendor-updates", () => {
+  test("reads the skills check output from --check-output, not a fixed /tmp path", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mgmt-vendor-check-"));
+    fs.writeFileSync(
+      path.join(root, "skills.lock.json"),
+      JSON.stringify({
+        version: 1,
+        custom: { repo: "owner/catalog", skills: {} },
+        external: { "zz-unit-alpha": { source: "owner/alpha" } },
+        vendor: {},
+      })
+    );
+    const checkOutput = path.join(root, "skills-check.txt");
+    fs.writeFileSync(checkOutput, "\x1b[32m✓\x1b[0m Updated zz-unit-alpha\n");
+    const result = Bun.spawnSync(
+      [
+        process.execPath,
+        path.join(
+          REPO_ROOT,
+          ".agents/skills/check-vendor-updates/scripts/check-vendor-updates.ts"
+        ),
+        "--catalog-dir",
+        root,
+        "--check-output",
+        checkOutput,
+      ],
+      { env: { ...process.env, HOME: path.join(root, "home") } }
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toContain(
+      "✅ zz-unit-alpha  (owner/alpha)"
+    );
+  });
 });

@@ -14,6 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { SKILLS_CLI_PACKAGE } from "../../../../app/backend/domain/config";
 import { syncSkillMdName } from "../../../../app/backend/domain/skillMd";
 
 interface ExternalSkillMeta {
@@ -91,9 +92,12 @@ function loadPlans(
   }));
 }
 
+/** skills CLI の install テレメトリと audit 照会を止める。 */
+const CLI_ENV = { ...process.env, DO_NOT_TRACK: "1" };
+
 function buildArgs(source: string, skills: string[]): string[] {
   const skillArgs = skills.flatMap((skill) => ["--skill", skill]);
-  return ["skills", "add", source, ...skillArgs, ...FLAGS];
+  return [SKILLS_CLI_PACKAGE, "add", source, ...skillArgs, ...FLAGS];
 }
 
 function resolveActiveDir(): string {
@@ -251,7 +255,7 @@ function main(): void {
       process.stdout.write(`${display}\n`);
       if (install) {
         const result = Bun.spawnSync(["npx", ...args], {
-          env: process.env,
+          env: CLI_ENV,
           stdout: "inherit",
           stderr: "inherit",
         });
@@ -270,7 +274,7 @@ function main(): void {
       let failed = 0;
       withStashedUpstream(activeDir, job.installSkill, () => {
         const result = Bun.spawnSync(["npx", ...args], {
-          env: process.env,
+          env: CLI_ENV,
           stdout: "inherit",
           stderr: "inherit",
         });
