@@ -28,6 +28,8 @@ AGENTS_ARCHIVE_DIR="$HOME/.agents/skills-archive"
 
 # Keep in sync with SKILLS_CLI_PACKAGE in app/backend/domain/config.ts.
 SKILLS_CLI_PACKAGE="skills@1.7.6"
+# Stop the skills CLI from sending install telemetry to skills.sh.
+export DO_NOT_TRACK=1
 DRY_RUN=false
 CLEAN=false
 
