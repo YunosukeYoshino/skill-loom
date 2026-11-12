@@ -24,6 +24,7 @@ import {
   externalCandidatesFile,
   externalUpdateCheckWorkers,
   projectDecksDir,
+  SKILLS_CLI_PACKAGE,
   skillsAddScript,
   skillsRemoveBin,
   skillsUpdateBin,
@@ -145,7 +146,14 @@ export function isArgvSafeSkillName(name: string): boolean {
 export function externalUpdateCommand(skillName: string): string[] {
   if (!isArgvSafeSkillName(skillName))
     throw new ValueError(`Invalid external skill name: ${skillName}`);
-  return [skillsUpdateBin(), "skills", "update", skillName, "-g", "-y"];
+  return [
+    skillsUpdateBin(),
+    SKILLS_CLI_PACKAGE,
+    "update",
+    skillName,
+    "-g",
+    "-y",
+  ];
 }
 
 /**
@@ -180,7 +188,14 @@ export function runExternalSkillUpdate(
 export function externalRemoveCommand(skillName: string): string[] {
   if (!isArgvSafeSkillName(skillName))
     throw new ValueError(`Invalid external skill name: ${skillName}`);
-  return [skillsRemoveBin(), "skills", "remove", skillName, "-g", "-y"];
+  return [
+    skillsRemoveBin(),
+    SKILLS_CLI_PACKAGE,
+    "remove",
+    skillName,
+    "-g",
+    "-y",
+  ];
 }
 
 /**

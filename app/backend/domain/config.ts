@@ -110,6 +110,12 @@ export const PRESET_LAST_NAME = "_last";
 // ---- 外部 CLI ----
 
 /**
+ * 実行する `skills` CLI。未固定だと npm 側の差し替えがそのまま `-g -y` の導入に乗るので、
+ * 中身を確認した版に固定する。シェル側（run-skills-cli.sh・skills-restore・restore-lock.ts）と揃える。
+ */
+export const SKILLS_CLI_PACKAGE = "skills@1.7.6";
+
+/**
  * 外部 skill を install する CLI。`MY_SKILLS_ADD_BIN` が未設定なら
  * `MY_SKILLS_UPDATE_BIN`、それも無ければ `bunx`。Python 側と同じ 2 段の既定。
  */

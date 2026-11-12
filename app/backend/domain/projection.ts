@@ -37,6 +37,7 @@ import {
   GLOBAL_INSTALL_AGENTS,
   globalLockFile,
   PRESET_LAST_NAME,
+  SKILLS_CLI_PACKAGE,
   skillsAddBin,
   trashBin,
 } from "./config";
@@ -317,7 +318,7 @@ export function installCommands(missing: Set<string>, lock: Lock): string[][] {
   }
 
   return sortNames(bySource.keys()).map((source) => {
-    const cmd = [skillsAddBin(), "skills", "add", source];
+    const cmd = [skillsAddBin(), SKILLS_CLI_PACKAGE, "add", source];
     const skills = sortNames(new Set(bySource.get(source) ?? []));
     for (const name of skills) cmd.push("--skill", name);
     cmd.push("-g");

@@ -64,10 +64,10 @@ describe("restore-lock", () => {
     const out = run(RESTORE_LOCK, lockFile);
     expect(out.exitCode).toBe(0);
     expect(out.stdout).toContain(
-      "npx skills add vercel-labs/json-render --skill react -g -a claude-code -a codex -a antigravity -y"
+      "npx skills@1.7.6 add vercel-labs/json-render --skill react -g -a claude-code -a codex -a antigravity -y"
     );
     expect(out.stdout).toContain(
-      "npx skills add kepano/obsidian-skills --skill defuddle -g -a claude-code -a codex -a antigravity -y"
+      "npx skills@1.7.6 add kepano/obsidian-skills --skill defuddle -g -a claude-code -a codex -a antigravity -y"
     );
     expect(out.stdout).not.toContain("--skill json-render");
   });
@@ -115,7 +115,7 @@ describe("restore-lock", () => {
 
     const out = run(RESTORE_LOCK, lockFile);
     expect(out.exitCode).toBe(0);
-    expect(out.stdout).toContain("npx skills add kepano/obsidian-skills");
+    expect(out.stdout).toContain("npx skills@1.7.6 add kepano/obsidian-skills");
     expect(out.stdout).not.toContain("--skill broken");
     expect(out.stderr).toContain("missing source");
   });

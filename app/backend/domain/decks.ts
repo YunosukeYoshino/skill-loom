@@ -14,7 +14,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { decksDir, GLOBAL_INSTALL_AGENTS, projectDecksDir } from "./config";
+import {
+  decksDir,
+  GLOBAL_INSTALL_AGENTS,
+  projectDecksDir,
+  SKILLS_CLI_PACKAGE,
+} from "./config";
 import { canonicalPath } from "./catalogPaths";
 import { AlreadyExistsError, ValueError } from "./errors";
 import type { Lock } from "./inventory";
@@ -288,7 +293,7 @@ export function projectDeckInstallCommands(
   }
 
   return [...bySource].map(([source, names]) => {
-    const parts = ["npx", "skills", "add", source, "--project"];
+    const parts = ["npx", SKILLS_CLI_PACKAGE, "add", source, "--project"];
     for (const name of names) parts.push("--skill", name);
     for (const agent of GLOBAL_INSTALL_AGENTS) parts.push("-a", agent);
     parts.push("-y");

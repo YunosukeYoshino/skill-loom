@@ -14,6 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { SKILLS_CLI_PACKAGE } from "../../../../app/backend/domain/config";
 import { syncSkillMdName } from "../../../../app/backend/domain/skillMd";
 
 interface ExternalSkillMeta {
@@ -93,7 +94,7 @@ function loadPlans(
 
 function buildArgs(source: string, skills: string[]): string[] {
   const skillArgs = skills.flatMap((skill) => ["--skill", skill]);
-  return ["skills", "add", source, ...skillArgs, ...FLAGS];
+  return [SKILLS_CLI_PACKAGE, "add", source, ...skillArgs, ...FLAGS];
 }
 
 function resolveActiveDir(): string {

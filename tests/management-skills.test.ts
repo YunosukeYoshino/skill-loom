@@ -137,9 +137,11 @@ describe("skills-restore", () => {
     );
     expect(out.exitCode).toBe(0);
     expect(out.stdout).toContain(
-      "npx skills add owner/external --skill external"
+      "npx skills@1.7.6 add owner/external --skill external"
     );
-    expect(out.stdout).toContain("npx skills add owner/catalog --skill *");
+    expect(out.stdout).toContain(
+      "npx skills@1.7.6 add owner/catalog --skill *"
+    );
     expect(out.stdout).toContain(path.join(catalog, "agents"));
   }, 20_000);
 });
@@ -713,4 +715,18 @@ printf -- '---\\nname: alpha\\n---\\nincoming\\n' > "$MY_SKILLS_ACTIVE_DIR/alpha
     );
     expect(fs.existsSync(path.join(f.active, "owner--alpha"))).toBe(false);
   }, 20_000);
+});
+
+describe("skills CLI pin", () => {
+  test("shell entrypoints run the same pinned version as the backend", async () => {
+    const { SKILLS_CLI_PACKAGE } = await import("../app/backend/domain/config");
+    expect(SKILLS_CLI_PACKAGE).toMatch(/^skills@\d+\.\d+\.\d+$/);
+    for (const script of [
+      ".agents/skills/skills-add/scripts/run-skills-cli.sh",
+      ".agents/skills/skills-restore/scripts/skills-restore",
+    ]) {
+      const text = fs.readFileSync(path.join(REPO_ROOT, script), "utf8");
+      expect(text).toContain(`SKILLS_CLI_PACKAGE="${SKILLS_CLI_PACKAGE}"`);
+    }
+  });
 });

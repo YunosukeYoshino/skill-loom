@@ -171,14 +171,14 @@ describe("projectDeckInstallCommands", () => {
     expect(
       projectDeckInstallCommands(lock, ["ext", "renamed", "other"])
     ).toEqual([
-      "npx skills add acme/pack --project --skill ext --skill upstream-name -a claude-code -a codex -a antigravity -y",
-      "npx skills add third/party --project --skill other -a claude-code -a codex -a antigravity -y",
+      "npx skills@1.7.6 add acme/pack --project --skill ext --skill upstream-name -a claude-code -a codex -a antigravity -y",
+      "npx skills@1.7.6 add third/party --project --skill other -a claude-code -a codex -a antigravity -y",
     ]);
   });
 
   test("custom skill は lock の repo から入れ直す", () => {
     expect(projectDeckInstallCommands(lock, ["mine"])).toEqual([
-      "npx skills add owner/my-skills --project --skill mine -a claude-code -a codex -a antigravity -y",
+      "npx skills@1.7.6 add owner/my-skills --project --skill mine -a claude-code -a codex -a antigravity -y",
     ]);
   });
 

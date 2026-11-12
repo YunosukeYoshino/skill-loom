@@ -35,7 +35,7 @@ bun "$ENGINE_ROOT/.agents/skills/check-vendor-updates/scripts/check-vendor-updat
 ```bash
 # 全グローバルスキルの更新チェック（時間がかかるためユーザーに待ち時間を伝える）
 # ※ このコマンドは実際に更新を実行する副作用がある
-bunx skills check -g 2>&1 | tee /tmp/skills-check.txt
+bunx skills@1.7.6 check -g 2>&1 | tee /tmp/skills-check.txt
 ```
 
 出力から更新があったスキル名を抽出（ANSI escape code を strip してから grep）:
