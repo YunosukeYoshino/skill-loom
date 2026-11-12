@@ -811,12 +811,20 @@ JSON
     -H "Content-Type: text/plain;charset=UTF-8" \
     -d "$body" 2>/dev/null || echo "000")
 
+  local rebound
+  rebound=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$url" \
+    -H "Content-Type: application/json" -H "Host: evil.example" \
+    -d "$body" 2>/dev/null || echo "000")
+
   [ "$cross_site" = "403" ] \
     && pass "$name: cross-site POST is 403" \
     || fail "$name: expected 403 for cross-site POST, got $cross_site"
   [ "$plain" = "415" ] \
     && pass "$name: text/plain POST is 415" \
     || fail "$name: expected 415 for text/plain POST, got $plain"
+  [ "$rebound" = "403" ] \
+    && pass "$name: non-local Host POST is 403" \
+    || fail "$name: expected 403 for non-local Host POST, got $rebound"
   [ ! -e "$called" ] \
     && pass "$name: skills-add was never started" \
     || fail "$name: skills-add ran for a rejected request"

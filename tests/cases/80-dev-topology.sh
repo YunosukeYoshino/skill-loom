@@ -86,6 +86,27 @@ test_vite_direct_api_returns_json_502_not_spa_html() {
   else
     pass "test_vite_direct_api_returns_json_502_not_spa_html: does not return SPA HTML"
   fi
+
+  # HMR の WebSocket 中継は他サイトのページからの接続を受けない。
+  local ws_evil ws_local
+  ws_evil=$(hmr_upgrade_status "$port" "https://evil.example")
+  ws_local=$(hmr_upgrade_status "$port" "http://localhost:${port}")
+  [ "$ws_evil" = "403" ] \
+    && pass "test_vite_direct_api_returns_json_502_not_spa_html: foreign-origin HMR upgrade is 403" \
+    || fail "test_vite_direct_api_returns_json_502_not_spa_html: expected 403 for foreign-origin upgrade, got $ws_evil"
+  [ "$ws_local" = "101" ] \
+    && pass "test_vite_direct_api_returns_json_502_not_spa_html: same-origin HMR upgrade still works" \
+    || fail "test_vite_direct_api_returns_json_502_not_spa_html: expected 101 for same-origin upgrade, got $ws_local"
+}
+
+hmr_upgrade_status() {
+  local port="$1" origin="$2"
+  # 101 のあと接続が開いたままなので、--max-time で切って状態コードだけ取る。
+  curl -s --http1.1 --max-time 2 -o /dev/null -w "%{http_code}" \
+    -H "Connection: Upgrade" -H "Upgrade: websocket" \
+    -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+    -H "Sec-WebSocket-Protocol: vite-hmr" -H "Origin: $origin" \
+    "http://localhost:${port}/" 2>/dev/null || true
 }
 
 register_cases \
