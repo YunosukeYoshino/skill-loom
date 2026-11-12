@@ -823,3 +823,38 @@ describe("skills CLI telemetry opt-out", () => {
     for (const line of lines) expect(line).toContain("DO_NOT_TRACK=1 skills@");
   }, 20_000);
 });
+
+describe("check-vendor-updates", () => {
+  test("reads the skills check output from --check-output, not a fixed /tmp path", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mgmt-vendor-check-"));
+    fs.writeFileSync(
+      path.join(root, "skills.lock.json"),
+      JSON.stringify({
+        version: 1,
+        custom: { repo: "owner/catalog", skills: {} },
+        external: { "zz-unit-alpha": { source: "owner/alpha" } },
+        vendor: {},
+      })
+    );
+    const checkOutput = path.join(root, "skills-check.txt");
+    fs.writeFileSync(checkOutput, "\x1b[32m✓\x1b[0m Updated zz-unit-alpha\n");
+    const result = Bun.spawnSync(
+      [
+        process.execPath,
+        path.join(
+          REPO_ROOT,
+          ".agents/skills/check-vendor-updates/scripts/check-vendor-updates.ts"
+        ),
+        "--catalog-dir",
+        root,
+        "--check-output",
+        checkOutput,
+      ],
+      { env: { ...process.env, HOME: path.join(root, "home") } }
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toContain(
+      "✅ zz-unit-alpha  (owner/alpha)"
+    );
+  });
+});
