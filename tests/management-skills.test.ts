@@ -813,12 +813,15 @@ describe("skills CLI telemetry opt-out", () => {
       expect.stringContaining("npx DO_NOT_TRACK=1 skills@"),
     ]);
 
-    fs.rmSync(log);
+    // skills-restore の呼び出しは別のログへ記録し、上の結果と混ぜない。
+    const restoreBin = path.join(root, "restore-bin");
+    const restoreLog = path.join(root, "restore-calls.log");
+    recorder(restoreBin, "npx", restoreLog);
     const restore = runBash(SKILLS_RESTORE, ["--catalog-dir", catalog], {
-      env,
+      env: { ...env, PATH: `${restoreBin}:${process.env.PATH ?? ""}` },
     });
     expect(restore.exitCode).toBe(0);
-    const lines = calls(log);
+    const lines = calls(restoreLog);
     expect(lines.length).toBeGreaterThanOrEqual(3);
     for (const line of lines) expect(line).toContain("DO_NOT_TRACK=1 skills@");
   }, 20_000);
