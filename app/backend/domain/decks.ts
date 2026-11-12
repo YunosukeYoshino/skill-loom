@@ -85,7 +85,7 @@ export function listProjectDecks(): string[] {
  * この検証を通った名前は作成時に Catalog 外へ書けない。既存のネスト deck の
  * 読み込みは `deckPath` 側が担当する。
  */
-export function validateProjectDeckName(name: string): void {
+function validateProjectDeckName(name: string): void {
   if (!PROJECT_DECK_NAME_PATTERN.test(name))
     throw new ValueError(`Invalid project deck name: ${name}`);
 }
@@ -218,6 +218,7 @@ export function addSkillsToProjectDeck(
 ): number {
   const path = deckPath(deckName, true);
   const deck = JSON.parse(readFileSync(path, "utf-8")) as Deck;
+  // fallow-ignore-next-line code-duplication
   deck.skills = [...new Set([...(deck.skills ?? []), ...selected])].sort(
     (a, b) => (a < b ? -1 : a > b ? 1 : 0)
   );
@@ -239,6 +240,7 @@ export function writeProjectDeckSkills(
   skills: Set<string>
 ): string {
   const path = deckPath(deckName, true);
+  // fallow-ignore-next-line code-duplication
   deck.skills = [...skills].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(deck, null, 2)}\n`);
