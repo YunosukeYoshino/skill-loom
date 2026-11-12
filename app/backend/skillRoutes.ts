@@ -29,6 +29,7 @@ import {
   shutdownSkillCodexSession,
 } from "./infrastructure/skill-codex";
 import { checkedSkillRef as reference } from "./domain/skill-reference";
+import { localRequestGuard } from "./requestGuard";
 
 const changing = new Set<string>();
 
@@ -50,38 +51,6 @@ function queryReference(request: Request): SkillRef {
     source: query.get("source") ?? undefined,
     skillPath: query.get("skillPath") ?? undefined,
   });
-}
-
-function localHost(host: string): boolean {
-  return (
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "[::1]" ||
-    host.endsWith(".localhost")
-  );
-}
-
-function originHeaderError(
-  origin: string | null,
-  host: string
-): string | undefined {
-  if (!origin) return undefined;
-  try {
-    if (new URL(origin).host !== host)
-      return "Cross-origin requests are not accepted";
-  } catch {
-    return "Invalid origin";
-  }
-}
-
-function requestOriginError(request: Request): string | undefined {
-  const url = new URL(request.url);
-  if (!localHost(url.hostname))
-    return "Only local Skill Loom requests are accepted";
-  const site = request.headers.get("sec-fetch-site");
-  if (site && site !== "same-origin" && site !== "none")
-    return "Cross-site requests are not accepted";
-  return originHeaderError(request.headers.get("origin"), url.host);
 }
 
 function reviewedChange(
@@ -125,18 +94,7 @@ async function change<T>(ref: SkillRef, action: () => Promise<T>): Promise<T> {
 export function createSkillRoutes(): Hono {
   const app = new Hono();
   app.use("*", bodyLimit({ maxSize: 2 * 1024 * 1024 }));
-  app.use("*", async (c, next) => {
-    const originError = requestOriginError(c.req.raw);
-    if (originError) return c.json({ message: originError }, 403);
-    if (
-      c.req.method !== "GET" &&
-      !(c.req.header("content-type") ?? "")
-        .toLowerCase()
-        .startsWith("application/json")
-    )
-      return c.json({ message: "JSON content type is required" }, 415);
-    await next();
-  });
+  app.use("*", localRequestGuard);
   app.onError((error, c) =>
     c.json(
       { message: error.message },

@@ -90,6 +90,7 @@ import {
 import { fetchOgp } from "./ogp";
 import { searchSkillsSh } from "./skillssh";
 import { createSkillRoutes } from "./skillRoutes";
+import { localRequestGuard, requestOriginError } from "./requestGuard";
 import { recoverSkillApplications } from "./domain/skill-apply";
 import { shutdownAllSkillCodexSessions } from "./infrastructure/skill-codex";
 import {
@@ -390,6 +391,8 @@ if (useVite) {
 }
 
 const app = new Hono();
+// cross-site からの状態変更（任意スキルの導入など）を /api 全体で拒む。
+app.use("/api/*", localRequestGuard);
 app.route("/api/skill", createSkillRoutes());
 
 // ---- 移植済みルート ----
@@ -1631,6 +1634,9 @@ const server = Bun.serve({
       vitePort !== null &&
       req.headers.get("upgrade")?.toLowerCase() === "websocket"
     ) {
+      // 他サイトのページから HMR 経路へ接続させない。
+      const originError = requestOriginError(req);
+      if (originError) return new Response(originError, { status: 403 });
       const incoming = new URL(req.url);
       const protocol = req.headers.get("sec-websocket-protocol");
       const data: WsData = {

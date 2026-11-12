@@ -771,6 +771,57 @@ JSON
   fi
 }
 
+test_external_install_rejects_cross_site_and_non_json_posts() {
+  local name="test_external_install_rejects_cross_site_and_non_json_posts"
+  echo "Running $name..."
+  local port=18984
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  TMP_DIRS+=("$tmp_dir")
+  local stub="$tmp_dir/skills-add-stub"
+  local called="$tmp_dir/called"
+  cat > "$tmp_dir/skills.lock.json" <<'JSON'
+{"version":1,"custom":{"repo":"owner/catalog","skills":{}},"external":{},"vendor":{}}
+JSON
+  cat > "$tmp_dir/candidates.json" <<'JSON'
+[{"name":"evil","path":"skills/evil/SKILL.md"}]
+JSON
+  printf '#!/bin/bash\ntouch "%s"\n' "$called" > "$stub"
+  chmod +x "$stub"
+  mkdir -p "$tmp_dir/active" "$tmp_dir/archive"
+  MY_SKILLS_ADD_SCRIPT="$stub" \
+    MY_SKILLS_LOCK_FILE="$tmp_dir/skills.lock.json" \
+    MY_SKILLS_EXTERNAL_CANDIDATES_FILE="$tmp_dir/candidates.json" \
+    MY_SKILLS_ACTIVE_DIR="$tmp_dir/active" \
+    MY_SKILLS_ARCHIVE_DIR="$tmp_dir/archive" \
+    ./skill-loom ui --port "$port" > /dev/null 2>&1 &
+  UI_PIDS+=($!)
+
+  if ! wait_for_port "$port"; then
+    fail "$name: server did not start"
+    return
+  fi
+  local url="http://localhost:${port}/api/external/install"
+  local body='{"source":"attacker/repo","skills":["evil"]}'
+  local cross_site plain
+  cross_site=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$url" \
+    -H "Content-Type: application/json" -H "Sec-Fetch-Site: cross-site" \
+    -d "$body" 2>/dev/null || echo "000")
+  plain=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$url" \
+    -H "Content-Type: text/plain;charset=UTF-8" \
+    -d "$body" 2>/dev/null || echo "000")
+
+  [ "$cross_site" = "403" ] \
+    && pass "$name: cross-site POST is 403" \
+    || fail "$name: expected 403 for cross-site POST, got $cross_site"
+  [ "$plain" = "415" ] \
+    && pass "$name: text/plain POST is 415" \
+    || fail "$name: expected 415 for text/plain POST, got $plain"
+  [ ! -e "$called" ] \
+    && pass "$name: skills-add was never started" \
+    || fail "$name: skills-add ran for a rejected request"
+}
+
 register_cases \
 test_external_update_posts_to_skills_update_command \
 test_external_remove_posts_to_remove_command_and_updates_lock \
@@ -782,4 +833,5 @@ test_external_update_all_posts_multiple_skills \
 test_external_install_posts_to_skills_add_script \
 test_external_install_posts_bulk_selection_to_one_skills_add_command \
 test_external_install_replaces_archived_skill_after_approval \
-test_external_replacement_recovers_after_crash_mid_install
+test_external_replacement_recovers_after_crash_mid_install \
+test_external_install_rejects_cross_site_and_non_json_posts
