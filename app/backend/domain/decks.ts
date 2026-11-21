@@ -150,6 +150,17 @@ export function deckPath(name: string, project = false): string {
   );
 }
 
+/** name の Project Deck が解決できれば true。 */
+export function hasProjectDeck(name: string): boolean {
+  try {
+    deckPath(name, true);
+    return true;
+  } catch (error) {
+    if (error instanceof UnknownDeckError) return false;
+    throw error;
+  }
+}
+
 /** `extends` を辿って skill 名を集める。循環は移行前と同じくエラーにする。 */
 export function loadDeck(
   name: string,
