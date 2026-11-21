@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { resolveCatalogPath } from "./catalogPaths";
 import { activeDir, archiveDir } from "./config";
 import { customSkillRepoDir } from "./custom";
-import { deckPath, loadDeck, UnknownDeckError, type Deck } from "./decks";
+import { hasProjectDeck, loadDeck, type Deck } from "./decks";
 import { ValueError } from "./errors";
 import { type Lock, sortNames } from "./inventory";
 import { assertSkillName, copySkillTree, writeSkillJson } from "./skill-files";
@@ -61,10 +61,7 @@ export type PluginExportResult = {
 // 連続ハイフンや先頭・末尾のハイフンはクライアント側で弾かれるので出さない。
 const PLUGIN_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const PLUGIN_NAME_MAX_LENGTH = 64;
-// semver 緩和版。公開版の付け替えはタグ運用側でやるので、ここでは形だけ見る。
 const PLUGIN_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
-// manifest を置くディレクトリ群。skills/ と同じく、書き込み・削除の前に
-// シンボリックリンクを拒否する。
 const MANIFEST_DIRS = [".claude-plugin", ".cursor-plugin", ".codex-plugin"];
 
 function exists(path: string): boolean {
@@ -76,24 +73,13 @@ function exists(path: string): boolean {
   }
 }
 
-/**
- * Project Deck を先に、無ければ Shared Deck を解決する。両方無ければ
- * UnknownDeckError がそのまま上がる。deck 名が衝突したときは Project 側が勝つ。
- */
+/** Project Deck を先に、無ければ Shared Deck を解決する。名前が衝突したら Project 側が勝つ。 */
 function resolveDeck(name: string): {
   deck: Deck;
   skills: string[];
   kind: "project" | "shared";
 } {
-  // まず存在確認だけする。loadDeck まで投げると循環参照のエラーが
-  // 「Project deck 無し」と区別できず Shared 側へ流れてしまう。
-  let isProject = true;
-  try {
-    deckPath(name, true);
-  } catch (error) {
-    if (!(error instanceof UnknownDeckError)) throw error;
-    isProject = false;
-  }
+  const isProject = hasProjectDeck(name);
   const [deck, skills] = loadDeck(name, new Set(), isProject);
   return { deck, skills, kind: isProject ? "project" : "shared" };
 }
@@ -103,7 +89,6 @@ function resolveDeck(name: string): {
  * custom → vendor → external。external は Catalog 内の `localRepoPath`、
  * 無ければ install 済みの active / archive 側を見る。
  */
-/** custom → vendor の順で Catalog リポジトリ内のコピー元を引く。 */
 function localSkillSourceDir(lock: Lock, name: string): string | undefined {
   const customDir = customSkillRepoDir(lock, name);
   if (customDir) return customDir;
@@ -112,7 +97,6 @@ function localSkillSourceDir(lock: Lock, name: string): string | undefined {
   return exists(dir) ? dir : undefined;
 }
 
-/** external skill のコピー元。`localRepoPath` を先に、無ければ install 済み側を見る。 */
 function externalSkillSourceDir(lock: Lock, name: string): string | undefined {
   const external = lock.external?.[name];
   if (!external) return undefined;
@@ -131,7 +115,6 @@ function skillSourceDir(lock: Lock, name: string): string | undefined {
   return localSkillSourceDir(lock, name) ?? externalSkillSourceDir(lock, name);
 }
 
-/** 中身入りの出力先が再生成して良いプラグイン出力かを確認する。 */
 function assertRewritableOutDir(outDir: string, overwrite: boolean): void {
   if (!exists(join(outDir, "plugin.json")))
     throw new ValueError(
@@ -141,8 +124,6 @@ function assertRewritableOutDir(outDir: string, overwrite: boolean): void {
     throw new ValueError(
       `Plugin output already exists: ${outDir} (use --overwrite)`
     );
-  // 生成対象のディレクトリがシンボリックリンクなら書き込みも削除もリンク先へ
-  // 漏れるので、触る前に拒否する。
   for (const dir of ["skills", ...MANIFEST_DIRS]) {
     const path = join(outDir, dir);
     if (exists(path) && lstatSync(path).isSymbolicLink())
@@ -175,18 +156,15 @@ function prepareOutDir(
     throw new ValueError(`Plugin output path is not a directory: ${outDir}`);
   if (readdirSync(outDir).length === 0) return;
   assertRewritableOutDir(outDir, overwrite);
-  // .git・README・利用者が足したファイルは残る。
   removeGeneratedFiles(outDir, manifestPaths);
 }
 
-/** `owner/repo` を `https://github.com/...` に、URL はそのまま返す。 */
 function repositoryUrl(repo: string | undefined): string | undefined {
   const raw = repo?.trim();
   if (!raw) return undefined;
   return raw.includes("://") ? raw : `https://github.com/${raw}`;
 }
 
-/** marketplace メタデータの owner。`owner/repo` でも URL でも owner 部分だけ拾う。 */
 function repoOwner(repo: string | undefined, fallback: string): string {
   const raw = repo?.trim() ?? "";
   if (!raw) return fallback;
@@ -195,7 +173,6 @@ function repoOwner(repo: string | undefined, fallback: string): string {
   return owner?.trim() || fallback;
 }
 
-/** description が空ならキー自体を出さない（各マニフェスト共通の組み立て方）。 */
 function manifestDescription(description: string): { description?: string } {
   return description ? { description } : {};
 }
@@ -207,7 +184,6 @@ function assertPluginIdentity(name: string, version: string): void {
     throw new ValueError(`Invalid plugin version: ${version}`);
 }
 
-/** deck の各 skill のコピー元を解決する。1件でも未解決なら何も書かずに止める。 */
 function resolveSkillSources(
   lock: Lock,
   skills: string[]
@@ -228,7 +204,6 @@ function resolveSkillSources(
   return sources;
 }
 
-/** Claude Code / Cursor 共通の marketplace マニフェスト本体。 */
 function marketplaceManifest(
   name: string,
   description: string,
@@ -247,7 +222,6 @@ function marketplaceManifest(
   };
 }
 
-/** plugin.json と各ハーネス用マニフェストを `[outDir 相対パス, 内容]` の組で返す。 */
 function buildManifestFiles(
   name: string,
   version: string,
@@ -294,7 +268,6 @@ function buildManifestFiles(
   ];
 }
 
-/** 出力先を整えて skills/ とマニフェスト群を書き出す。 */
 function writePluginPackage(
   outDir: string,
   manifestFiles: [string, unknown][],
