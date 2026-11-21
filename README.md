@@ -115,7 +115,16 @@ Management command families expose the same Catalog domain operations to shell w
 ./skill-loom preset restore
 
 ./skill-loom link-agents NAME...
+
+./skill-loom plugin export DECK --out DIR [--name NAME] [--version VERSION] [--description TEXT] [--overwrite]
 ```
+
+`plugin export` projects a Project or Shared Deck into an installable plugin
+package: an Agent Plugins `plugin.json`, the copied `skills/` tree, and
+`.claude-plugin/`, `.cursor-plugin/`, and `.codex-plugin/` manifests. Push the
+output directory to a Git repository to install it into Devin, Cursor, Codex,
+or Claude Code. Skills a Deck references but the Inventory cannot resolve
+abort the export with exit code 2.
 
 `preset` saves and reapplies named subsets of the active global skills. `link-agents`
 symlinks an agent's skills directory (`~/.claude/skills`, `~/.gemini/config/skills`)
