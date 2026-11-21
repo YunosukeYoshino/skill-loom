@@ -28,7 +28,6 @@ import {
   loadLock,
   saveLock,
   sortNames,
-  trackedSkills,
 } from "./inventory";
 import { trashPath } from "./projection";
 import { assertSkillName, copySkillTree, skillFilePath } from "./skill-files";
@@ -154,7 +153,9 @@ export function importDraftSkill(
       "Skill frontmatter name must match its directory before import"
     );
   if (
-    trackedSkills(lock).has(name) ||
+    Object.hasOwn(lock.custom?.skills ?? {}, name) ||
+    Object.hasOwn(lock.external ?? {}, name) ||
+    Object.hasOwn(lock.vendor ?? {}, name) ||
     draftSkillCandidates().some(
       (draft) => draft.name === name || draft.repoPath.endsWith(`/${name}`)
     )

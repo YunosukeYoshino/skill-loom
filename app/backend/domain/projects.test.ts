@@ -340,6 +340,20 @@ test("import rejects empty/missing sources, Inventory and Draft names, and unsaf
   );
 });
 
+test("import rejects ignored registered Custom Skills rather than creating hidden Drafts", () => {
+  registerProject("work", project);
+  write(copyPath("alpha"), "Project alpha");
+  write(
+    join(root, "catalog/.skills-ignore.json"),
+    JSON.stringify({ ignore: ["alpha"] })
+  );
+  expect(projectStatus("work", lock).skills[0]?.inventory).toBe(false);
+  expect(() => importProjectSkill("work", "alpha", lock)).toThrow(
+    AlreadyExistsError
+  );
+  expect(draftSkillMap().has("alpha")).toBe(false);
+});
+
 test("import safely handles Claude-only and linked copies and rejects conflicting or escaped copies", () => {
   registerProject("work", project);
   write(join(project, ".claude/skills/claude-only/SKILL.md"), "Claude only");
