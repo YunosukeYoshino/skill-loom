@@ -63,6 +63,9 @@ const PLUGIN_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const PLUGIN_NAME_MAX_LENGTH = 64;
 // semver 緩和版。公開版の付け替えはタグ運用側でやるので、ここでは形だけ見る。
 const PLUGIN_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+// manifest を置くディレクトリ群。skills/ と同じく、書き込み・削除の前に
+// シンボリックリンクを拒否する。
+const MANIFEST_DIRS = [".claude-plugin", ".cursor-plugin", ".codex-plugin"];
 
 function exists(path: string): boolean {
   try {
@@ -148,6 +151,13 @@ function prepareOutDir(
     throw new ValueError(
       `Plugin output already exists: ${outDir} (use --overwrite)`
     );
+  // 生成対象のディレクトリがシンボリックリンクなら書き込みも削除もリンク先へ
+  // 漏れるので、触る前に拒否する。
+  for (const dir of ["skills", ...MANIFEST_DIRS]) {
+    const path = join(outDir, dir);
+    if (exists(path) && lstatSync(path).isSymbolicLink())
+      throw new ValueError(`Refusing to write through a symlink: ${path}`);
+  }
   // 出力先は配布リポジトリの checkout になりうるので、ディレクトリごとは
   // 消さず生成物だけ消し直す。.git・README・利用者が足したファイルは残る。
   rmSync(join(outDir, "skills"), { recursive: true, force: true });

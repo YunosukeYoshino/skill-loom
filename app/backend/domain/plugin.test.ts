@@ -12,6 +12,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -307,6 +308,21 @@ describe("exportPlugin", () => {
     );
     expect(existsSync(join(outDir, "skills", "stale"))).toBe(false);
     expect(existsSync(join(outDir, "skills", "alpha", "SKILL.md"))).toBe(true);
+  });
+
+  test("manifest ディレクトリのシンボリックリンクは拒否しリンク先を触らない", () => {
+    run();
+    // 配布 repo の .claude-plugin が外部ディレクトリへのリンクに差し替わった状態
+    const outside = mkdtempSync(join(tmpdir(), "skill-loom-plugin-outside-"));
+    writeFileSync(join(outside, "plugin.json"), "outside file");
+    rmSync(join(outDir, ".claude-plugin"), { recursive: true });
+    symlinkSync(outside, join(outDir, ".claude-plugin"));
+
+    expect(() => run({ overwrite: true })).toThrow(ValueError);
+    expect(readFileSync(join(outside, "plugin.json"), "utf8")).toBe(
+      "outside file"
+    );
+    expect(existsSync(join(outside, "marketplace.json"))).toBe(false);
   });
 
   test("空の deck でも空の skills/ と manifest を出す", () => {
