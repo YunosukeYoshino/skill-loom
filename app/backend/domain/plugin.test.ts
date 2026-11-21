@@ -253,7 +253,15 @@ describe("exportPlugin", () => {
   });
 
   test("plugin 名と version を検証する", () => {
-    for (const name of ["Bad Name", "UPPER", "", "has_underscore"]) {
+    for (const name of [
+      "Bad Name",
+      "UPPER",
+      "",
+      "has_underscore",
+      "pack--test",
+      "-lead",
+      "trail-",
+    ]) {
       expect(() => run({ name })).toThrow(ValueError);
     }
     for (const version of ["v1", "1.0", "x.y.z"]) {
@@ -277,6 +285,28 @@ describe("exportPlugin", () => {
     expect(() => run()).toThrow(ValueError);
     expect(() => run({ overwrite: true })).not.toThrow();
     expect(readJson(join(outDir, "plugin.json")).name).toBe("pack");
+  });
+
+  test("--overwrite は生成物だけ消し直し、配布 repo のファイルを残す", () => {
+    run();
+    // 配布リポジトリ側にしかないファイル
+    writeFileSync(join(outDir, "README.md"), "dist repo readme");
+    mkdirSync(join(outDir, ".git"), { recursive: true });
+    writeFileSync(join(outDir, ".git", "HEAD"), "ref: refs/heads/main");
+    // 前回の生成物に紛れた古い skill や手書き追加
+    mkdirSync(join(outDir, "skills", "stale"), { recursive: true });
+    writeFileSync(join(outDir, "skills", "stale", "SKILL.md"), "old");
+
+    run({ overwrite: true });
+
+    expect(readFileSync(join(outDir, "README.md"), "utf8")).toBe(
+      "dist repo readme"
+    );
+    expect(readFileSync(join(outDir, ".git", "HEAD"), "utf8")).toBe(
+      "ref: refs/heads/main"
+    );
+    expect(existsSync(join(outDir, "skills", "stale"))).toBe(false);
+    expect(existsSync(join(outDir, "skills", "alpha", "SKILL.md"))).toBe(true);
   });
 
   test("空の deck でも空の skills/ と manifest を出す", () => {
