@@ -57,8 +57,10 @@ export type PluginExportResult = {
   manifests: string[];
 };
 
-// Project Deck 名と同じ口径。plugin 名は公開識別子なので同じく kebab-case だけに絞る。
-const PLUGIN_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
+// Agent Plugins スキーマの name 口径。セグメント単位の kebab-case で、
+// 連続ハイフンや先頭・末尾のハイフンはクライアント側で弾かれるので出さない。
+const PLUGIN_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const PLUGIN_NAME_MAX_LENGTH = 64;
 // semver 緩和版。公開版の付け替えはタグ運用側でやるので、ここでは形だけ見る。
 const PLUGIN_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 
@@ -126,7 +128,11 @@ function skillSourceDir(lock: Lock, name: string): string | undefined {
  * `--overwrite` のときだけ消し直す。marker の無い中身入りは利用者のファイルを
  * 消しかねないので常に拒否する。
  */
-function prepareOutDir(outDir: string, overwrite: boolean): void {
+function prepareOutDir(
+  outDir: string,
+  overwrite: boolean,
+  manifestPaths: string[]
+): void {
   if (!exists(outDir)) {
     mkdirSync(outDir, { recursive: true });
     return;
@@ -142,8 +148,11 @@ function prepareOutDir(outDir: string, overwrite: boolean): void {
     throw new ValueError(
       `Plugin output already exists: ${outDir} (use --overwrite)`
     );
-  rmSync(outDir, { recursive: true, force: true });
-  mkdirSync(outDir, { recursive: true });
+  // 出力先は配布リポジトリの checkout になりうるので、ディレクトリごとは
+  // 消さず生成物だけ消し直す。.git・README・利用者が足したファイルは残る。
+  rmSync(join(outDir, "skills"), { recursive: true, force: true });
+  for (const relativePath of manifestPaths)
+    rmSync(join(outDir, relativePath), { force: true });
 }
 
 /** `owner/repo` を `https://github.com/...` に、URL はそのまま返す。 */
@@ -172,7 +181,7 @@ export function exportPlugin(
   options: PluginExportOptions
 ): PluginExportResult {
   const name = options.name ?? options.deck;
-  if (!PLUGIN_NAME_PATTERN.test(name))
+  if (name.length > PLUGIN_NAME_MAX_LENGTH || !PLUGIN_NAME_PATTERN.test(name))
     throw new ValueError(`Invalid plugin name: ${name}`);
   const version = options.version ?? "1.0.0";
   if (!PLUGIN_VERSION_PATTERN.test(version))
@@ -194,13 +203,6 @@ export function exportPlugin(
     sources.set(skillName, dir);
   }
   if (unresolved.length > 0) throw new UnresolvedPluginSkillsError(unresolved);
-
-  prepareOutDir(options.outDir, options.overwrite ?? false);
-
-  const skillsDir = join(options.outDir, "skills");
-  mkdirSync(skillsDir, { recursive: true });
-  for (const [skillName, dir] of sources)
-    copySkillTree(dir, join(skillsDir, skillName));
 
   const repo = options.repository ?? lock.custom?.repo;
   const repository = repositoryUrl(repo);
@@ -273,6 +275,17 @@ export function exportPlugin(
       },
     ],
   ];
+
+  prepareOutDir(
+    options.outDir,
+    options.overwrite ?? false,
+    manifestFiles.map(([relativePath]) => relativePath)
+  );
+
+  const skillsDir = join(options.outDir, "skills");
+  mkdirSync(skillsDir, { recursive: true });
+  for (const [skillName, dir] of sources)
+    copySkillTree(dir, join(skillsDir, skillName));
 
   for (const [relativePath, manifest] of manifestFiles)
     writeSkillJson(join(options.outDir, relativePath), manifest);
