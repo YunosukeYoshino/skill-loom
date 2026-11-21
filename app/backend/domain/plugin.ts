@@ -39,6 +39,8 @@ export type PluginExportOptions = {
   version?: string;
   /** 説明文。既定は deck の `description`。 */
   description?: string;
+  /** 配布先リポジトリ。`owner/repo` か完全な URL。既定は lock の `custom.repo`。 */
+  repository?: string;
   /** 既存の生成物を消して出力し直す。 */
   overwrite?: boolean;
 };
@@ -144,11 +146,20 @@ function prepareOutDir(outDir: string, overwrite: boolean): void {
   mkdirSync(outDir, { recursive: true });
 }
 
-/** marketplace メタデータの owner。lock の `custom.repo` から owner を拾う。 */
-function ownerName(lock: Lock, fallback: string): string {
-  const repo = lock.custom?.repo ?? "";
-  const owner = repo.split("/")[0]?.trim() ?? "";
-  return owner || fallback;
+/** `owner/repo` を `https://github.com/...` に、URL はそのまま返す。 */
+function repositoryUrl(repo: string | undefined): string | undefined {
+  const raw = repo?.trim();
+  if (!raw) return undefined;
+  return raw.includes("://") ? raw : `https://github.com/${raw}`;
+}
+
+/** marketplace メタデータの owner。`owner/repo` でも URL でも owner 部分だけ拾う。 */
+function repoOwner(repo: string | undefined, fallback: string): string {
+  const raw = repo?.trim() ?? "";
+  if (!raw) return fallback;
+  const segments = raw.split("://").at(-1)!.split("/").filter(Boolean);
+  const owner = raw.includes("://") ? segments[1] : segments[0];
+  return owner?.trim() || fallback;
 }
 
 /** description が空ならキー自体を出さない（各マニフェスト共通の組み立て方）。 */
@@ -191,10 +202,9 @@ export function exportPlugin(
   for (const [skillName, dir] of sources)
     copySkillTree(dir, join(skillsDir, skillName));
 
-  const repository = lock.custom?.repo
-    ? `https://github.com/${lock.custom.repo}`
-    : undefined;
-  const marketplaceOwner = { name: ownerName(lock, name) };
+  const repo = options.repository ?? lock.custom?.repo;
+  const repository = repositoryUrl(repo);
+  const marketplaceOwner = { name: repoOwner(repo, name) };
 
   const manifestFiles: [string, unknown][] = [
     [

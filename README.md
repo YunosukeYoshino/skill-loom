@@ -116,7 +116,7 @@ Management command families expose the same Catalog domain operations to shell w
 
 ./skill-loom link-agents NAME...
 
-./skill-loom plugin export DECK --out DIR [--name NAME] [--version VERSION] [--description TEXT] [--overwrite]
+./skill-loom plugin export DECK --out DIR [--name NAME] [--version VERSION] [--description TEXT] [--repository OWNER/REPO] [--overwrite]
 ```
 
 `plugin export` projects a Project or Shared Deck into an installable plugin

@@ -188,6 +188,16 @@ describe("exportPlugin", () => {
     }
   });
 
+  test("--repository は lock の catalog repo より優先して manifest に入る", () => {
+    run({ repository: "acme/distributed-pack" });
+    const plugin = readJson(join(outDir, "plugin.json"));
+    expect(plugin.repository).toBe("https://github.com/acme/distributed-pack");
+    const marketplace = readJson(
+      join(outDir, ".claude-plugin", "marketplace.json")
+    ) as { owner: { name: string } };
+    expect(marketplace.owner.name).toBe("acme");
+  });
+
   test("Project Deck が無いときは Shared Deck から出す", () => {
     writeSharedDeck("shared-pack", {
       name: "shared-pack",

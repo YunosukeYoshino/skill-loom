@@ -913,6 +913,7 @@ function cmdPluginExport(argv: string[]): number {
   let name: string | undefined;
   let version: string | undefined;
   let description: string | undefined;
+  let repository: string | undefined;
   let overwrite = false;
 
   for (let i = 0; i < argv.length; i++) {
@@ -927,12 +928,15 @@ function cmdPluginExport(argv: string[]): number {
     else if (arg === "--description") description = argv[++i];
     else if (arg.startsWith("--description="))
       description = arg.slice("--description=".length);
+    else if (arg === "--repository") repository = argv[++i];
+    else if (arg.startsWith("--repository="))
+      repository = arg.slice("--repository=".length);
     else if (arg === "--overwrite") overwrite = true;
     else if (!deckName) deckName = arg;
   }
 
   const usage =
-    "usage: skill-loom plugin export [-h] deck --out DIR [--name NAME] [--version VERSION] [--description TEXT] [--overwrite]";
+    "usage: skill-loom plugin export [-h] deck --out DIR [--name NAME] [--version VERSION] [--description TEXT] [--repository OWNER/REPO] [--overwrite]";
   if (!deckName || !outDir)
     return cliError(
       "missing required argument",
@@ -948,6 +952,7 @@ function cmdPluginExport(argv: string[]): number {
       name,
       version,
       description,
+      repository,
       overwrite,
     });
     if (jsonMode) {
