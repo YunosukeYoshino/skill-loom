@@ -354,6 +354,31 @@ test("import rejects ignored registered Custom Skills rather than creating hidde
   expect(draftSkillMap().has("alpha")).toBe(false);
 });
 
+test("a safe unmanaged deck conflict remains importable without an Inventory match", () => {
+  deck(["local"]);
+  registerProject("work", project, "work");
+  write(copyPath("local"), "Local project skill");
+  expect(projectStatus("work", lock).skills[0]).toMatchObject({
+    state: "conflict",
+    inventory: false,
+    importable: true,
+  });
+  expect(importProjectSkill("work", "local", lock).importedDraft.name).toBe(
+    "local"
+  );
+  write(join(project, ".claude/skills/local/SKILL.md"), "Different local copy");
+  expect(projectStatus("work", lock).skills[0]?.importable).toBe(false);
+  rmSync(join(project, ".claude/skills/local"), { recursive: true });
+  symlinkSync(
+    join(root, "catalog/skills/dev/alpha"),
+    join(project, ".agents/skills/unsafe")
+  );
+  expect(
+    projectStatus("work", lock).skills.find((s) => s.name === "unsafe")
+      ?.importable
+  ).toBe(false);
+});
+
 test("import safely handles Claude-only and linked copies and rejects conflicting or escaped copies", () => {
   registerProject("work", project);
   write(join(project, ".claude/skills/claude-only/SKILL.md"), "Claude only");

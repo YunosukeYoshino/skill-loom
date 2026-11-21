@@ -364,6 +364,22 @@ export function projectStatus(
         hash !== manifest.skills[skill]!.hash ||
         !correctLink(project, skill));
     const source = sourceFor(lock, skill);
+    let importable = !inventory.has(skill) && !unsafe && Boolean(root);
+    if (importable) {
+      try {
+        importable = paths.filter(present).every((path) => {
+          const candidate = readableRoot(project, path);
+          return Boolean(
+            candidate &&
+            existsSync(join(candidate, "SKILL.md")) &&
+            skillTreeHash(candidate) === hash
+          );
+        });
+      } catch (error) {
+        if (!(error instanceof ValueError)) throw error;
+        importable = false;
+      }
+    }
     const state = unsafe
       ? "conflict"
       : drifted
@@ -409,6 +425,7 @@ export function projectStatus(
       globalActive: existsSync(join(activeDir(), skill)),
       inventory: inventory.has(skill),
       available: Boolean(source),
+      importable,
       locations,
       sourceVersion: manifest.skills[skill]?.sourceVersion ?? null,
     };

@@ -16,6 +16,7 @@ export type ProjectSkill = {
   globalActive: boolean;
   inventory: boolean;
   available: boolean;
+  importable: boolean;
   locations: string[];
   sourceVersion: string | null;
 };

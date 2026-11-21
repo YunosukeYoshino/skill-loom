@@ -301,11 +301,7 @@ export function ProjectsPage() {
                               </Button>
                               {!s.inventory ? (
                                 <Button
-                                  disabled={
-                                    busy ||
-                                    !s.locations.length ||
-                                    s.state === "conflict"
-                                  }
+                                  disabled={busy || !s.importable}
                                   onClick={() => importSkill.mutate(s.name)}
                                 >
                                   {l("Draft に取り込む", "Import as Draft")}
