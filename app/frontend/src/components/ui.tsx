@@ -302,6 +302,9 @@ function SideNav({
             <span>{item.label}</span>
           </Link>
         ))}
+        <Link to="/projects" className={linkClass(current === "projects")}>
+          {t("nav.projects")}
+        </Link>
         <div className="pt-1 pb-0.5 pl-2.5 font-[family-name:var(--font-mono)] text-[9.5px] font-medium tracking-[0.09em] text-[var(--color-ink-2)] uppercase">
           {t("nav.decks")}
         </div>

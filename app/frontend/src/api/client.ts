@@ -9,6 +9,12 @@ import type {
   ProjectDeckPayload,
   Tristate,
 } from "@shared/api-types";
+import type {
+  Project,
+  ProjectList,
+  ProjectPreview,
+  ProjectStatus,
+} from "@shared/project-types";
 
 export class ApiError extends Error {
   status: number;
@@ -67,6 +73,50 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  projects: () => request<ProjectList>("/api/projects"),
+  registerProject: (name: string, path: string, deck?: string) =>
+    request<Project>("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ name, path, deck }),
+    }),
+  project: (name: string) =>
+    request<ProjectStatus>(`/api/projects/${encodeURIComponent(name)}`),
+  syncProject: (
+    name: string,
+    force = false,
+    dryRun = false,
+    revision?: string
+  ) =>
+    request<ProjectStatus>(`/api/projects/${encodeURIComponent(name)}/sync`, {
+      method: "POST",
+      body: JSON.stringify({ force, dryRun, revision }),
+    }),
+  unregisterProject: (name: string) =>
+    request<{ removed: string }>(`/api/projects/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    }),
+  projectSkillPreview: (name: string, skill: string) =>
+    request<ProjectPreview>(
+      `/api/projects/${encodeURIComponent(name)}/skills/${encodeURIComponent(skill)}/preview`
+    ),
+  projectSkill: (
+    name: string,
+    skill: string,
+    action: "install" | "update" | "remove",
+    force = false,
+    revision?: string
+  ) =>
+    request<ProjectStatus>(
+      `/api/projects/${encodeURIComponent(name)}/skills/${encodeURIComponent(skill)}/${action}`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          force,
+          revision,
+          confirm: action === "remove" || Boolean(revision),
+        }),
+      }
+    ),
   global: (catalog = false) =>
     request<GlobalPayload>(`/api/global${catalog ? "?catalog=1" : ""}`),
 
