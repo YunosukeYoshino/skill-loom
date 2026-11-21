@@ -6,12 +6,21 @@
  * 残るようにしてある。先に draft を消すと、コピーに失敗したときに復元できない。
  */
 
-import { cpSync, lstatSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import {
+  cpSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join, relative, sep } from "node:path";
 import type { SkillRow } from "../../shared/api-types";
 import { catalogRoot, draftSkillsDir } from "./config";
 import { resolveCatalogPath } from "./catalogPaths";
-import { ValueError } from "./errors";
+import { AlreadyExistsError, ValueError } from "./errors";
 import { frontmatterName } from "../infrastructure/github";
 import {
   frontmatterDescription,
@@ -19,8 +28,10 @@ import {
   loadLock,
   saveLock,
   sortNames,
+  trackedSkills,
 } from "./inventory";
 import { trashPath } from "./projection";
+import { assertSkillName, copySkillTree, skillFilePath } from "./skill-files";
 
 export type DraftCandidate = {
   name: string;
@@ -123,6 +134,54 @@ export function draftSkillMap(): Map<string, DraftCandidate> {
   return new Map(
     draftSkillCandidates().map((candidate) => [candidate.name, candidate])
   );
+}
+
+/** プロジェクトの原本を残したまま Draft に取り込み、昇格は既存のフローに委ねる。 */
+export function importDraftSkill(
+  name: string,
+  source: string,
+  lock: Lock,
+  category = "imported"
+): DraftCandidate {
+  assertSkillName(name);
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(category))
+    throw new ValueError("Invalid draft category");
+  const declared = frontmatterName(skillFilePath(source, "SKILL.md"));
+  if (!exists(join(source, "SKILL.md")))
+    throw new ValueError("Project skill must contain SKILL.md");
+  if (declared && declared !== name)
+    throw new ValueError(
+      "Skill frontmatter name must match its directory before import"
+    );
+  if (
+    trackedSkills(lock).has(name) ||
+    draftSkillCandidates().some(
+      (draft) => draft.name === name || draft.repoPath.endsWith(`/${name}`)
+    )
+  )
+    throw new AlreadyExistsError(
+      `Skill already exists in Inventory or drafts: ${name}`
+    );
+  const repoPath = `drafts/skills/${category}/${name}`;
+  const target = resolveCatalogPath(repoPath);
+  skillFilePath(resolveCatalogPath("drafts"), `skills/${category}/${name}`);
+  if (exists(target) || isSymlink(target))
+    throw new AlreadyExistsError(`Draft already exists: ${name}`);
+  const temporary = resolveCatalogPath(
+    `drafts/skills/${category}/.import-${randomUUID()}`
+  );
+  try {
+    copySkillTree(source, temporary);
+    renameSync(temporary, target);
+  } finally {
+    if (exists(temporary)) rmSync(temporary, { recursive: true, force: true });
+  }
+  return {
+    name,
+    category,
+    repoPath,
+    description: frontmatterDescription(join(target, "SKILL.md")),
+  };
 }
 
 /** 一覧の行。既に custom 登録済みの名前は draft として出さない。 */

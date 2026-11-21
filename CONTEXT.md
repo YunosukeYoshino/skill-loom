@@ -23,5 +23,6 @@ Skill Loom is a local management engine for an Agent Skills portfolio. It keeps 
 - **Managed Project Skill**: a Project skill tracked by Skill Loom, with a recorded source version and content baseline.
 - **Unmanaged Project Skill**: a Project skill not tracked by Skill Loom. It may be browsed or explicitly updated into management; bulk synchronization leaves it alone.
 - **Drift**: a local change to a Managed Project Skill since its recorded baseline. Overwriting drift requires review and explicit approval.
+- **Project Skill Import**: copying a Project skill absent from the Inventory into a Catalog Draft for review. Import does not promote or adopt it; after promotion, an explicit Project update can adopt it.
 - **Active / Archive / Off**: available now / retained for later / absent from the Projection.
 - **Preset**: a named snapshot of the Active set. `_last` is the automatic pre-change snapshot used by restore.

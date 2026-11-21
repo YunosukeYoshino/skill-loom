@@ -13,6 +13,7 @@
 import { readSync } from "node:fs";
 import {
   listProjects,
+  importProjectSkill,
   previewProjectSkill,
   projectSkillAction,
   projectStatus,
@@ -1256,7 +1257,7 @@ function cmdProject(argv: string[]): number {
     (n) => n !== "--force" && n !== "--dry-run"
   );
   const usage =
-    "usage: skill-loom project {add NAME PATH [DECK],list,status NAME,sync NAME [--dry-run] [--force],remove NAME,install NAME SKILL,update NAME SKILL [--force],remove NAME SKILL} [-y]";
+    "usage: skill-loom project {add NAME PATH [DECK],list,status NAME,sync NAME [--dry-run] [--force],remove NAME,install NAME SKILL,update NAME SKILL [--force],remove NAME SKILL,import NAME SKILL [CATEGORY]} [-y]";
   try {
     let result: unknown;
     if (action === "list" && !name) result = listProjects();
@@ -1283,6 +1284,14 @@ function cmdProject(argv: string[]): number {
             force,
             revision: preview.review?.revision,
           });
+    } else if (action === "import" && name && args[0] && args.length <= 2) {
+      const denied = confirmedAction(
+        "Import project skill as draft (no promotion)",
+        [name, args[0]],
+        yes
+      );
+      if (denied) return denied;
+      result = importProjectSkill(name, args[0], loadLock(), args[1]);
     } else if (
       name &&
       args.length === 1 &&

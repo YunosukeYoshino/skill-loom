@@ -4,6 +4,7 @@ import { listProjectDecks } from "./domain/decks";
 import { loadLock, trackedSkills } from "./domain/inventory";
 import {
   listProjects,
+  importProjectSkill,
   previewProjectSkill,
   projectSkillAction,
   projectStatus,
@@ -66,6 +67,19 @@ export function createProjectRoutes() {
   // fallow-ignore-next-line complexity
   app.post("/:name/skills/:skill/:action", async (c) => {
     const action = c.req.param("action");
+    if (action === "import") {
+      const body = await projectBody(c.req.raw);
+      if (body.category !== undefined && typeof body.category !== "string")
+        throw new ValueError("Invalid draft category");
+      return c.json(
+        importProjectSkill(
+          c.req.param("name"),
+          c.req.param("skill"),
+          loadLock(),
+          body.category as string | undefined
+        )
+      );
+    }
     if (action !== "install" && action !== "update" && action !== "remove")
       return c.json({ message: "Not found" }, 404);
     const body = await projectBody(c.req.raw);

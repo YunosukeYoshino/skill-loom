@@ -17,6 +17,7 @@ export function ProjectsPage() {
   const [skill, setSkill] = useState("");
   const [force, setForce] = useState(false);
   const [review, setReview] = useState<ProjectPreview | null>(null);
+  const [imported, setImported] = useState("");
   const list = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const status = useQuery({
     queryKey: ["project", selected],
@@ -68,14 +69,29 @@ export function ProjectsPage() {
       qc.invalidateQueries({ queryKey: ["projects"] });
     },
   });
+  const importSkill = useMutation({
+    mutationFn: (skill: string) => api.importProjectSkill(selected, skill),
+    onSuccess: (data) => {
+      setImported(
+        `${data.importedDraft.name}: ${l("Draft に取り込みました。Drafts で確認して昇格してください。", "Imported as a Draft. Review and promote it in Drafts.")}${data.message}`
+      );
+      qc.setQueryData(["project", selected], data);
+      qc.invalidateQueries({ queryKey: ["drafts"] });
+    },
+  });
   const error =
     registration.error ||
     change.error ||
     preview.error ||
+    importSkill.error ||
     unregister.error ||
     list.error ||
     status.error;
-  const busy = change.isPending || registration.isPending || preview.isPending;
+  const busy =
+    change.isPending ||
+    registration.isPending ||
+    preview.isPending ||
+    importSkill.isPending;
   return (
     <WorkbenchShell
       title={l("プロジェクト", "Projects")}
@@ -89,6 +105,7 @@ export function ProjectsPage() {
         )}
       </p>
       <Message text={error instanceof Error ? error.message : ""} />
+      <Message text={imported} />
       <form
         className="mb-5 flex flex-wrap gap-2"
         onSubmit={(e) => {
@@ -135,6 +152,7 @@ export function ProjectsPage() {
             onClick={() => {
               setSelected(p.name);
               setReview(null);
+              setImported("");
               change.reset();
             }}
             aria-pressed={selected === p.name}
@@ -281,6 +299,18 @@ export function ProjectsPage() {
                                   "Review update / adopt"
                                 )}
                               </Button>
+                              {!s.inventory ? (
+                                <Button
+                                  disabled={
+                                    busy ||
+                                    !s.locations.length ||
+                                    s.state === "conflict"
+                                  }
+                                  onClick={() => importSkill.mutate(s.name)}
+                                >
+                                  {l("Draft に取り込む", "Import as Draft")}
+                                </Button>
+                              ) : null}
                               <Button
                                 disabled={busy || !s.locations.length}
                                 onClick={() => {

@@ -66,6 +66,31 @@ describe("api.externalSources", () => {
 });
 
 describe("project API", () => {
+  test("Draft import submits the category, preserves its result and propagates conflicts", async () => {
+    const fetcher = mock(async (path: unknown, init?: RequestInit) => {
+      expect(String(path)).toBe("/api/projects/my%20repo/skills/local/import");
+      expect(JSON.parse(init!.body as string)).toEqual({ category: "team" });
+      return new Response(
+        '{"importedDraft":{"name":"local","category":"team"}}',
+        { headers: { "Content-Type": "application/json" } }
+      );
+    });
+    globalThis.fetch = fetcher as unknown as typeof fetch;
+    expect(
+      (await api.importProjectSkill("my repo", "local", "team")).importedDraft
+        .name
+    ).toBe("local");
+    globalThis.fetch = mock(
+      async () =>
+        new Response('{"message":"Skill already exists"}', {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        })
+    ) as unknown as typeof fetch;
+    await expect(api.importProjectSkill("work", "local")).rejects.toThrow(
+      "Skill already exists"
+    );
+  });
   test("空一覧と差分プレビューの JSON を保持する", async () => {
     globalThis.fetch = mock(
       async (path) =>

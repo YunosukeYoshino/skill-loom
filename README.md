@@ -132,11 +132,14 @@ Open **Projects** in the UI to register an existing checkout by absolute path, b
 ./skill-loom project update my-app skill-name --force --yes
 ./skill-loom project remove my-app skill-name --yes
 ./skill-loom project remove my-app --yes # unregister only; leave files
+./skill-loom project import my-app local-skill --yes # Draft only, no promotion
 ```
 
 To use a deck, pass its name after the path at registration, then run `project sync NAME --dry-run` or `project sync NAME --yes` (`--force` reviews and overwrites drift). Project copies live in `.agents/skills/`, with relative `.claude/skills/` links and a committed `.agents/skill-loom.json` source-version/content-hash manifest. Codex and Antigravity read `.agents/skills/` directly. The registry stays machine-local in `~/.agents/skill-projects/` (`MY_SKILLS_PROJECTS_DIR` overrides it).
 
 Unmanaged skills are browsable and removable only by explicit per-skill action; bulk sync never touches them. Updating an unmanaged Inventory match adopts it after a diff review; drift also requires review and force. Missing sources are reported as unavailable, and missing checkout paths remain listed. Review and commit the repository diff yourself: Project operations never auto-commit or modify global Active/Archive/locks. See [ADR 0006](docs/adr/0006-project-skills-as-committed-copies.md).
+
+For a project skill without an Inventory match, choose **Import as Draft** (default category `imported`) or run `project import NAME SKILL [CATEGORY] --yes`. This copies it into the Catalog's Drafts without changing the project or auto-promoting; duplicate Inventory/Draft names are rejected. Review and promote through the existing Drafts flow, then use Project update to adopt the copy. Catalog auto-commit settings apply to the imported Draft only, never the Project repository. Reconcile differing project copies or mismatched frontmatter/directory names before importing.
 
 ### Plugin export
 

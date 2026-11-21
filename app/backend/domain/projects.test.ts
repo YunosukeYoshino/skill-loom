@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
   existsSync,
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -14,6 +15,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   listProjects,
+  importProjectSkill,
   previewProjectSkill,
   projectSkillAction,
   projectStatus,
@@ -24,6 +26,7 @@ import {
 import { AlreadyExistsError, ValueError } from "./errors";
 import type { Lock } from "./inventory";
 import { createProjectRoutes } from "../projectRoutes";
+import { draftSkillMap, promoteDrafts } from "./drafts";
 
 let root: string;
 let project: string;
@@ -233,6 +236,11 @@ beforeEach(() => {
     MY_SKILLS_ARCHIVE_DIR: join(root, "runtime/archive"),
     MY_SKILLS_GLOBAL_LOCK_FILE: join(root, "runtime/lock.json"),
     MY_SKILLS_AUTO_COMMIT: "0",
+    GIT_AUTHOR_NAME: "Skill Loom Test",
+    GIT_AUTHOR_EMAIL: "test@example.com",
+    GIT_COMMITTER_NAME: "Skill Loom Test",
+    GIT_COMMITTER_EMAIL: "test@example.com",
+    MY_SKILLS_TRASH_BIN: join(root, "trash"),
     MY_SKILLS_LOCK_FILE: join(root, "catalog/skills.lock.json"),
     MY_SKILLS_PROJECT_DECKS_DIR: join(root, "catalog/project-decks"),
   };
@@ -255,6 +263,194 @@ beforeEach(() => {
   );
   source();
   deck(["alpha"]);
+  write(
+    join(root, "trash"),
+    '#!/bin/sh\nfor path in "$@"; do mv "$path" "$path.trashed"; done\n'
+  );
+  chmodSync(join(root, "trash"), 0o755);
+});
+
+test("imports a project-only skill as a Draft without changing project or Inventory, then adopts after promotion", () => {
+  registerProject("work", project);
+  const content =
+    "---\nname: local-skill\ndescription: Project-only skill\n---\nHello";
+  write(copyPath("local-skill"), content);
+  write(join(project, ".agents/skills/local-skill/reference.txt"), "reference");
+  const beforeLock = readFileSync(
+    join(root, "catalog/skills.lock.json"),
+    "utf8"
+  );
+  const result = importProjectSkill("work", "local-skill", lock);
+  expect(result.importedDraft).toMatchObject({
+    name: "local-skill",
+    category: "imported",
+    description: "Project-only skill",
+  });
+  expect(draftSkillMap().get("local-skill")?.repoPath).toBe(
+    "drafts/skills/imported/local-skill"
+  );
+  expect(
+    readFileSync(
+      join(root, "catalog/drafts/skills/imported/local-skill/reference.txt"),
+      "utf8"
+    )
+  ).toBe("reference");
+  expect(readFileSync(copyPath("local-skill"), "utf8")).toBe(content);
+  expect(readFileSync(join(root, "catalog/skills.lock.json"), "utf8")).toBe(
+    beforeLock
+  );
+  expect(existsSync(join(project, ".agents/skill-loom.json"))).toBe(false);
+  expect(existsSync(join(root, "runtime/active"))).toBe(false);
+  expect(existsSync(join(root, "runtime/lock.json"))).toBe(false);
+  const [, promotedLock] = promoteDrafts(new Set(["local-skill"]));
+  const preview = previewProjectSkill("work", "local-skill", promotedLock);
+  expect(preview.requiresConfirmation).toBe(true);
+  expect(
+    projectSkillAction(
+      "work",
+      "local-skill",
+      "update",
+      promotedLock,
+      true,
+      preview.revision
+    ).skills[0]?.state
+  ).toBe("managed");
+});
+
+test("import rejects empty/missing sources, Inventory and Draft names, and unsafe categories", () => {
+  registerProject("work", project);
+  expect(() => importProjectSkill("work", "unknown", lock)).toThrow(ValueError);
+  mkdirSync(join(project, ".agents/skills/empty"), { recursive: true });
+  expect(() => importProjectSkill("work", "empty", lock)).toThrow("SKILL.md");
+  write(copyPath("alpha"), "alpha");
+  expect(() => importProjectSkill("work", "alpha", lock)).toThrow(
+    AlreadyExistsError
+  );
+  write(copyPath("local"), "Local skill");
+  for (const category of ["../escape", "/tmp/escape", "", "dev/nested"])
+    expect(() => importProjectSkill("work", "local", lock, category)).toThrow(
+      ValueError
+    );
+  write(
+    join(root, "catalog/drafts/skills/other/different-dir/SKILL.md"),
+    "---\nname: local\n---\nDraft"
+  );
+  expect(() => importProjectSkill("work", "local", lock)).toThrow(
+    AlreadyExistsError
+  );
+});
+
+test("import safely handles Claude-only and linked copies and rejects conflicting or escaped copies", () => {
+  registerProject("work", project);
+  write(join(project, ".claude/skills/claude-only/SKILL.md"), "Claude only");
+  expect(
+    importProjectSkill("work", "claude-only", lock, "team").importedDraft
+      .category
+  ).toBe("team");
+  write(copyPath("linked"), "Linked skill");
+  symlinkSync(
+    "../../.agents/skills/linked",
+    join(project, ".claude/skills/linked")
+  );
+  expect(importProjectSkill("work", "linked", lock).importedDraft.name).toBe(
+    "linked"
+  );
+  write(copyPath("conflict"), "Agents copy");
+  write(join(project, ".claude/skills/conflict/SKILL.md"), "Claude copy");
+  expect(() => importProjectSkill("work", "conflict", lock)).toThrow(
+    "copies differ"
+  );
+  symlinkSync(
+    join(root, "catalog/skills/dev/alpha"),
+    join(project, ".agents/skills/escape")
+  );
+  expect(() => importProjectSkill("work", "escape", lock)).toThrow("Unsafe");
+  write(copyPath("bad-name"), "---\nname: other-name\n---\nSkill");
+  expect(() => importProjectSkill("work", "bad-name", lock)).toThrow(
+    "frontmatter name"
+  );
+  write(copyPath("nested-link"), "Skill");
+  symlinkSync(
+    copyPath("linked"),
+    join(project, ".agents/skills/nested-link/link")
+  );
+  expect(() => importProjectSkill("work", "nested-link", lock)).toThrow(
+    ValueError
+  );
+  symlinkSync(project, join(root, "catalog/drafts/skills/escaped"));
+  write(copyPath("safe-import"), "Safe skill");
+  expect(() =>
+    importProjectSkill("work", "safe-import", lock, "escaped")
+  ).toThrow(ValueError);
+  rmSync(project, { recursive: true });
+  expect(() => importProjectSkill("work", "linked", lock)).toThrow("missing");
+});
+
+test("project import API returns Draft details and validates duplicate and category errors", async () => {
+  registerProject("work", project);
+  write(copyPath("local"), "---\ndescription: Local\n---\nSkill");
+  const app = createProjectRoutes();
+  const request = (skill: string, category: unknown) =>
+    app.request(`/work/skills/${skill}/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category }),
+    });
+  expect((await request("local", 7)).status).toBe(400);
+  expect((await request("local", "../escape")).status).toBe(400);
+  expect((await request("missing", "team")).status).toBe(400);
+  const result = await request("local", "team");
+  expect(result.status).toBe(200);
+  expect((await result.json()).importedDraft).toMatchObject({
+    name: "local",
+    category: "team",
+  });
+  expect((await request("local", "other")).status).toBe(409);
+});
+
+test("import respects Catalog auto-commit without committing the project", () => {
+  registerProject("work", project);
+  write(copyPath("local"), "Project skill");
+  const catalog = join(root, "catalog");
+  const git = (cwd: string, args: string[]) =>
+    Bun.spawnSync(
+      [
+        "git",
+        "-c",
+        "user.name=Skill Loom Test",
+        "-c",
+        "user.email=test@example.com",
+        ...args,
+      ],
+      { cwd }
+    );
+  expect(git(catalog, ["init", "-q"]).exitCode).toBe(0);
+  expect(git(project, ["init", "-q"]).exitCode).toBe(0);
+  expect(
+    git(catalog, [
+      "add",
+      "--",
+      "skills.lock.json",
+      "skills",
+      "shared-decks",
+      "project-decks",
+    ]).exitCode
+  ).toBe(0);
+  expect(git(catalog, ["commit", "-qm", "fixture"]).exitCode).toBe(0);
+  const before = git(project, ["status", "--porcelain"]).stdout.toString();
+  process.env.MY_SKILLS_AUTO_COMMIT = "1";
+  const result = importProjectSkill("work", "local", lock);
+  expect(result.message).not.toContain("失敗");
+  expect(git(catalog, ["status", "--porcelain"]).stdout.toString()).toBe("");
+  expect(
+    git(catalog, [
+      "ls-files",
+      "drafts/skills/imported/local/SKILL.md",
+    ]).stdout.toString()
+  ).toContain("local/SKILL.md");
+  expect(git(project, ["status", "--porcelain"]).stdout.toString()).toBe(
+    before
+  );
 });
 afterEach(() => {
   for (const [k, v] of Object.entries(saved)) {

@@ -44,3 +44,13 @@ export type ProjectList = {
   inventory: string[];
   decks: string[];
 };
+
+export type ProjectImportResult = ProjectStatus & {
+  importedDraft: {
+    name: string;
+    category: string;
+    repoPath: string;
+    description: string;
+  };
+  message: string;
+};
