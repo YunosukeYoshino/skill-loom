@@ -103,27 +103,58 @@ function resolveDeck(name: string): {
  * custom → vendor → external。external は Catalog 内の `localRepoPath`、
  * 無ければ install 済みの active / archive 側を見る。
  */
-function skillSourceDir(lock: Lock, name: string): string | undefined {
+/** custom → vendor の順で Catalog リポジトリ内のコピー元を引く。 */
+function localSkillSourceDir(lock: Lock, name: string): string | undefined {
   const customDir = customSkillRepoDir(lock, name);
   if (customDir) return customDir;
+  if (!lock.vendor?.[name]) return undefined;
+  const dir = resolveCatalogPath(`vendor/${name}`);
+  return exists(dir) ? dir : undefined;
+}
 
-  if (lock.vendor?.[name]) {
-    const dir = resolveCatalogPath(`vendor/${name}`);
+/** external skill のコピー元。`localRepoPath` を先に、無ければ install 済み側を見る。 */
+function externalSkillSourceDir(lock: Lock, name: string): string | undefined {
+  const external = lock.external?.[name];
+  if (!external) return undefined;
+  if (external.localRepoPath) {
+    const dir = resolveCatalogPath(external.localRepoPath);
     if (exists(dir)) return dir;
   }
-
-  const external = lock.external?.[name];
-  if (external) {
-    if (external.localRepoPath) {
-      const dir = resolveCatalogPath(external.localRepoPath);
-      if (exists(dir)) return dir;
-    }
-    for (const base of [activeDir(), archiveDir()]) {
-      const dir = join(base, name);
-      if (exists(dir)) return dir;
-    }
+  for (const base of [activeDir(), archiveDir()]) {
+    const dir = join(base, name);
+    if (exists(dir)) return dir;
   }
   return undefined;
+}
+
+function skillSourceDir(lock: Lock, name: string): string | undefined {
+  return localSkillSourceDir(lock, name) ?? externalSkillSourceDir(lock, name);
+}
+
+/** 中身入りの出力先が再生成して良いプラグイン出力かを確認する。 */
+function assertRewritableOutDir(outDir: string, overwrite: boolean): void {
+  if (!exists(join(outDir, "plugin.json")))
+    throw new ValueError(
+      `Refusing to write into a non-plugin directory: ${outDir}`
+    );
+  if (!overwrite)
+    throw new ValueError(
+      `Plugin output already exists: ${outDir} (use --overwrite)`
+    );
+  // 生成対象のディレクトリがシンボリックリンクなら書き込みも削除もリンク先へ
+  // 漏れるので、触る前に拒否する。
+  for (const dir of ["skills", ...MANIFEST_DIRS]) {
+    const path = join(outDir, dir);
+    if (exists(path) && lstatSync(path).isSymbolicLink())
+      throw new ValueError(`Refusing to write through a symlink: ${path}`);
+  }
+}
+
+/** 出力先は配布リポジトリの checkout になりうるので、ディレクトリごとは消さず生成物だけ消し直す。 */
+function removeGeneratedFiles(outDir: string, manifestPaths: string[]): void {
+  rmSync(join(outDir, "skills"), { recursive: true, force: true });
+  for (const relativePath of manifestPaths)
+    rmSync(join(outDir, relativePath), { force: true });
 }
 
 /**
@@ -143,26 +174,9 @@ function prepareOutDir(
   if (!lstatSync(outDir).isDirectory())
     throw new ValueError(`Plugin output path is not a directory: ${outDir}`);
   if (readdirSync(outDir).length === 0) return;
-  if (!exists(join(outDir, "plugin.json")))
-    throw new ValueError(
-      `Refusing to write into a non-plugin directory: ${outDir}`
-    );
-  if (!overwrite)
-    throw new ValueError(
-      `Plugin output already exists: ${outDir} (use --overwrite)`
-    );
-  // 生成対象のディレクトリがシンボリックリンクなら書き込みも削除もリンク先へ
-  // 漏れるので、触る前に拒否する。
-  for (const dir of ["skills", ...MANIFEST_DIRS]) {
-    const path = join(outDir, dir);
-    if (exists(path) && lstatSync(path).isSymbolicLink())
-      throw new ValueError(`Refusing to write through a symlink: ${path}`);
-  }
-  // 出力先は配布リポジトリの checkout になりうるので、ディレクトリごとは
-  // 消さず生成物だけ消し直す。.git・README・利用者が足したファイルは残る。
-  rmSync(join(outDir, "skills"), { recursive: true, force: true });
-  for (const relativePath of manifestPaths)
-    rmSync(join(outDir, relativePath), { force: true });
+  assertRewritableOutDir(outDir, overwrite);
+  // .git・README・利用者が足したファイルは残る。
+  removeGeneratedFiles(outDir, manifestPaths);
 }
 
 /** `owner/repo` を `https://github.com/...` に、URL はそのまま返す。 */
@@ -186,55 +200,78 @@ function manifestDescription(description: string): { description?: string } {
   return description ? { description } : {};
 }
 
-export function exportPlugin(
-  lock: Lock,
-  options: PluginExportOptions
-): PluginExportResult {
-  const name = options.name ?? options.deck;
+function assertPluginIdentity(name: string, version: string): void {
   if (name.length > PLUGIN_NAME_MAX_LENGTH || !PLUGIN_NAME_PATTERN.test(name))
     throw new ValueError(`Invalid plugin name: ${name}`);
-  const version = options.version ?? "1.0.0";
   if (!PLUGIN_VERSION_PATTERN.test(version))
     throw new ValueError(`Invalid plugin version: ${version}`);
+}
 
-  const { deck, skills, kind } = resolveDeck(options.deck);
-  const description = options.description ?? deck.description ?? "";
-
+/** deck の各 skill のコピー元を解決する。1件でも未解決なら何も書かずに止める。 */
+function resolveSkillSources(
+  lock: Lock,
+  skills: string[]
+): Map<string, string> {
   const sources = new Map<string, string>();
   const unresolved: string[] = [];
   for (const skillName of skills) {
     // 出力側の skills/<name> を壊さないよう、deck の並びも skill 名として検証する。
     assertSkillName(skillName);
     const dir = skillSourceDir(lock, skillName);
-    if (!dir || !exists(join(dir, "SKILL.md"))) {
+    if (dir && exists(join(dir, "SKILL.md"))) {
+      sources.set(skillName, dir);
+    } else {
       unresolved.push(skillName);
-      continue;
     }
-    sources.set(skillName, dir);
   }
   if (unresolved.length > 0) throw new UnresolvedPluginSkillsError(unresolved);
+  return sources;
+}
 
-  const repo = options.repository ?? lock.custom?.repo;
+/** Claude Code / Cursor 共通の marketplace マニフェスト本体。 */
+function marketplaceManifest(
+  name: string,
+  description: string,
+  owner: { name: string }
+): Record<string, unknown> {
+  return {
+    name: `${name}-marketplace`,
+    owner,
+    plugins: [
+      {
+        name,
+        source: "./",
+        ...manifestDescription(description),
+      },
+    ],
+  };
+}
+
+/** plugin.json と各ハーネス用マニフェストを `[outDir 相対パス, 内容]` の組で返す。 */
+function buildManifestFiles(
+  name: string,
+  version: string,
+  description: string,
+  repo: string | undefined
+): [string, unknown][] {
   const repository = repositoryUrl(repo);
   const marketplaceOwner = { name: repoOwner(repo, name) };
+  const core = { name, version, ...manifestDescription(description) };
+  const marketplace = marketplaceManifest(name, description, marketplaceOwner);
 
-  const manifestFiles: [string, unknown][] = [
+  return [
     [
       "plugin.json",
       {
         $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-        name,
-        version,
-        ...manifestDescription(description),
+        ...core,
         ...(repository ? { repository } : {}),
       },
     ],
     [
       join(".claude-plugin", "plugin.json"),
       {
-        name,
-        version,
-        ...manifestDescription(description),
+        ...core,
         ...(repository ? { repository } : {}),
       },
     ],
@@ -242,63 +279,66 @@ export function exportPlugin(
       join(".claude-plugin", "marketplace.json"),
       {
         $schema: "https://code.claude.com/schemas/marketplace.json",
-        name: `${name}-marketplace`,
-        owner: marketplaceOwner,
-        plugins: [
-          {
-            name,
-            source: "./",
-            ...manifestDescription(description),
-          },
-        ],
+        ...marketplace,
       },
     ],
-    [
-      join(".cursor-plugin", "plugin.json"),
-      {
-        name,
-        version,
-        ...manifestDescription(description),
-      },
-    ],
-    [
-      join(".cursor-plugin", "marketplace.json"),
-      {
-        name: `${name}-marketplace`,
-        owner: marketplaceOwner,
-        plugins: [
-          {
-            name,
-            source: "./",
-            ...manifestDescription(description),
-          },
-        ],
-      },
-    ],
+    [join(".cursor-plugin", "plugin.json"), core],
+    [join(".cursor-plugin", "marketplace.json"), marketplace],
     [
       join(".codex-plugin", "plugin.json"),
       {
-        name,
-        version,
-        ...manifestDescription(description),
+        ...core,
         skills: "./skills/",
       },
     ],
   ];
+}
 
+/** 出力先を整えて skills/ とマニフェスト群を書き出す。 */
+function writePluginPackage(
+  outDir: string,
+  manifestFiles: [string, unknown][],
+  sources: Map<string, string>,
+  overwrite: boolean
+): void {
   prepareOutDir(
-    options.outDir,
-    options.overwrite ?? false,
+    outDir,
+    overwrite,
     manifestFiles.map(([relativePath]) => relativePath)
   );
 
-  const skillsDir = join(options.outDir, "skills");
+  const skillsDir = join(outDir, "skills");
   mkdirSync(skillsDir, { recursive: true });
   for (const [skillName, dir] of sources)
     copySkillTree(dir, join(skillsDir, skillName));
 
   for (const [relativePath, manifest] of manifestFiles)
-    writeSkillJson(join(options.outDir, relativePath), manifest);
+    writeSkillJson(join(outDir, relativePath), manifest);
+}
+
+export function exportPlugin(
+  lock: Lock,
+  options: PluginExportOptions
+): PluginExportResult {
+  const name = options.name ?? options.deck;
+  const version = options.version ?? "1.0.0";
+  assertPluginIdentity(name, version);
+
+  const { deck, skills, kind } = resolveDeck(options.deck);
+  const description = options.description ?? deck.description ?? "";
+  const sources = resolveSkillSources(lock, skills);
+  const manifestFiles = buildManifestFiles(
+    name,
+    version,
+    description,
+    options.repository ?? lock.custom?.repo
+  );
+  writePluginPackage(
+    options.outDir,
+    manifestFiles,
+    sources,
+    options.overwrite ?? false
+  );
 
   return {
     dir: options.outDir,
