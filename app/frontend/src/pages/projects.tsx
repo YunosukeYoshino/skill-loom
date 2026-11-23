@@ -266,6 +266,11 @@ export function ProjectsPage() {
                             <div className="text-xs">
                               {s.locations.join(", ")}
                             </div>
+                            {s.importError ? (
+                              <p className="text-xs text-red-600">
+                                {s.importError}
+                              </p>
+                            ) : null}
                           </td>
                           <td className="p-2">{s.description}</td>
                           <td className="p-2">

@@ -17,6 +17,7 @@ export type ProjectSkill = {
   inventory: boolean;
   available: boolean;
   importable: boolean;
+  importError?: string;
   locations: string[];
   sourceVersion: string | null;
 };

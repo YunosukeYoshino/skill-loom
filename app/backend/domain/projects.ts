@@ -365,6 +365,7 @@ export function projectStatus(
         !correctLink(project, skill));
     const source = sourceFor(lock, skill);
     let importable = !inventory.has(skill) && !unsafe && Boolean(root);
+    let importError: string | undefined;
     if (importable) {
       try {
         importable = paths.filter(present).every((path) => {
@@ -376,8 +377,8 @@ export function projectStatus(
           );
         });
       } catch (error) {
-        if (!(error instanceof ValueError)) throw error;
         importable = false;
+        importError = error instanceof Error ? error.message : String(error);
       }
     }
     const state = unsafe
@@ -426,6 +427,7 @@ export function projectStatus(
       inventory: inventory.has(skill),
       available: Boolean(source),
       importable,
+      ...(importError ? { importError } : {}),
       locations,
       sourceVersion: manifest.skills[skill]?.sourceVersion ?? null,
     };
