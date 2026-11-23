@@ -122,6 +122,8 @@ test("a managed skill with its expected dangling link can be restored", () => {
   expect(forceSync().skills[0]?.state).toBe("managed");
   rmSync(join(project, ".agents/skills/alpha"), { recursive: true });
   const preview = previewProjectSkill("work", "alpha", lock);
+  expect(preview.diff).toContain("Inventory/alpha/SKILL.md");
+  expect(preview.diff).toContain("+original");
   expect(
     projectSkillAction("work", "alpha", "update", lock, true, preview.revision)
       .skills[0]?.state

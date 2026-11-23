@@ -445,35 +445,37 @@ export function previewProjectSkill(
   const diffs: string[] = [];
   for (const dir of SKILL_DIRS) {
     const path = location(status.project, dir, skill);
+    const root = readableRoot(status.project, path);
     if (!present(path)) {
       revision.update(`${dir}:missing`);
-      continue;
-    }
-    const root = readableRoot(status.project, path);
-    if (
+    } else if (
       !root &&
       dir === ".claude/skills" &&
       correctLink(status.project, skill) &&
       !present(location(status.project, ".agents/skills", skill))
     ) {
       revision.update(dir).update(readlinkSync(path)).update("missing");
-      continue;
+    } else {
+      if (!root) throw new ValueError("Unsafe project skill");
+      revision.update(dir).update(skillTreeHash(root));
+      if (lstatSync(path).isSymbolicLink()) revision.update(readlinkSync(path));
     }
-    if (!root) throw new ValueError("Unsafe project skill");
-    revision.update(dir).update(skillTreeHash(root));
-    if (lstatSync(path).isSymbolicLink()) revision.update(readlinkSync(path));
-    const before = new Map(listSkillFiles(root).map((f) => [f.path, f]));
+    const before = new Map(
+      (root ? listSkillFiles(root) : []).map((f) => [f.path, f])
+    );
     const after = new Map(listSkillFiles(source.path).map((f) => [f.path, f]));
     for (const file of [
       ...new Set([...before.keys(), ...after.keys()]),
     ].sort()) {
-      const left = before.has(file)
-        ? readFileSync(skillFilePath(root, file))
-        : Buffer.alloc(0);
+      const left =
+        root && before.has(file)
+          ? readFileSync(skillFilePath(root, file))
+          : Buffer.alloc(0);
       const right = after.has(file)
         ? readFileSync(skillFilePath(source.path, file))
         : Buffer.alloc(0);
       const modeChanged =
+        root &&
         before.has(file) &&
         after.has(file) &&
         (lstatSync(skillFilePath(root, file)).mode & 0o111) !==
