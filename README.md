@@ -115,6 +115,8 @@ Management command families expose the same Catalog domain operations to shell w
 ./skill-loom preset restore
 
 ./skill-loom link-agents NAME...
+
+./skill-loom plugin export DECK --out DIR [--name NAME] [--version VERSION] [--description TEXT] [--repository OWNER/REPO] [--overwrite]
 ```
 
 ### Project skills
@@ -135,6 +137,15 @@ Open **Projects** in the UI to register an existing checkout by absolute path, b
 To use a deck, pass its name after the path at registration, then run `project sync NAME --dry-run` or `project sync NAME --yes` (`--force` reviews and overwrites drift). Project copies live in `.agents/skills/`, with relative `.claude/skills/` links and a committed `.agents/skill-loom.json` source-version/content-hash manifest. Codex and Antigravity read `.agents/skills/` directly. The registry stays machine-local in `~/.agents/skill-projects/` (`MY_SKILLS_PROJECTS_DIR` overrides it).
 
 Unmanaged skills are browsable and removable only by explicit per-skill action; bulk sync never touches them. Updating an unmanaged Inventory match adopts it after a diff review; drift also requires review and force. Missing sources are reported as unavailable, and missing checkout paths remain listed. Review and commit the repository diff yourself: Project operations never auto-commit or modify global Active/Archive/locks. See [ADR 0006](docs/adr/0006-project-skills-as-committed-copies.md).
+
+### Plugin export
+
+`plugin export` projects a Project or Shared Deck into an installable plugin
+package: an Agent Plugins `plugin.json`, the copied `skills/` tree, and
+`.claude-plugin/`, `.cursor-plugin/`, and `.codex-plugin/` manifests. Push the
+output directory to a Git repository to install it into Devin, Cursor, Codex,
+or Claude Code. Skills a Deck references but the Inventory cannot resolve
+abort the export with exit code 2.
 
 `preset` saves and reapplies named subsets of the active global skills. `link-agents`
 symlinks an agent's skills directory (`~/.claude/skills`, `~/.gemini/config/skills`)

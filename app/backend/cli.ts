@@ -74,6 +74,7 @@ import {
   planRestoreAll,
   restorePreviousPreset,
 } from "./domain/projection";
+import { exportPlugin, UnresolvedPluginSkillsError } from "./domain/plugin";
 import { computeTristateApplyDelta, TRISTATE_VALUES } from "./domain/tristate";
 import {
   externalSkillCandidates,
@@ -907,6 +908,97 @@ function cmdSkill(argv: string[]): number {
   return 0;
 }
 
+// ---- plugin ----
+
+/**
+ * `plugin export`。Deck の skill 群を Agent Plugins パッケージへ写す。
+ *
+ * 出力先は新規か空のディレクトリ。前回の生成物の上書きには `--overwrite` が要る。
+ */
+// fallow-ignore-next-line complexity
+function cmdPluginExport(argv: string[]): number {
+  let deckName = "";
+  let outDir = "";
+  let name: string | undefined;
+  let version: string | undefined;
+  let description: string | undefined;
+  let repository: string | undefined;
+  let overwrite = false;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--out") outDir = argv[++i] ?? "";
+    else if (arg.startsWith("--out=")) outDir = arg.slice("--out=".length);
+    else if (arg === "--name") name = argv[++i];
+    else if (arg.startsWith("--name=")) name = arg.slice("--name=".length);
+    else if (arg === "--version") version = argv[++i];
+    else if (arg.startsWith("--version="))
+      version = arg.slice("--version=".length);
+    else if (arg === "--description") description = argv[++i];
+    else if (arg.startsWith("--description="))
+      description = arg.slice("--description=".length);
+    else if (arg === "--repository") repository = argv[++i];
+    else if (arg.startsWith("--repository="))
+      repository = arg.slice("--repository=".length);
+    else if (arg === "--overwrite") overwrite = true;
+    else if (!deckName) deckName = arg;
+  }
+
+  const usage =
+    "usage: skill-loom plugin export [-h] deck --out DIR [--name NAME] [--version VERSION] [--description TEXT] [--repository OWNER/REPO] [--overwrite]";
+  if (!deckName || !outDir)
+    return cliError(
+      "missing required argument",
+      usage,
+      usage,
+      "skill-loom plugin export: the following arguments are required: deck, --out"
+    );
+
+  try {
+    const result = exportPlugin(loadLock(), {
+      deck: deckName,
+      outDir,
+      name,
+      version,
+      description,
+      repository,
+      overwrite,
+    });
+    if (jsonMode) {
+      emitJson(result);
+      return 0;
+    }
+    console.log(`Exported plugin: ${result.name}`);
+    console.log(`deck:       ${result.deck} (${result.deckKind})`);
+    console.log(`version:    ${result.version}`);
+    console.log(`skills:     ${result.skills.length}`);
+    console.log(`output:     ${result.dir}`);
+    return 0;
+  } catch (error) {
+    if (error instanceof UnresolvedPluginSkillsError) {
+      if (jsonMode) {
+        emitJsonError("unresolved skills", HINT_UNRESOLVED, {
+          names: error.names,
+        });
+        return 2;
+      }
+      console.error(`Unresolved: ${error.names.join(", ")}`);
+      return 2;
+    }
+    return failFromError(error, HINT_DECK_PRESET);
+  }
+}
+
+function cmdPlugin(argv: string[]): number {
+  const [subcommand, ...rest] = argv;
+  if (subcommand === "export") return cmdPluginExport(rest);
+  return cliError(
+    "invalid choice",
+    "usage: skill-loom plugin {export} ...",
+    `skill-loom plugin: invalid choice: ${subcommand ?? ""}`
+  );
+}
+
 // ---- preset ----
 
 /** 例外を `str(exc)` 相当の 1 行にする。 */
@@ -1248,16 +1340,16 @@ const [command, ...rest] = jsonMode
 
 /** `argparse` が出す usage 行。no-args / unknown command で共通して使う。 */
 const USAGE =
-  "usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill} ...";
+  "usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill,plugin} ...";
 
 /**
  * `argparse` の `--help`。1 文字まで移行前と合わせるので、画面の端で折れる幅も含めて
  * 固定文字列にしている（`link-agents` の説明が 80 桁で折れるのも再現）。
  */
-const HELP = `usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill} ...
+const HELP = `usage: skill-loom [-h] {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill,plugin} ...
 
 positional arguments:
-  {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill}
+  {list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill,plugin}
     list                List project decks
     status              Show active/archive state
     all                 Preview or restore all tracked skills
@@ -1272,6 +1364,7 @@ positional arguments:
     deck                Show, save, merge, or apply Project Decks
     project             Register, browse, install, update, remove, or sync project skills
     skill               Set named skills to active, archive, or off
+    plugin              Export a Deck as an installable plugin package
 
 options:
   -h, --help            show this help message and exit
@@ -1349,6 +1442,9 @@ switch (command) {
   case "skill":
     process.exit(cmdSkill(rest));
     break;
+  case "plugin":
+    process.exit(cmdPlugin(rest));
+    break;
   default:
     // argparse の invalid choice。stdout ではなく stderr へ。
     process.exit(
@@ -1356,7 +1452,7 @@ switch (command) {
         "invalid choice",
         USAGE,
         USAGE,
-        `skill-loom: error: argument command: invalid choice: '${command}' (choose from list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill)`
+        `skill-loom: error: argument command: invalid choice: '${command}' (choose from list,status,all,install-deck,link-agents,ui,preset,external,custom,draft,deck,skill,plugin)`
       )
     );
 }
