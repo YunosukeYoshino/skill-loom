@@ -322,7 +322,9 @@ export function projectStatus(
     const primary = paths[0]!;
     const root = paths.map((p) => readableRoot(project, p)).find(Boolean);
     let hash = "missing";
-    let unsafe = locations.length > 0 && !root;
+    const restorable =
+      managed && !present(primary) && correctLink(project, skill);
+    let unsafe = locations.length > 0 && !root && !restorable;
     try {
       if (root) hash = skillTreeHash(root);
     } catch (error) {
@@ -331,6 +333,7 @@ export function projectStatus(
     }
     const drifted =
       managed &&
+      !restorable &&
       locations.length > 0 &&
       (unsafe ||
         !present(primary) ||
@@ -343,7 +346,7 @@ export function projectStatus(
       : drifted
         ? "drifted"
         : managed
-          ? locations.length
+          ? root
             ? "managed"
             : "missing"
           : locations.length
@@ -361,7 +364,7 @@ export function projectStatus(
       else if (!managed && locations.length) reason = "unmanaged conflict";
       else if (!desired.has(skill)) action = "remove";
       else if (!source) reason = "unavailable";
-      else if (!managed || !locations.length) action = "add";
+      else if (!managed || !root) action = "add";
       else if (
         drifted ||
         skillTreeHash(source.path) !== manifest.skills[skill]!.hash
@@ -425,6 +428,15 @@ export function previewProjectSkill(
       continue;
     }
     const root = readableRoot(status.project, path);
+    if (
+      !root &&
+      dir === ".claude/skills" &&
+      correctLink(status.project, skill) &&
+      !present(location(status.project, ".agents/skills", skill))
+    ) {
+      revision.update(dir).update(readlinkSync(path)).update("missing");
+      continue;
+    }
     if (!root) throw new ValueError("Unsafe project skill");
     revision.update(dir).update(skillTreeHash(root));
     if (lstatSync(path).isSymbolicLink()) revision.update(readlinkSync(path));
@@ -594,7 +606,11 @@ export function projectSkillAction(
     deleteSkill(status.project, skill);
     delete manifest.skills[skill];
   } else {
-    if (action === "install" && row?.locations.length)
+    if (
+      action === "install" &&
+      row?.locations.length &&
+      row.state !== "missing"
+    )
       throw new AlreadyExistsError(
         `Project skill already exists: ${skill}; use update`
       );

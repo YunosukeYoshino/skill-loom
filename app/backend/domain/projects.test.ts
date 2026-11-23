@@ -54,6 +54,26 @@ function forceSync() {
     revision: preview.review?.revision,
   });
 }
+test("a managed skill with its expected dangling link can be restored", () => {
+  registerProject("work", project, "work");
+  syncProject("work", lock);
+  rmSync(join(project, ".agents/skills/alpha"), { recursive: true });
+  expect(projectStatus("work", lock).plan[0]?.reason).not.toBe(
+    "unsafe project skill"
+  );
+  expect(forceSync().skills[0]?.state).toBe("managed");
+  rmSync(join(project, ".agents/skills/alpha"), { recursive: true });
+  const preview = previewProjectSkill("work", "alpha", lock);
+  expect(
+    projectSkillAction("work", "alpha", "update", lock, true, preview.revision)
+      .skills[0]?.state
+  ).toBe("managed");
+  rmSync(join(project, ".agents/skills/alpha"), { recursive: true });
+  expect(
+    projectSkillAction("work", "alpha", "install", lock).skills[0]?.state
+  ).toBe("managed");
+});
+
 test("forced removal review rejects changes to an independent Claude copy", () => {
   registerProject("work", project, "work");
   syncProject("work", lock);
