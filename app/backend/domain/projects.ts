@@ -455,6 +455,10 @@ export function previewProjectSkill(
       !present(location(status.project, ".agents/skills", skill))
     ) {
       revision.update(dir).update(readlinkSync(path)).update("missing");
+      diffs.push(
+        `Recreate link: ${dir}/${skill} -> ../../.agents/skills/${skill}`
+      );
+      continue;
     } else {
       if (!root) throw new ValueError("Unsafe project skill");
       revision.update(dir).update(skillTreeHash(root));

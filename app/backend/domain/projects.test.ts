@@ -124,6 +124,10 @@ test("a managed skill with its expected dangling link can be restored", () => {
   const preview = previewProjectSkill("work", "alpha", lock);
   expect(preview.diff).toContain("Inventory/alpha/SKILL.md");
   expect(preview.diff).toContain("+original");
+  expect(preview.diff.match(/\+original/g)).toHaveLength(1);
+  expect(preview.diff).toContain(
+    "Recreate link: .claude/skills/alpha -> ../../.agents/skills/alpha"
+  );
   expect(
     projectSkillAction("work", "alpha", "update", lock, true, preview.revision)
       .skills[0]?.state
