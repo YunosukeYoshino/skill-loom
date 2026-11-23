@@ -54,6 +54,39 @@ function forceSync() {
     revision: preview.review?.revision,
   });
 }
+test("sources without SKILL.md are unavailable and never overwrite a good project copy", () => {
+  registerProject("work", project, "work");
+  syncProject("work", lock);
+  const before = readFileSync(copyPath(), "utf8");
+  rmSync(join(root, "catalog/skills/dev/alpha/SKILL.md"));
+  write(join(root, "catalog/skills/dev/alpha/other.txt"), "Broken source");
+  expect(projectStatus("work", lock).skills[0]?.available).toBe(false);
+  expect(syncProject("work", lock).plan[0]).toMatchObject({
+    action: "skip",
+    reason: "unavailable",
+  });
+  expect(readFileSync(copyPath(), "utf8")).toBe(before);
+  expect(() => projectSkillAction("work", "alpha", "update", lock)).toThrow(
+    "Unavailable"
+  );
+  lock.external = {
+    remote: {
+      source: "owner/repo",
+      localRepoPath: "upstream/remote",
+    },
+  };
+  write(
+    join(root, "catalog/upstream/remote/other.txt"),
+    "Incomplete Catalog copy"
+  );
+  write(join(root, "runtime/active/remote/SKILL.md"), "Active fallback");
+  expect(
+    projectSkillAction("work", "remote", "install", lock).skills.find(
+      (s) => s.name === "remote"
+    )?.available
+  ).toBe(true);
+});
+
 test("a missing deck leaves status and individual actions usable but blocks sync", () => {
   registerProject("work", project, "work");
   syncProject("work", lock);

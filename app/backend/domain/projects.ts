@@ -217,6 +217,16 @@ function location(project: Project, dir: string, name: string): string {
   return join(skillFilePath(project.path, dir), name);
 }
 
+function isSkillSource(path: string | undefined): path is string {
+  return Boolean(
+    path &&
+    existsSync(path) &&
+    statSync(path).isDirectory() &&
+    existsSync(join(path, "SKILL.md")) &&
+    lstatSync(join(path, "SKILL.md")).isFile()
+  );
+}
+
 function sourceFor(
   lock: Lock,
   name: string
@@ -234,10 +244,9 @@ function sourceFor(
     kind = "external";
     const local = lock.external?.[name]?.localRepoPath;
     if (local) path = resolveCatalogPath(local);
-    if (!path || !existsSync(path)) path = join(activeDir(), name);
+    if (!isSkillSource(path)) path = join(activeDir(), name);
   } else return undefined;
-  if (!path || !existsSync(path) || !statSync(path).isDirectory())
-    return undefined;
+  if (!isSkillSource(path)) return undefined;
   return { path: realpathSync(path), kind };
 }
 
