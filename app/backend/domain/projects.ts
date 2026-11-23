@@ -43,6 +43,7 @@ import {
   assertSkillName,
   copySkillTree,
   listSkillFiles,
+  SKILL_TEXT_LIMIT,
   skillFilePath,
   skillTreeHash,
   writeSkillJson,
@@ -582,7 +583,11 @@ export function syncProject(
               const stat = lstatSync(path);
               if (stat.isSymbolicLink())
                 return [dir, "link", readlinkSync(path)];
-              if (stat.isFile())
+              if (stat.isFile()) {
+                if (stat.size > 50 * SKILL_TEXT_LIMIT)
+                  throw new ValueError(
+                    "Project skill file exceeds the 50 MiB limit"
+                  );
                 return [
                   dir,
                   "file",
@@ -592,6 +597,7 @@ export function syncProject(
                     .update(readFileSync(path))
                     .digest("hex"),
                 ];
+              }
               if (!stat.isDirectory())
                 throw new ValueError("Unsupported project skill entry");
               return [dir, "directory", skillTreeHash(path)];

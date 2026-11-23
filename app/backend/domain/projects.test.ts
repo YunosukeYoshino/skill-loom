@@ -7,6 +7,7 @@ import {
   readlinkSync,
   rmSync,
   symlinkSync,
+  truncateSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -158,6 +159,24 @@ test("forced removal reviews hash regular Claude files and reject stale approval
   expect(forceSync().skills).toEqual([]);
   expect(existsSync(claude)).toBe(false);
   expect(existsSync(copyPath())).toBe(false);
+});
+
+test("forced removal caps regular Claude files at 50 MiB but accepts empty files", () => {
+  registerProject("work", project, "work");
+  syncProject("work", lock);
+  const claude = join(project, ".claude/skills/alpha");
+  rmSync(claude);
+  write(claude, "");
+  truncateSync(claude, 50 * 1024 * 1024 + 1);
+  deck([]);
+  expect(() =>
+    syncProject("work", lock, { force: true, dryRun: true })
+  ).toThrow("50 MiB");
+  expect(existsSync(copyPath())).toBe(true);
+  expect(existsSync(claude)).toBe(true);
+  truncateSync(claude, 0);
+  expect(forceSync().skills).toEqual([]);
+  expect(existsSync(claude)).toBe(false);
 });
 
 test("forced removal reviews do not inspect targets of links being removed", () => {
