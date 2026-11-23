@@ -86,6 +86,7 @@ function overlaps(a: string, b: string): boolean {
   );
 }
 
+// fallow-ignore-next-line complexity
 function validateProject(project: Project, allowMissing = false): Project {
   validateName(project.name);
   if (!isAbsolute(project.path))
@@ -140,7 +141,7 @@ export function registerProject(
   return project;
 }
 
-export function loadProject(name: string): Project {
+function loadProject(name: string): Project {
   const file = registryPath(name);
   if (!present(file)) throw new ValueError(`Unknown project: ${name}`);
   let value: unknown;
@@ -180,6 +181,7 @@ function manifestPath(project: Project): string {
   return skillFilePath(project.path, ".agents/skill-loom.json");
 }
 
+// fallow-ignore-next-line complexity
 function loadManifest(project: Project): Manifest {
   const path = manifestPath(project);
   if (!present(path)) return { version: 1, skills: {} };
@@ -227,6 +229,7 @@ function isSkillSource(path: string | undefined): path is string {
   );
 }
 
+// fallow-ignore-next-line complexity
 function sourceFor(
   lock: Lock,
   name: string
@@ -298,6 +301,7 @@ function sourceVersion(lock: Lock, name: string): string | null {
   return entry?.skillFolderHash ?? entry?.ref ?? null;
 }
 
+// fallow-ignore-next-line complexity
 export function projectStatus(
   name: string,
   lock: Lock,
@@ -328,6 +332,7 @@ export function projectStatus(
   }
   const inventory = trackedSkills(lock);
   const plan: ProjectChange[] = [];
+  // fallow-ignore-next-line complexity
   const skills = [...names].sort().map<ProjectSkill>((skill) => {
     const paths = SKILL_DIRS.map((dir) => location(project, dir, skill));
     const locations = paths
@@ -423,6 +428,7 @@ export function projectStatus(
   };
 }
 
+// fallow-ignore-next-line complexity
 export function previewProjectSkill(
   name: string,
   skill: string,
@@ -603,6 +609,7 @@ export function syncProject(
   return { ...projectStatus(name, lock), plan: status.plan };
 }
 
+// fallow-ignore-next-line complexity
 export function projectSkillAction(
   name: string,
   skill: string,

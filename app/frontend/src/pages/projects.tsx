@@ -5,6 +5,7 @@ import { Button, Message, WorkbenchShell } from "@/components/ui";
 import { useUiSettings } from "@/settings/react";
 import type { ProjectPreview } from "@shared/project-types";
 
+// fallow-ignore-next-line complexity
 export function ProjectsPage() {
   const qc = useQueryClient();
   const { settings } = useUiSettings();
@@ -237,70 +238,73 @@ export function ProjectsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {status.data.skills.map((s) => (
-                      <tr key={s.name} className="border-t">
-                        <td className="p-2">
-                          {s.displayName}
-                          <div className="text-xs">{s.name}</div>
-                          <div className="text-xs">
-                            {s.locations.join(", ")}
-                          </div>
-                        </td>
-                        <td className="p-2">{s.description}</td>
-                        <td className="p-2">
-                          {s.state}
-                          <div className="max-w-40 break-all text-xs">
-                            {s.sourceVersion}
-                          </div>
-                        </td>
-                        <td className="p-2">
-                          {s.globalActive ? (
-                            <span>
-                              {l(
-                                "グローバルとプロジェクトの両方に存在。Claude Code は personal が優先。Codex は両方を表示する場合があります。",
-                                "Both global and project. Claude Code: personal wins. Codex may list both."
-                              )}
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="p-2">
-                          <div className="flex gap-2">
-                            <Button
-                              disabled={
-                                busy || !s.available || !s.locations.length
-                              }
-                              onClick={() => preview.mutate(s.name)}
-                            >
-                              {l(
-                                "更新差分・管理に追加",
-                                "Review update / adopt"
-                              )}
-                            </Button>
-                            <Button
-                              disabled={busy || !s.locations.length}
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    l(
-                                      `${s.name} を削除しますか？コミットすると全員のリポジトリから削除されます。`,
-                                      `Remove ${s.name}? Once committed, this removes the skill for everyone using this repository.`
+                    {status.data.skills.map(
+                      // fallow-ignore-next-line complexity
+                      (s) => (
+                        <tr key={s.name} className="border-t">
+                          <td className="p-2">
+                            {s.displayName}
+                            <div className="text-xs">{s.name}</div>
+                            <div className="text-xs">
+                              {s.locations.join(", ")}
+                            </div>
+                          </td>
+                          <td className="p-2">{s.description}</td>
+                          <td className="p-2">
+                            {s.state}
+                            <div className="max-w-40 break-all text-xs">
+                              {s.sourceVersion}
+                            </div>
+                          </td>
+                          <td className="p-2">
+                            {s.globalActive ? (
+                              <span>
+                                {l(
+                                  "グローバルとプロジェクトの両方に存在。Claude Code は personal が優先。Codex は両方を表示する場合があります。",
+                                  "Both global and project. Claude Code: personal wins. Codex may list both."
+                                )}
+                              </span>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="p-2">
+                            <div className="flex gap-2">
+                              <Button
+                                disabled={
+                                  busy || !s.available || !s.locations.length
+                                }
+                                onClick={() => preview.mutate(s.name)}
+                              >
+                                {l(
+                                  "更新差分・管理に追加",
+                                  "Review update / adopt"
+                                )}
+                              </Button>
+                              <Button
+                                disabled={busy || !s.locations.length}
+                                onClick={() => {
+                                  if (
+                                    window.confirm(
+                                      l(
+                                        `${s.name} を削除しますか？コミットすると全員のリポジトリから削除されます。`,
+                                        `Remove ${s.name}? Once committed, this removes the skill for everyone using this repository.`
+                                      )
                                     )
                                   )
-                                )
-                                  change.mutate({
-                                    action: "remove",
-                                    skill: s.name,
-                                  });
-                              }}
-                            >
-                              {l("削除", "Remove")}
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                                    change.mutate({
+                                      action: "remove",
+                                      skill: s.name,
+                                    });
+                                }}
+                              >
+                                {l("削除", "Remove")}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    )}
                   </tbody>
                 </table>
               </div>

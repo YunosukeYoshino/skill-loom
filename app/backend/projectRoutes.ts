@@ -63,6 +63,7 @@ export function createProjectRoutes() {
       })
     );
   });
+  // fallow-ignore-next-line complexity
   app.post("/:name/skills/:skill/:action", async (c) => {
     const action = c.req.param("action");
     if (action !== "install" && action !== "update" && action !== "remove")

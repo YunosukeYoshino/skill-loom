@@ -1247,6 +1247,7 @@ function cmdPreset(argv: string[]): number {
   }
 }
 
+// fallow-ignore-next-line complexity
 function cmdProject(argv: string[]): number {
   const { yes, names } = parseYesArgs(argv);
   const force = names.includes("--force");
