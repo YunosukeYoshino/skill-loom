@@ -146,6 +146,7 @@ test("forced removal reviews hash regular Claude files and reject stale approval
   write(claude, "A file replaced the link");
   deck([]);
   const preview = syncProject("work", lock, { force: true, dryRun: true });
+  expect(preview.review?.diff).toContain("Remove file: .claude/skills/alpha");
   write(claude, "Edited after review");
   expect(() =>
     syncProject("work", lock, {

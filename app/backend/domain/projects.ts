@@ -596,7 +596,15 @@ export function syncProject(
                 throw new ValueError("Unsupported project skill entry");
               return [dir, "directory", skillTreeHash(path)];
             }),
-            diff: `Remove drifted project skill: ${c.name}`,
+            diff: [
+              `Remove drifted project skill: ${c.name}`,
+              ...SKILL_DIRS.flatMap((dir) => {
+                const path = location(status.project, dir, c.name);
+                return present(path) && lstatSync(path).isFile()
+                  ? [`Remove file: ${dir}/${c.name}`]
+                  : [];
+              }),
+            ].join("\n"),
           }
         : previewProjectSkill(name, c.name, lock)
     );
