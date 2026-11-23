@@ -54,6 +54,25 @@ function forceSync() {
     revision: preview.review?.revision,
   });
 }
+test("forced removal review rejects changes to an independent Claude copy", () => {
+  registerProject("work", project, "work");
+  syncProject("work", lock);
+  const claude = join(project, ".claude/skills/alpha");
+  rmSync(claude);
+  write(join(claude, "SKILL.md"), "Independent Claude copy");
+  deck([]);
+  const preview = syncProject("work", lock, { force: true, dryRun: true });
+  write(join(claude, "SKILL.md"), "Edited after review");
+  expect(() =>
+    syncProject("work", lock, {
+      force: true,
+      revision: preview.review?.revision,
+    })
+  ).toThrow("current revision");
+  expect(readFileSync(join(claude, "SKILL.md"), "utf8")).toBe(
+    "Edited after review"
+  );
+});
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "skill-projects-"));
   project = join(root, "repo");

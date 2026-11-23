@@ -535,9 +535,17 @@ export function syncProject(
     const previews = drifted.map((c) =>
       c.action === "remove"
         ? {
-            revision: skillTreeHash(
-              location(status.project, ".agents/skills", c.name)
-            ),
+            revision: SKILL_DIRS.map((dir) => {
+              const path = location(status.project, dir, c.name);
+              const root = readableRoot(status.project, path);
+              return [
+                dir,
+                root ? skillTreeHash(root) : "missing",
+                present(path) && lstatSync(path).isSymbolicLink()
+                  ? readlinkSync(path)
+                  : null,
+              ];
+            }),
             diff: `Remove drifted project skill: ${c.name}`,
           }
         : previewProjectSkill(name, c.name, lock)
