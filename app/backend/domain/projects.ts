@@ -373,7 +373,7 @@ export function projectStatus(
           return Boolean(
             candidate &&
             existsSync(join(candidate, "SKILL.md")) &&
-            skillTreeHash(candidate) === hash
+            (candidate === root || skillTreeHash(candidate) === hash)
           );
         });
       } catch (error) {

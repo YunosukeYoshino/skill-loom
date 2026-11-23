@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import {
   existsSync,
   chmodSync,
@@ -24,6 +24,7 @@ import {
   unregisterProject,
 } from "./projects";
 import { AlreadyExistsError, ValueError } from "./errors";
+import * as skillFiles from "./skill-files";
 import type { Lock } from "./inventory";
 import { createProjectRoutes } from "../projectRoutes";
 import { draftSkillMap, promoteDrafts } from "./drafts";
@@ -352,6 +353,21 @@ test("import rejects ignored registered Custom Skills rather than creating hidde
     AlreadyExistsError
   );
   expect(draftSkillMap().has("alpha")).toBe(false);
+});
+
+test("importability reuses the primary tree hash for its matching agent link", () => {
+  registerProject("work", project);
+  write(copyPath("local"), "Local skill");
+  const claude = join(project, ".claude/skills/local");
+  mkdirSync(dirname(claude), { recursive: true });
+  symlinkSync("../../.agents/skills/local", claude);
+  const hash = spyOn(skillFiles, "skillTreeHash");
+  try {
+    expect(projectStatus("work", lock).skills[0]?.importable).toBe(true);
+    expect(hash).toHaveBeenCalledTimes(1);
+  } finally {
+    hash.mockRestore();
+  }
 });
 
 test("an unreadable secondary import copy does not break the project listing", () => {
