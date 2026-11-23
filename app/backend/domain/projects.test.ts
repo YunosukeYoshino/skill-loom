@@ -132,6 +132,30 @@ test("a managed skill with its expected dangling link can be restored", () => {
   ).toBe("managed");
 });
 
+test("forced removal reviews do not inspect targets of links being removed", () => {
+  registerProject("work", project, "work");
+  syncProject("work", lock);
+  const claude = join(project, ".claude/skills/alpha");
+  const shared = join(project, "shared/alpha");
+  write(join(shared, "SKILL.md"), "Shared skill");
+  symlinkSync("SKILL.md", join(shared, "reference.md"));
+  rmSync(claude);
+  symlinkSync("../../shared/alpha", claude);
+  deck([]);
+  const preview = syncProject("work", lock, { force: true, dryRun: true });
+  write(join(shared, "SKILL.md"), "Shared edit after review");
+  syncProject("work", lock, {
+    force: true,
+    revision: preview.review?.revision,
+  });
+  expect(existsSync(copyPath())).toBe(false);
+  expect(existsSync(claude)).toBe(false);
+  expect(readFileSync(join(shared, "SKILL.md"), "utf8")).toBe(
+    "Shared edit after review"
+  );
+  expect(readlinkSync(join(shared, "reference.md"))).toBe("SKILL.md");
+});
+
 test("forced removal review rejects changes to an independent Claude copy", () => {
   registerProject("work", project, "work");
   syncProject("work", lock);

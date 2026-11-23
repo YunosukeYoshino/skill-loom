@@ -572,13 +572,11 @@ export function syncProject(
         ? {
             revision: SKILL_DIRS.map((dir) => {
               const path = location(status.project, dir, c.name);
-              const root = readableRoot(status.project, path);
+              const link = present(path) && lstatSync(path).isSymbolicLink();
               return [
                 dir,
-                root ? skillTreeHash(root) : "missing",
-                present(path) && lstatSync(path).isSymbolicLink()
-                  ? readlinkSync(path)
-                  : null,
+                link ? "link" : present(path) ? skillTreeHash(path) : "missing",
+                link ? readlinkSync(path) : null,
               ];
             }),
             diff: `Remove drifted project skill: ${c.name}`,
