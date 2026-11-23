@@ -30,7 +30,7 @@ import {
 } from "./config";
 import { canonicalPath, resolveCatalogPath } from "./catalogPaths";
 import { customSkillRepoDir } from "./custom";
-import { loadDeck } from "./decks";
+import { loadDeck, UnknownDeckError } from "./decks";
 import { AlreadyExistsError, ValueError } from "./errors";
 import { frontmatterName } from "../infrastructure/github";
 import {
@@ -298,9 +298,15 @@ export function projectStatus(
   if (!existsSync(project.path) || !statSync(project.path).isDirectory())
     return { project, state: "missing", dirty: null, skills: [], plan: [] };
   const manifest = loadManifest(project);
-  const desired = new Set(
-    project.deck ? loadDeck(project.deck, new Set(), true)[1] : []
-  );
+  let deckError: string | undefined;
+  let deckSkills: string[] = [];
+  try {
+    if (project.deck) deckSkills = loadDeck(project.deck, new Set(), true)[1];
+  } catch (error) {
+    if (!(error instanceof UnknownDeckError)) throw error;
+    deckError = error.message;
+  }
+  const desired = new Set(deckSkills);
   const names = new Set([...desired, ...Object.keys(manifest.skills)]);
   for (const dir of SKILL_DIRS) {
     const root = skillFilePath(project.path, dir);
@@ -403,7 +409,8 @@ export function projectStatus(
     state: "ready",
     dirty: dirty === null ? null : Boolean(dirty),
     skills,
-    plan,
+    plan: deckError ? [] : plan,
+    ...(deckError ? { deckError } : {}),
   };
 }
 
@@ -538,6 +545,7 @@ export function syncProject(
   if (status.state === "missing")
     throw new ValueError("Project directory is missing");
   if (!status.project.deck) throw new ValueError("Project has no deck");
+  if (status.deckError) throw new ValueError(status.deckError);
   const drifted = status.plan.filter(
     (c) =>
       c.action !== "skip" &&

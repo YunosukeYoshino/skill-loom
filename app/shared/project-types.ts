@@ -34,6 +34,7 @@ export type ProjectStatus = {
   project: Project;
   state: "ready" | "missing";
   dirty: boolean | null;
+  deckError?: string;
   skills: ProjectSkill[];
   plan: ProjectChange[];
   review?: { revision: string; diff: string };

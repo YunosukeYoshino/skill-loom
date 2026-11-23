@@ -54,6 +54,31 @@ function forceSync() {
     revision: preview.review?.revision,
   });
 }
+test("a missing deck leaves status and individual actions usable but blocks sync", () => {
+  registerProject("work", project, "work");
+  syncProject("work", lock);
+  rmSync(join(root, "catalog/project-decks/work.json"));
+  const status = projectStatus("work", lock);
+  expect(status.deckError).toContain("Unknown project deck");
+  expect(status.plan).toEqual([]);
+  expect(status.skills[0]?.state).toBe("managed");
+  expect(() => syncProject("work", lock, { force: true })).toThrow(
+    "Unknown project deck"
+  );
+  expect(projectSkillAction("work", "alpha", "remove", lock).skills).toEqual(
+    []
+  );
+  expect(
+    projectSkillAction("work", "alpha", "install", lock).skills[0]?.state
+  ).toBe("managed");
+  expect(previewProjectSkill("work", "alpha", lock).requiresConfirmation).toBe(
+    false
+  );
+  expect(
+    projectSkillAction("work", "alpha", "update", lock).skills[0]?.state
+  ).toBe("managed");
+});
+
 test("a managed skill with its expected dangling link can be restored", () => {
   registerProject("work", project, "work");
   syncProject("work", lock);

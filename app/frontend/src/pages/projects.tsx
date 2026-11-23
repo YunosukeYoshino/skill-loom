@@ -345,8 +345,11 @@ export function ProjectsPage() {
                     {l("追加操作: デッキ同期", "Optional: deck sync")} ·{" "}
                     {status.data.project.deck}
                   </h3>
+                  {status.data.deckError ? (
+                    <p role="alert">{status.data.deckError}</p>
+                  ) : null}
                   <Button
-                    disabled={busy}
+                    disabled={busy || Boolean(status.data.deckError)}
                     onClick={() => change.mutate({ action: "preview" })}
                   >
                     {l("同期プレビュー", "Preview sync")}
@@ -354,6 +357,7 @@ export function ProjectsPage() {
                   <Button
                     disabled={
                       busy ||
+                      Boolean(status.data.deckError) ||
                       (force &&
                         status.data.skills.some((s) => s.state === "drifted") &&
                         !status.data.review)
