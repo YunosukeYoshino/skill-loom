@@ -134,6 +134,27 @@ test("a managed skill with its expected dangling link can be restored", () => {
   ).toBe("managed");
 });
 
+test("forced removal reviews hash regular Claude files and reject stale approval", () => {
+  registerProject("work", project, "work");
+  syncProject("work", lock);
+  const claude = join(project, ".claude/skills/alpha");
+  rmSync(claude);
+  write(claude, "A file replaced the link");
+  deck([]);
+  const preview = syncProject("work", lock, { force: true, dryRun: true });
+  write(claude, "Edited after review");
+  expect(() =>
+    syncProject("work", lock, {
+      force: true,
+      revision: preview.review?.revision,
+    })
+  ).toThrow("current revision");
+  expect(readFileSync(claude, "utf8")).toBe("Edited after review");
+  expect(forceSync().skills).toEqual([]);
+  expect(existsSync(claude)).toBe(false);
+  expect(existsSync(copyPath())).toBe(false);
+});
+
 test("forced removal reviews do not inspect targets of links being removed", () => {
   registerProject("work", project, "work");
   syncProject("work", lock);

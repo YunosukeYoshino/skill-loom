@@ -574,12 +574,23 @@ export function syncProject(
         ? {
             revision: SKILL_DIRS.map((dir) => {
               const path = location(status.project, dir, c.name);
-              const link = present(path) && lstatSync(path).isSymbolicLink();
-              return [
-                dir,
-                link ? "link" : present(path) ? skillTreeHash(path) : "missing",
-                link ? readlinkSync(path) : null,
-              ];
+              if (!present(path)) return [dir, "missing"];
+              const stat = lstatSync(path);
+              if (stat.isSymbolicLink())
+                return [dir, "link", readlinkSync(path)];
+              if (stat.isFile())
+                return [
+                  dir,
+                  "file",
+                  createHash("sha256")
+                    .update(String(stat.mode & 0o111))
+                    .update("\0")
+                    .update(readFileSync(path))
+                    .digest("hex"),
+                ];
+              if (!stat.isDirectory())
+                throw new ValueError("Unsupported project skill entry");
+              return [dir, "directory", skillTreeHash(path)];
             }),
             diff: `Remove drifted project skill: ${c.name}`,
           }
