@@ -370,27 +370,30 @@ test("importability reuses the primary tree hash for its matching agent link", (
   }
 });
 
-test("an unreadable secondary import copy does not break the project listing", () => {
-  registerProject("work", project);
-  write(copyPath("local"), "Local skill");
-  write(copyPath("healthy"), "Healthy skill");
-  const privateFile = join(project, ".claude/skills/local/private.txt");
-  write(join(project, ".claude/skills/local/SKILL.md"), "Local skill");
-  write(privateFile, "Unreadable content");
-  chmodSync(privateFile, 0o000);
-  try {
-    const status = projectStatus("work", lock);
-    expect(status.skills.find((s) => s.name === "local")).toMatchObject({
-      importable: false,
-      importError: expect.stringContaining("EACCES"),
-    });
-    expect(status.skills.find((s) => s.name === "healthy")?.importable).toBe(
-      true
-    );
-  } finally {
-    chmodSync(privateFile, 0o600);
+test.skipIf(process.getuid?.() === 0)(
+  "an unreadable secondary import copy does not break the project listing",
+  () => {
+    registerProject("work", project);
+    write(copyPath("local"), "Local skill");
+    write(copyPath("healthy"), "Healthy skill");
+    const privateFile = join(project, ".claude/skills/local/private.txt");
+    write(join(project, ".claude/skills/local/SKILL.md"), "Local skill");
+    write(privateFile, "Unreadable content");
+    chmodSync(privateFile, 0o000);
+    try {
+      const status = projectStatus("work", lock);
+      expect(status.skills.find((s) => s.name === "local")).toMatchObject({
+        importable: false,
+        importError: expect.stringContaining("EACCES"),
+      });
+      expect(status.skills.find((s) => s.name === "healthy")?.importable).toBe(
+        true
+      );
+    } finally {
+      chmodSync(privateFile, 0o600);
+    }
   }
-});
+);
 
 test("a safe unmanaged deck conflict remains importable without an Inventory match", () => {
   deck(["local"]);
