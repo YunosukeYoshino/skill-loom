@@ -123,6 +123,27 @@ Management command families expose the same Catalog domain operations to shell w
 
 `external update --all` only plans by default: per source it clones the upstream once (blob-less), and lists the skills that would change, the pin-to-HEAD commit range, and the changed files, without writing anything. `--apply` installs each source with one `skills add` call, reinstalls aliased skills under their upstream name, and advances `skills.lock.pins.json` only for skills whose installed tree matches the planned HEAD. Skills overridden by `vendor` are never touched. Skills whose upstream changed scripts or executables, or whose diff cannot be computed, are held until `--include-risky`. Failed skills keep both their pin and their content; `--all-or-nothing` also rolls back the successes. The exit code ORs one bit per failure kind (4 held, 8 fetch or missing path, 16 install, 32 verify, 64 pins write), and `--json` reports the same kinds per skill.
 
+### Project skills
+
+Open **Projects** in the UI to register an existing checkout by absolute path, browse all its skills, install Inventory skills, review updates, or explicitly remove skills. A Project Deck is optional; its bulk sync is a secondary action and does not automatically add Core.
+
+```bash
+./skill-loom project add my-app /absolute/path/to/my-app --yes
+./skill-loom project list
+./skill-loom project status my-app
+./skill-loom project install my-app skill-name --yes
+./skill-loom project update my-app skill-name --dry-run
+./skill-loom project update my-app skill-name --force --yes
+./skill-loom project remove my-app skill-name --yes
+./skill-loom project remove my-app --yes # unregister only; leave files
+```
+
+To use a deck, pass its name after the path at registration, then run `project sync NAME --dry-run` or `project sync NAME --yes` (`--force` reviews and overwrites drift). Project copies live in `.agents/skills/`, with relative `.claude/skills/` links and a committed `.agents/skill-loom.json` source-version/content-hash manifest. Codex and Antigravity read `.agents/skills/` directly. The registry stays machine-local in `~/.agents/skill-projects/` (`MY_SKILLS_PROJECTS_DIR` overrides it).
+
+Unmanaged skills are browsable and removable only by explicit per-skill action; bulk sync never touches them. Updating an unmanaged Inventory match adopts it after a diff review; drift also requires review and force. Missing sources are reported as unavailable, and missing checkout paths remain listed. Review and commit the repository diff yourself: Project operations never auto-commit or modify global Active/Archive/locks. See [ADR 0006](docs/adr/0006-project-skills-as-committed-copies.md).
+
+### Plugin export
+
 `plugin export` projects a Project or Shared Deck into an installable plugin
 package: an Agent Plugins `plugin.json`, the copied `skills/` tree, and
 `.claude-plugin/`, `.cursor-plugin/`, and `.codex-plugin/` manifests. Push the

@@ -19,8 +19,10 @@ import { PageError } from "@/components/ui";
 import { useT } from "@/settings/react";
 import { validateListViewSearch } from "./router-search";
 import { SkillWorkspacePage } from "@/pages/skill-workspace";
+import { ProjectsPage } from "@/pages/projects";
 
 function navCurrentFromPath(pathname: string): string {
+  if (pathname.startsWith("/projects")) return "projects";
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/drafts")) return "drafts";
   if (pathname.startsWith("/external-sources")) return "external-sources";
@@ -152,6 +154,12 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
+const projectsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/projects",
+  component: ProjectsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   globalRoute,
@@ -162,6 +170,7 @@ const routeTree = rootRoute.addChildren([
   projectDeckRoute,
   externalPreviewRoute,
   settingsRoute,
+  projectsRoute,
 ]);
 
 export const router = createRouter({

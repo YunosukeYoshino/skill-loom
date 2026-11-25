@@ -25,6 +25,7 @@ const SANDBOX_VARS = [
   ["MY_SKILLS_CLAUDE_SKILLS_DIR", config.claudeSkillsDir],
   ["MY_SKILLS_GEMINI_SKILLS_DIR", config.geminiSkillsDir],
   ["MY_SKILLS_PRESETS_DIR", config.presetsDir],
+  ["MY_SKILLS_PROJECTS_DIR", config.projectsDir],
   ["MY_SKILLS_PROJECT_DECKS_DIR", config.projectDecksDir],
 ] as const;
 

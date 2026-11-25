@@ -12,6 +12,15 @@
 
 import { readSync } from "node:fs";
 import {
+  listProjects,
+  previewProjectSkill,
+  projectSkillAction,
+  projectStatus,
+  registerProject,
+  syncProject,
+  unregisterProject,
+} from "./domain/projects";
+import {
   deckPath,
   listProjectDecks,
   loadDeck,
@@ -1295,6 +1304,94 @@ function cmdPreset(argv: string[]): number {
   }
 }
 
+// fallow-ignore-next-line complexity
+function cmdProject(argv: string[]): number {
+  const { yes, names } = parseYesArgs(argv);
+  const force = names.includes("--force");
+  const dryRun = names.includes("--dry-run");
+  const [action, name, ...args] = names.filter(
+    (n) => n !== "--force" && n !== "--dry-run"
+  );
+  const usage =
+    "usage: skill-loom project {add NAME PATH [DECK],list,status NAME,sync NAME [--dry-run] [--force],remove NAME,install NAME SKILL,update NAME SKILL [--force],remove NAME SKILL} [-y]";
+  try {
+    let result: unknown;
+    if (action === "list" && !name) result = listProjects();
+    else if (action === "add" && name && args[0] && args.length <= 2) {
+      const denied = confirmedAction("Register project", [name, args[0]], yes);
+      if (denied) return denied;
+      result = registerProject(name, args[0], args[1]);
+    } else if (action === "status" && name && !args.length)
+      result = projectStatus(name, loadLock());
+    else if (action === "sync" && name && !args.length) {
+      const lock = loadLock();
+      const preview = syncProject(name, lock, { force, dryRun: true });
+      if (preview.review) {
+        if (jsonMode) console.error(preview.review.diff);
+        else console.log(preview.review.diff);
+      }
+      if (!dryRun) {
+        const denied = confirmedAction("Sync project", [name], yes);
+        if (denied) return denied;
+      }
+      result = dryRun
+        ? preview
+        : syncProject(name, lock, {
+            force,
+            revision: preview.review?.revision,
+          });
+    } else if (
+      name &&
+      args.length === 1 &&
+      args[0] &&
+      (action === "install" || action === "update" || action === "remove")
+    ) {
+      const lock = loadLock();
+      const preview =
+        action === "update"
+          ? previewProjectSkill(name, args[0], lock)
+          : undefined;
+      if (dryRun) {
+        if (jsonMode) emitJson(preview ?? { action, skill: args[0] });
+        else console.log(preview?.diff ?? `${action}: ${args[0]}`);
+        return 0;
+      }
+      if (preview) {
+        if (jsonMode) console.error(preview.diff);
+        else console.log(preview.diff);
+      }
+      const denied = confirmedAction(
+        `${action} project skill`,
+        [name, args[0]],
+        yes
+      );
+      if (denied) return denied;
+      result = projectSkillAction(
+        name,
+        args[0],
+        action,
+        lock,
+        force,
+        preview?.revision
+      );
+    } else if (action === "remove" && name && !args.length) {
+      const denied = confirmedAction(
+        "Unregister project (leave files)",
+        [name],
+        yes
+      );
+      if (denied) return denied;
+      unregisterProject(name);
+      result = { removed: name };
+    } else return cliError("invalid project arguments", usage);
+    if (jsonMode) emitJson(result);
+    else console.log(JSON.stringify(result, null, 2));
+    return 0;
+  } catch (error) {
+    return failFromError(error, usage);
+  }
+}
+
 const [command, ...rest] = jsonMode
   ? Bun.argv.slice(2).filter((arg) => arg !== "--json")
   : Bun.argv.slice(2);
@@ -1323,6 +1420,7 @@ positional arguments:
     custom              Check and update Custom Skills
     draft               List, promote, or install Draft Skills
     deck                Show, save, merge, or apply Project Decks
+    project             Register, browse, install, update, remove, or sync project skills
     skill               Set named skills to active, archive, or off
     plugin              Export a Deck as an installable plugin package
 
@@ -1346,6 +1444,9 @@ if (command === undefined)
   );
 
 switch (command) {
+  case "project":
+    process.exit(cmdProject(rest));
+    break;
   case "list":
     process.exit(cmdList());
     break;

@@ -18,6 +18,10 @@ Skill Loom is a local management engine for an Agent Skills portfolio. It keeps 
 - **Upstream Name**: the original Skill name within its source repository. New External Skills are always registered under it; only legacy lock entries carry a different key with `installSkill`.
 - **Draft Skill**: an authored Skill that joins the Inventory only after promotion.
 - **Core Deck**: the Catalog baseline automatically unioned when a Project Deck is applied.
-- **Project Deck**: a Catalog recipe for a codebase or work area.
+- **Project Deck**: a Catalog recipe of skills for a codebase or work area, independent of any particular local checkout.
+- **Project**: a registered local codebase whose skills are shared with collaborators through version control. A Project may optionally use a Project Deck.
+- **Managed Project Skill**: a Project skill tracked by Skill Loom, with a recorded source version and content baseline.
+- **Unmanaged Project Skill**: a Project skill not tracked by Skill Loom. It may be browsed or explicitly updated into management; bulk synchronization leaves it alone.
+- **Drift**: a local change to a Managed Project Skill since its recorded baseline. Overwriting drift requires review and explicit approval.
 - **Active / Archive / Off**: available now / retained for later / absent from the Projection.
 - **Preset**: a named snapshot of the Active set. `_last` is the automatic pre-change snapshot used by restore.
