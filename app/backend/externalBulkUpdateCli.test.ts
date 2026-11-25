@@ -147,6 +147,9 @@ describe("parseExternalUpdateAllArgs", () => {
   test("知らないフラグと値の無い --source は拒む", () => {
     expect(parseExternalUpdateAllArgs(["--all", "--force"])).toBeNull();
     expect(parseExternalUpdateAllArgs(["--all", "--source"])).toBeNull();
+    expect(
+      parseExternalUpdateAllArgs(["--all", "--source", "--apply"])
+    ).toBeNull();
   });
 });
 
@@ -230,13 +233,15 @@ describe("applyExternalUpdatePlan", () => {
 
   beforeEach(() => {
     sandbox = mkdtempSync(join(tmpdir(), "skill-loom-bulk-cli-"));
-    for (const [name, file] of [
-      ["MY_SKILLS_ACTIVE_DIR", "active"],
-      ["MY_SKILLS_GLOBAL_LOCK_FILE", "cli-lock.json"],
-      ["MY_SKILLS_LOCK_PINS_FILE", "skills.lock.pins.json"],
+    for (const [name, value] of [
+      ["MY_SKILLS_CATALOG_DIR", sandbox],
+      ["MY_SKILLS_CATALOG_EXPLICIT", "0"],
+      ["MY_SKILLS_ACTIVE_DIR", join(sandbox, "active")],
+      ["MY_SKILLS_GLOBAL_LOCK_FILE", join(sandbox, "cli-lock.json")],
+      ["MY_SKILLS_LOCK_PINS_FILE", join(sandbox, "skills.lock.pins.json")],
     ] as const) {
       saved.set(name, process.env[name]);
-      process.env[name] = join(sandbox, file);
+      process.env[name] = value;
     }
   });
 
@@ -244,6 +249,7 @@ describe("applyExternalUpdatePlan", () => {
     for (const [name, value] of saved)
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
+    saved.clear();
     rmSync(sandbox, { recursive: true, force: true });
   });
 

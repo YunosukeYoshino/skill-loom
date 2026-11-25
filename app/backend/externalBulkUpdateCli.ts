@@ -54,7 +54,8 @@ export function parseExternalUpdateAllArgs(
   argv: string[]
 ): ExternalUpdateAllArgs | null {
   const { source, rest } = splitSource(argv);
-  if (source === "" || rest.some((arg) => !BOOLEAN_FLAGS.has(arg))) return null;
+  if (source === "" || source?.startsWith("-")) return null;
+  if (rest.some((arg) => !BOOLEAN_FLAGS.has(arg))) return null;
   return {
     apply: rest.includes("--apply"),
     yes: rest.includes("-y") || rest.includes("--yes"),

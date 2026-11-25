@@ -65,10 +65,13 @@ export function pinEntry(
   };
 }
 
-/** external の指定分だけ差し替えて書き戻す。読んでから書くまでに他が足した pin は落とさない。 */
-export function advanceExternalPins(updates: Record<string, LockPin>): void {
+/**
+ * external の指定分だけ差し替えて書き戻す。読んでから書くまでに他が足した pin は落とさない。
+ * ファイルが無い Catalog では何も書かず false を返す。
+ */
+export function advanceExternalPins(updates: Record<string, LockPin>): boolean {
   const current = loadLockPins();
-  if (!current) return;
+  if (!current) return false;
   const path = lockPinsFile();
   const next = {
     external: sortedSection({ ...current.external, ...updates }),
@@ -77,4 +80,5 @@ export function advanceExternalPins(updates: Record<string, LockPin>): void {
   const tmp = `${path}.${randomUUID()}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { flag: "wx" });
   renameSync(tmp, path);
+  return true;
 }

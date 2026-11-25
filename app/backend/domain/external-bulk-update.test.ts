@@ -28,11 +28,11 @@ import {
 import type { Lock } from "./inventory";
 
 let sandbox: string;
-const touched: string[] = [];
+const savedEnv = new Map<string, string | undefined>();
 const dir = (...parts: string[]) => join(sandbox, ...parts);
 
 function setEnv(name: string, value: string): void {
-  touched.push(name);
+  if (!savedEnv.has(name)) savedEnv.set(name, process.env[name]);
   process.env[name] = value;
 }
 
@@ -112,6 +112,7 @@ function initRepo(source: string): void {
  * skills CLI の `add <source> --skill <name>... -g -a ... -y` を真似る。上流 repo の HEAD を
  * 展開して CLI lock に tree SHA を書く。FAKE_FAIL_SOURCES は途中まで書いてから失敗し、
  * FAKE_SKIP_SKILLS は何もせず 0 で終わる（実 CLI が候補を黙って飛ばす挙動）。
+ * FAKE_NO_HASH_SKILLS は入れるが CLI lock に skillFolderHash を書かない。
  */
 const FAKE_SKILLS_CLI = `#!/usr/bin/env bun
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, mkdtempSync } from "node:fs";
@@ -131,6 +132,7 @@ if (failing.includes(source)) {
   process.exit(1);
 }
 const skipped = (process.env.FAKE_SKIP_SKILLS ?? "").split(",");
+const unhashed = (process.env.FAKE_NO_HASH_SKILLS ?? "").split(",");
 const lockPath = process.env.MY_SKILLS_GLOBAL_LOCK_FILE;
 const lock = existsSync(lockPath) ? JSON.parse(readFileSync(lockPath, "utf8")) : { version: 3, skills: {} };
 for (const name of names) {
@@ -143,13 +145,18 @@ for (const name of names) {
   rmSync(join(active, name), { recursive: true, force: true });
   mkdirSync(active, { recursive: true });
   renameSync(join(tmp, path), join(active, name));
-  lock.skills[name] = { source, sourceType: "github", sourceUrl: "https://github.com/" + source + ".git", skillPath: path + "/SKILL.md", skillFolderHash: tree };
+  lock.skills[name] = { source, sourceType: "github", sourceUrl: "https://github.com/" + source + ".git", skillPath: path + "/SKILL.md", ...(unhashed.includes(name) ? {} : { skillFolderHash: tree }) };
 }
 writeFileSync(lockPath, JSON.stringify(lock, null, 2));
 `;
 
-const TRASH_STUB =
-  '#!/usr/bin/env bash\nset -euo pipefail\nfor path in "$@"; do mv -- "$path" "$path.trashed-$RANDOM"; done\n';
+const TRASH_STUB = `#!/usr/bin/env bash
+set -euo pipefail
+for path in "$@"; do
+  if [[ -e "$path/.trash-fails" ]]; then echo "simulated trash failure" >&2; exit 1; fi
+  mv -- "$path" "$path.trashed-$RANDOM"
+done
+`;
 
 type Commits = { oneV1: string; oneV2: string; threeV1: string };
 
@@ -276,6 +283,8 @@ beforeEach(() => {
   writeFileSync(dir("trash-stub"), TRASH_STUB);
   chmodSync(dir("trash-stub"), 0o755);
   writeFileSync(dir("cli.log"), "");
+  setEnv("MY_SKILLS_CATALOG_DIR", sandbox);
+  setEnv("MY_SKILLS_CATALOG_EXPLICIT", "0");
   setEnv("MY_SKILLS_ACTIVE_DIR", dir("active"));
   setEnv("MY_SKILLS_ARCHIVE_DIR", dir("archive"));
   setEnv("MY_SKILLS_CLAUDE_SKILLS_DIR", dir("claude-skills"));
@@ -293,6 +302,7 @@ beforeEach(() => {
   setEnv("FAKE_TMP", dir("tmp"));
   setEnv("FAKE_FAIL_SOURCES", "");
   setEnv("FAKE_SKIP_SKILLS", "");
+  setEnv("FAKE_NO_HASH_SKILLS", "");
 
   initRepo("fake/one");
   for (const name of ["alpha", "beta", "delta", "vend", "react"])
@@ -330,8 +340,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const name of touched) delete process.env[name];
-  touched.length = 0;
+  for (const [name, value] of savedEnv)
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  savedEnv.clear();
   rmSync(sandbox, { recursive: true, force: true });
 });
 
@@ -406,6 +418,11 @@ describe("planExternalBulkUpdate", () => {
   });
 
   test("repo 直下の skill（skillPath が SKILL.md）も計画できる", async () => {
+    writeFileSync(
+      join(upstreamRepo("fake/one"), "SKILL.md"),
+      "---\nname: alpha\ndescription: fixture\n---\nroot\n"
+    );
+    commit("fake/one", "root skill");
     const cliLock = JSON.parse(readFileSync(dir("cli-lock.json"), "utf8"));
     cliLock.skills.alpha.skillPath = "SKILL.md";
     writeFileSync(dir("cli-lock.json"), JSON.stringify(cliLock));
@@ -414,8 +431,47 @@ describe("planExternalBulkUpdate", () => {
       expect(skillEntry(session.plan, "alpha")).toMatchObject({
         state: "update",
         skillPath: "SKILL.md",
-        commits: 1,
+        commits: 2,
       });
+    } finally {
+      session.dispose();
+    }
+  });
+
+  test("フォルダが残っていても HEAD に SKILL.md が無ければ missing-path", async () => {
+    rmSync(join(upstreamRepo("fake/one"), "skills/alpha/SKILL.md"));
+    writeFileSync(
+      join(upstreamRepo("fake/one"), "skills/alpha/README.md"),
+      "moved\n"
+    );
+    commit("fake/one", "drop alpha SKILL.md");
+    const session = await planExternalBulkUpdate(buildLock());
+    try {
+      expect(skillEntry(session.plan, "alpha")).toMatchObject({
+        state: "failed",
+        failure: { kind: "missing-path" },
+      });
+    } finally {
+      session.dispose();
+    }
+  });
+
+  test("skill 1 件の git 照会が失敗しても計画全体は止めず、その skill だけ失敗にする", async () => {
+    const magic = join(upstreamRepo("fake/one"), ":(magic)alpha");
+    mkdirSync(magic);
+    writeFileSync(join(magic, "SKILL.md"), "alpha at a pathspec-magic path\n");
+    commit("fake/one", "pathspec magic folder");
+    const cliLock = JSON.parse(readFileSync(dir("cli-lock.json"), "utf8"));
+    cliLock.skills.alpha.skillPath = ":(magic)alpha/SKILL.md";
+    writeFileSync(dir("cli-lock.json"), JSON.stringify(cliLock));
+    const session = await planExternalBulkUpdate(buildLock());
+    try {
+      expect(skillEntry(session.plan, "alpha")).toMatchObject({
+        state: "failed",
+        failure: { kind: "fetch" },
+      });
+      expect(skillEntry(session.plan, "delta").state).toBe("update");
+      expect(skillEntry(session.plan, "omega").state).toBe("update");
     } finally {
       session.dispose();
     }
@@ -523,6 +579,62 @@ describe("applyExternalBulkUpdate", () => {
       reason: "unknown-diff",
     });
     expect(pinCommits().alpha).toBe(pinBefore);
+    expect(installedBody("alpha")).toContain("alpha v1");
+  });
+
+  test("CLI lock に tree が記録されなければ確かめられないので戻し、ピンを動かさない", async () => {
+    setEnv("FAKE_NO_HASH_SKILLS", "alpha");
+    const pinBefore = pinCommits().alpha;
+    const session = await planExternalBulkUpdate(buildLock());
+    let outcomes: BulkUpdateSkillOutcome[];
+    try {
+      outcomes = applyExternalBulkUpdate(session, buildLock());
+    } finally {
+      session.dispose();
+    }
+    expect(outcomeOf(outcomes, "alpha")).toMatchObject({
+      outcome: "failed",
+      failure: { kind: "verify" },
+    });
+    expect(pinCommits().alpha).toBe(pinBefore);
+    expect(installedBody("alpha")).toContain("alpha v1");
+  });
+
+  test("復元が 1 件失敗しても残りは戻し、戻せなかった分のバックアップを残して場所を知らせる", async () => {
+    setEnv("FAKE_SKIP_SKILLS", "delta");
+    writeFileSync(dir("active", "delta", ".trash-fails"), "");
+    const session = await planExternalBulkUpdate(buildLock());
+    let outcomes: BulkUpdateSkillOutcome[];
+    try {
+      outcomes = applyExternalBulkUpdate(session, buildLock(), {
+        onFailure: "rollback-all",
+      });
+    } finally {
+      session.dispose();
+    }
+    expect(installedBody("alpha")).toContain("alpha v1");
+    const delta = outcomeOf(outcomes, "delta");
+    if (delta.outcome !== "failed") throw new Error("delta must fail");
+    expect(delta.failure.kind).toBe("verify");
+    const kept = /backup kept at (\S+)/.exec(delta.failure.message)?.[1];
+    if (!kept) throw new Error(delta.failure.message);
+    expect(readFileSync(join(kept, "SKILL.md"), "utf8")).toContain("delta v1");
+    rmSync(kept, { recursive: true, force: true });
+  });
+
+  test("計画のあとにピンのファイルが消えたら pins-write として中身を戻す", async () => {
+    const session = await planExternalBulkUpdate(buildLock());
+    let outcomes: BulkUpdateSkillOutcome[];
+    try {
+      rmSync(dir("skills.lock.pins.json"));
+      outcomes = applyExternalBulkUpdate(session, buildLock());
+    } finally {
+      session.dispose();
+    }
+    expect(outcomeOf(outcomes, "alpha")).toMatchObject({
+      outcome: "failed",
+      failure: { kind: "pins-write" },
+    });
     expect(installedBody("alpha")).toContain("alpha v1");
   });
 

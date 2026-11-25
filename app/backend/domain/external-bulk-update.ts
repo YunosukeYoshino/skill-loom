@@ -4,8 +4,8 @@
  * 計画は source ごとに上流 repo を 1 回だけ blob なしで clone し、入っている tree
  * （CLI lock の skillFolderHash、無ければピンの commit）と HEAD の tree を比べる。
  * 適用は source ごとに `skills add` を 1 回まとめて呼び、別名で入れた skill だけ
- * 上流名で入れ直す。入った tree が計画した HEAD と一致した skill だけピンを進め、
- * それ以外は退避しておいた中身と CLI lock のエントリへ戻す。
+ * 上流名で入れ直す。CLI lock に記録された tree が計画した HEAD と一致した skill だけ
+ * ピンを進め、それ以外は退避しておいた中身と CLI lock のエントリへ戻す。
  */
 
 import {
@@ -49,7 +49,6 @@ import {
 } from "./projection";
 import {
   normalizeGithubSource,
-  skillFileHash,
   skillMdFolderPath,
 } from "../infrastructure/github";
 import {
@@ -304,6 +303,16 @@ function baselineOf(
   return pinTree ? "pin" : "unknown";
 }
 
+async function skillTreeAt(
+  clone: UpstreamClone,
+  commit: string,
+  skillPath: string
+): Promise<string | null> {
+  const tree = await clone.treeOf(commit, skillMdFolderPath(skillPath));
+  if (!tree || !(await clone.hasFile(commit, skillPath))) return null;
+  return tree;
+}
+
 async function planSkill(
   clone: UpstreamClone,
   source: string,
@@ -319,7 +328,7 @@ async function planSkill(
     context
   );
   const folder = skillMdFolderPath(skillPath);
-  const headTree = await clone.treeOf(head, folder);
+  const headTree = await skillTreeAt(clone, head, skillPath);
   if (!headTree) return missingPath(name, skillPath, source, head);
 
   const pin = context.pins[name]?.commit ?? null;
@@ -349,12 +358,30 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function planSkillOrFail(
+  clone: UpstreamClone,
+  source: string,
+  target: PlanTarget,
+  head: string,
+  context: PlanContext
+): Promise<SkillPlanEntry> {
+  try {
+    return await planSkill(clone, source, target, head, context);
+  } catch (error) {
+    return {
+      name: target.name,
+      state: "failed",
+      failure: { kind: "fetch", message: errorMessage(error) },
+    };
+  }
+}
+
 async function planSource(
   group: SourceGroup,
   workspace: string,
   index: number,
   context: PlanContext
-): Promise<{ plan: SourcePlan; clone: UpstreamClone | null }> {
+): Promise<SourcePlan> {
   const pins = sortNames(
     new Set(
       group.targets
@@ -377,22 +404,21 @@ async function planSource(
       message: errorMessage(error),
     };
     return {
-      clone: null,
-      plan: {
-        ...base,
-        head: null,
-        skills: group.targets.map((target) =>
-          target.vendor
-            ? { name: target.name, state: "skipped", reason: "vendor" }
-            : { name: target.name, state: "failed", failure }
-        ),
-      },
+      ...base,
+      head: null,
+      skills: group.targets.map((target) =>
+        target.vendor
+          ? { name: target.name, state: "skipped", reason: "vendor" }
+          : { name: target.name, state: "failed", failure }
+      ),
     };
   }
   const skills: SkillPlanEntry[] = [];
   for (const target of group.targets)
-    skills.push(await planSkill(clone, group.source, target, head, context));
-  return { clone, plan: { ...base, head, skills } };
+    skills.push(
+      await planSkillOrFail(clone, group.source, target, head, context)
+    );
+  return { ...base, head, skills };
 }
 
 async function mapWithWorkers<T, R>(
@@ -402,7 +428,7 @@ async function mapWithWorkers<T, R>(
   const results: R[] = new Array(items.length);
   let next = 0;
   const lanes = Math.min(externalUpdateCheckWorkers(), items.length);
-  await Promise.all(
+  const settled = await Promise.allSettled(
     Array.from({ length: lanes }, async () => {
       while (next < items.length) {
         const index = next++;
@@ -410,12 +436,14 @@ async function mapWithWorkers<T, R>(
       }
     })
   );
+  const rejected = settled.find((lane) => lane.status === "rejected");
+  if (rejected) throw rejected.reason;
   return results;
 }
 
 type SessionInternals = {
   workspace: string;
-  clones: Map<string, UpstreamClone>;
+  pinsTracked: boolean;
 };
 
 const internals = new WeakMap<ExternalBulkUpdateSession, SessionInternals>();
@@ -429,15 +457,22 @@ export async function planExternalBulkUpdate(
   sourceFilter: string | null = null
 ): Promise<ExternalBulkUpdateSession> {
   const { groups, incomplete } = groupBySource(lock, sourceFilter);
+  const lockPins = loadLockPins();
   const context: PlanContext = {
-    pins: loadLockPins()?.external ?? {},
+    pins: lockPins?.external ?? {},
     globalLock: loadGlobalLock(),
   };
   const workspace = mkdtempSync(join(tmpdir(), "skill-loom-bulk-update-"));
-  const planned = await mapWithWorkers(groups, (group, index) =>
-    planSource(group, workspace, index, context)
-  );
-  const sources = planned.map((row) => row.plan);
+  const dispose = () => rmSync(workspace, { recursive: true, force: true });
+  let sources: SourcePlan[];
+  try {
+    sources = await mapWithWorkers(groups, (group, index) =>
+      planSource(group, workspace, index, context)
+    );
+  } catch (error) {
+    dispose();
+    throw error;
+  }
   if (incomplete.length > 0)
     sources.push({
       source: "(incomplete lock entry)",
@@ -453,14 +488,8 @@ export async function planExternalBulkUpdate(
         },
       })),
     });
-  const clones = new Map<string, UpstreamClone>();
-  for (const row of planned)
-    if (row.clone) clones.set(row.plan.source, row.clone);
-  const session: ExternalBulkUpdateSession = {
-    plan: { sources },
-    dispose: () => rmSync(workspace, { recursive: true, force: true }),
-  };
-  internals.set(session, { workspace, clones });
+  const session: ExternalBulkUpdateSession = { plan: { sources }, dispose };
+  internals.set(session, { workspace, pinsTracked: lockPins !== null });
   return session;
 }
 
@@ -505,42 +534,47 @@ function restoreSkill(backup: Backup): void {
   restoreCliEntry(backup.upstreamName, backup.cliEntry);
 }
 
-function sameSkillMd(
-  update: PlannedSkillUpdate,
-  clone: UpstreamClone | undefined,
-  scratch: string
-): boolean {
-  const planned = clone?.readBlob(update.head, update.skillPath);
-  if (!planned) return false;
-  const plannedPath = join(scratch, `${update.name}.planned.md`);
-  writeFileSync(plannedPath, planned);
-  const installed = join(activeDir(), update.name, "SKILL.md");
-  return (
-    skillFileHash(plannedPath, update.aliased) ===
-    skillFileHash(installed, update.aliased)
+function keepBackup(backup: Backup): string {
+  if (!backup.dir) return "no backup (the skill was not installed before)";
+  const kept = join(
+    mkdtempSync(join(tmpdir(), "skill-loom-bulk-update-kept-")),
+    backup.name
   );
+  cpSync(backup.dir, kept, { recursive: true, verbatimSymlinks: true });
+  return `backup kept at ${kept}`;
+}
+
+function restoreInto(
+  backup: Backup,
+  failure: BulkUpdateFailure
+): BulkUpdateFailure {
+  try {
+    restoreSkill(backup);
+    return failure;
+  } catch (error) {
+    return {
+      kind: failure.kind,
+      message: `${failure.message}; restore failed: ${errorMessage(error)}; ${keepBackup(backup)}`,
+    };
+  }
 }
 
 /** 入った中身が計画した HEAD の tree と同じか。CLI の終了コードだけでは、飛ばされた skill を見分けられない。 */
-function verifyInstalled(
-  update: PlannedSkillUpdate,
-  clone: UpstreamClone | undefined,
-  scratch: string
-): BulkUpdateFailure | null {
+function verifyInstalled(update: PlannedSkillUpdate): BulkUpdateFailure | null {
   const skillMd = join(activeDir(), update.name, "SKILL.md");
   if (!existsSync(skillMd))
     return { kind: "verify", message: `${skillMd} is missing after install` };
   const recorded = loadGlobalLock()[update.upstreamName]?.skillFolderHash;
   if (recorded === update.headTree) return null;
-  if (recorded)
+  if (!recorded)
     return {
       kind: "verify",
-      message: `installed tree ${recorded.slice(0, 12)} is not planned ${update.headTree.slice(0, 12)}`,
+      message:
+        "the skills CLI recorded no folder hash, so the install cannot be checked",
     };
-  if (sameSkillMd(update, clone, scratch)) return null;
   return {
     kind: "verify",
-    message: "installed SKILL.md does not match the planned commit",
+    message: `installed tree ${recorded.slice(0, 12)} is not planned ${update.headTree.slice(0, 12)}`,
   };
 }
 
@@ -588,7 +622,6 @@ function installSource(
 
 type ApplyContext = {
   run: (cmd: string[]) => void;
-  clone: UpstreamClone | undefined;
   backups: Map<string, Backup>;
   backupRoot: string;
 };
@@ -612,15 +645,15 @@ function applySource(
   const installFailures = installSource(updates, lock, context.run);
   const result: SourceApply = { updated: [], failed: [] };
   for (const update of updates) {
-    const failure =
-      installFailures.get(update.name) ??
-      verifyInstalled(update, context.clone, context.backupRoot);
+    const failure = installFailures.get(update.name) ?? verifyInstalled(update);
     if (!failure) {
       result.updated.push(update);
       continue;
     }
-    restoreSkill(backupFor(context.backups, update));
-    result.failed.push({ update, failure });
+    result.failed.push({
+      update,
+      failure: restoreInto(backupFor(context.backups, update), failure),
+    });
   }
   return result;
 }
@@ -663,16 +696,13 @@ function triageSource(source: SourcePlan, includeRisky: boolean): Triage {
   return triage;
 }
 
-function rollbackAll(
+function restoreAll(
   updated: PlannedSkillUpdate[],
-  backups: Map<string, Backup>
+  backups: Map<string, Backup>,
+  failure: BulkUpdateFailure
 ): BulkUpdateSkillOutcome[] {
-  for (const update of updated) restoreSkill(backupFor(backups, update));
   return updated.map((update) =>
-    failedOutcome(update, {
-      kind: "rolled-back",
-      message: "rolled back because another skill failed",
-    })
+    failedOutcome(update, restoreInto(backupFor(backups, update), failure))
   );
 }
 
@@ -702,7 +732,6 @@ export function applyExternalBulkUpdate(
     if (ready.length === 0) continue;
     const result = applySource(ready, lock, {
       run: options.run ?? runSkillsCli,
-      clone: state.clones.get(source.source),
       backups,
       backupRoot,
     });
@@ -713,19 +742,29 @@ export function applyExternalBulkUpdate(
 
   const anyFailed = outcomes.some((row) => row.outcome === "failed");
   if (anyFailed && options.onFailure === "rollback-all")
-    return [...outcomes, ...rollbackAll(updated, backups)];
-  return [...outcomes, ...commitPins(updated, lock, backups)];
+    return [
+      ...outcomes,
+      ...restoreAll(updated, backups, {
+        kind: "rolled-back",
+        message: "rolled back because another skill failed",
+      }),
+    ];
+  return [
+    ...outcomes,
+    ...commitPins(updated, lock, backups, state.pinsTracked),
+  ];
 }
 
 function commitPins(
   updated: PlannedSkillUpdate[],
   lock: Lock,
-  backups: Map<string, Backup>
+  backups: Map<string, Backup>,
+  pinsTracked: boolean
 ): BulkUpdateSkillOutcome[] {
   if (updated.length === 0) return [];
   const resolvedAt = pinTimestamp();
   try {
-    advanceExternalPins(
+    const written = advanceExternalPins(
       Object.fromEntries(
         updated.map((update) => [
           update.name,
@@ -737,14 +776,13 @@ function commitPins(
         ])
       )
     );
+    if (pinsTracked && !written)
+      throw new Error("the lock pins file disappeared after planning");
   } catch (error) {
-    for (const update of updated) restoreSkill(backupFor(backups, update));
-    return updated.map((update) =>
-      failedOutcome(update, {
-        kind: "pins-write",
-        message: errorMessage(error),
-      })
-    );
+    return restoreAll(updated, backups, {
+      kind: "pins-write",
+      message: errorMessage(error),
+    });
   }
   return updated.map((update) => ({
     name: update.name,

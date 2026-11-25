@@ -5,7 +5,7 @@
  * 計画が Projection や CLI lock を書き換えることは構造上起きない。
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 
 export type UpstreamFileChange = {
   status: string;
@@ -133,6 +133,11 @@ export class UpstreamClone {
     return result.code === 0 && result.stdout.trim() === "tree";
   }
 
+  async hasFile(commit: string, path: string): Promise<boolean> {
+    const result = await this.git(["cat-file", "-t", `${commit}:${path}`]);
+    return result.code === 0 && result.stdout.trim() === "blob";
+  }
+
   async hasCommit(sha: string): Promise<boolean> {
     const result = await this.git(["cat-file", "-t", sha]);
     return result.code === 0 && result.stdout.trim() === "commit";
@@ -168,15 +173,5 @@ export class UpstreamClone {
     if (result.code !== 0)
       throw new UpstreamGitError(`git rev-list failed: ${result.stderr}`);
     return Number.parseInt(result.stdout.trim(), 10);
-  }
-
-  /** blob を 1 つ読む。blob なし clone なので、ここで初めて取得が走る。 */
-  readBlob(commit: string, path: string): Uint8Array | null {
-    const result = spawnSync(
-      "git",
-      ["-C", this.dir, "cat-file", "blob", `${commit}:${path}`],
-      { env: gitEnv(), timeout: GIT_TIMEOUT_MS }
-    );
-    return result.status === 0 ? new Uint8Array(result.stdout) : null;
   }
 }
