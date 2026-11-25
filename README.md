@@ -93,6 +93,8 @@ Management command families expose the same Catalog domain operations to shell w
 ./skill-loom external check
 ./skill-loom external preview owner/repo
 ./skill-loom external update SKILL --yes
+./skill-loom external update --all
+./skill-loom external update --all --apply --yes
 
 ./skill-loom custom check
 ./skill-loom custom update SKILL --yes
@@ -118,6 +120,8 @@ Management command families expose the same Catalog domain operations to shell w
 
 ./skill-loom plugin export DECK --out DIR [--name NAME] [--version VERSION] [--description TEXT] [--repository OWNER/REPO] [--overwrite]
 ```
+
+`external update --all` only plans by default: per source it clones the upstream once (blob-less), and lists the skills that would change, the pin-to-HEAD commit range, and the changed files, without writing anything. `--apply` installs each source with one `skills add` call, reinstalls aliased skills under their upstream name, and advances `skills.lock.pins.json` only for skills whose installed tree matches the planned HEAD. Skills overridden by `vendor` are never touched. Skills whose upstream changed scripts or executables are held until `--include-risky`. Failed skills keep both their pin and their content; `--all-or-nothing` also rolls back the successes. The exit code ORs one bit per failure kind (4 held, 8 fetch or missing path, 16 install, 32 verify, 64 pins write), and `--json` reports the same kinds per skill.
 
 `plugin export` projects a Project or Shared Deck into an installable plugin
 package: an Agent Plugins `plugin.json`, the copied `skills/` tree, and
