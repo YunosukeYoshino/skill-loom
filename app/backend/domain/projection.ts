@@ -507,7 +507,7 @@ export function reinstallAliasedExternal(
   const meta = lock.external?.[name];
   if (!isAliasedExternal(name, meta)) return false;
   for (const cmd of installCommands(new Set([name]), lock)) {
-    console.log(`+ ${cmd.join(" ")}`);
+    console.error(`+ ${cmd.join(" ")}`);
     withStashedUpstream(meta.installSkill, () => {
       run(cmd);
       // add が 0 終了でも上流名のフォルダが無ければ入れ替えられていない。成功扱いにしない。

@@ -63,6 +63,8 @@ function git(repo: string, ...args: string[]): string {
       "user.email=fixture@example.invalid",
       "-c",
       "commit.gpgsign=false",
+      "-c",
+      "core.hooksPath=/dev/null",
       ...args,
     ],
     { stdout: "pipe", stderr: "pipe", env: gitEnv() }
@@ -188,6 +190,7 @@ function buildLock(): Lock {
   });
   return {
     version: 1,
+    custom: { repo: "owner/catalog", skills: {} },
     external: {
       alpha: entry("fake/one", "alpha"),
       beta: entry("fake/one", "beta"),
@@ -476,9 +479,9 @@ describe("applyExternalBulkUpdate", () => {
     }
     expect(outcomeOf(outcomes, "tool").outcome).toBe("updated");
     expect(pinCommits().tool).toBe(commits.oneV2);
-    expect(readFileSync(dir("active", "tool", "scripts", "run.sh"), "utf8")).toBe(
-      "echo v2\n"
-    );
+    expect(
+      readFileSync(dir("active", "tool", "scripts", "run.sh"), "utf8")
+    ).toBe("echo v2\n");
   });
 
   test("all-or-nothing では 1 件でも失敗すると成功した分も戻してピンを動かさない", async () => {
@@ -530,5 +533,60 @@ describe("applyExternalBulkUpdate", () => {
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
     );
     expect(existsSync(dir("active", "alpha"))).toBe(true);
+  });
+});
+
+describe("skill-loom external update --all", () => {
+  const cli = join(import.meta.dir, "..", "cli.ts");
+
+  function runCli(...args: string[]) {
+    const result = Bun.spawnSync(
+      ["bun", cli, "external", "update", "--all", "--json", ...args],
+      { stdout: "pipe", stderr: "pipe", env: gitEnv() }
+    );
+    return {
+      exitCode: result.exitCode,
+      stderr: result.stderr.toString(),
+      json: JSON.parse(result.stdout.toString() || "null"),
+    };
+  }
+
+  test("既定は計画だけで、取得失敗を終了コードのビットで返す", () => {
+    const pinsBefore = readFileSync(dir("skills.lock.pins.json"), "utf8");
+    const { exitCode, json, stderr } = runCli();
+    if (!json) throw new Error(stderr);
+    expect(json.mode).toBe("plan");
+    expect(json.summary).toMatchObject({
+      update: 4,
+      held: 1,
+      vendor: 1,
+      failed: 1,
+    });
+    expect(exitCode).toBe(8);
+    expect(readFileSync(dir("skills.lock.pins.json"), "utf8")).toBe(pinsBefore);
+    expect(readFileSync(dir("cli.log"), "utf8")).toBe("");
+  });
+
+  test("--apply は stdout を JSON 1 行に保ち、失敗の種類を終了コードと outcomes で分ける", () => {
+    setEnv("FAKE_FAIL_SOURCES", "fake/three");
+    setEnv("FAKE_SKIP_SKILLS", "delta");
+    const { exitCode, json } = runCli("--apply", "-y");
+    expect(json.mode).toBe("apply");
+    expect(exitCode).toBe(4 | 8 | 16 | 32);
+    expect(json.exitCode).toBe(exitCode);
+    const byName = Object.fromEntries(
+      (json.outcomes as BulkUpdateSkillOutcome[]).map((row) => [
+        row.name,
+        row.outcome === "failed" ? row.failure.kind : row.outcome,
+      ])
+    );
+    expect(byName).toEqual({
+      alpha: "updated",
+      "json-render": "updated",
+      tool: "held",
+      delta: "verify",
+      gone: "fetch",
+      omega: "install",
+    });
   });
 });
