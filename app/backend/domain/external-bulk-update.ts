@@ -20,7 +20,7 @@ import {
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   activeDir,
   externalUpdateCheckWorkers,
@@ -309,7 +309,8 @@ async function skillTreeAt(
   skillPath: string
 ): Promise<string | null> {
   const tree = await clone.treeOf(commit, skillMdFolderPath(skillPath));
-  if (!tree || !(await clone.hasFile(commit, skillPath))) return null;
+  if (!tree || !(await clone.treeHasBlob(tree, basename(skillPath))))
+    return null;
   return tree;
 }
 
@@ -536,12 +537,16 @@ function restoreSkill(backup: Backup): void {
 
 function keepBackup(backup: Backup): string {
   if (!backup.dir) return "no backup (the skill was not installed before)";
-  const kept = join(
-    mkdtempSync(join(tmpdir(), "skill-loom-bulk-update-kept-")),
-    backup.name
-  );
-  cpSync(backup.dir, kept, { recursive: true, verbatimSymlinks: true });
-  return `backup kept at ${kept}`;
+  try {
+    const kept = join(
+      mkdtempSync(join(tmpdir(), "skill-loom-bulk-update-kept-")),
+      backup.name
+    );
+    cpSync(backup.dir, kept, { recursive: true, verbatimSymlinks: true });
+    return `backup kept at ${kept}`;
+  } catch (error) {
+    return `could not keep the backup: ${errorMessage(error)}`;
+  }
 }
 
 function restoreInto(

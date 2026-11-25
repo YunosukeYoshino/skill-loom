@@ -106,6 +106,7 @@ function commit(source: string, message: string): string {
 function initRepo(source: string): void {
   mkdirSync(upstreamRepo(source), { recursive: true });
   git(upstreamRepo(source), "init", "-q", "-b", "main");
+  git(upstreamRepo(source), "config", "uploadpack.allowFilter", "true");
 }
 
 /**

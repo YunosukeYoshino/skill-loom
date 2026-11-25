@@ -33,6 +33,7 @@ function gitEnv(): NodeJS.ProcessEnv {
     GIT_TERMINAL_PROMPT: "0",
     GIT_ASKPASS: "true",
     GIT_ALLOW_PROTOCOL: "https:ssh:file",
+    GIT_NO_LAZY_FETCH: "1",
   };
   for (const key of REPO_SCOPED_GIT_ENV) delete env[key];
   return env;
@@ -133,9 +134,17 @@ export class UpstreamClone {
     return result.code === 0 && result.stdout.trim() === "tree";
   }
 
-  async hasFile(commit: string, path: string): Promise<boolean> {
-    const result = await this.git(["cat-file", "-t", `${commit}:${path}`]);
-    return result.code === 0 && result.stdout.trim() === "blob";
+  /** tree の直下に name という blob があるか。tree の一覧だけを読むので blob は取得しない。 */
+  async treeHasBlob(tree: string, name: string): Promise<boolean> {
+    const result = await this.git(["ls-tree", "-z", tree]);
+    if (result.code !== 0)
+      throw new UpstreamGitError(`git ls-tree failed: ${result.stderr}`);
+    return result.stdout
+      .split("\0")
+      .some(
+        (entry) =>
+          entry.split("\t")[1] === name && entry.split(" ")[1] === "blob"
+      );
   }
 
   async hasCommit(sha: string): Promise<boolean> {
