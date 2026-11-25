@@ -418,6 +418,29 @@ describe("planExternalBulkUpdate", () => {
     }
   });
 
+  test("CLI が入れた場所が上流から消えたら Catalog の skillPath で計画し、差分不明として保留する", async () => {
+    const cliLock = JSON.parse(readFileSync(dir("cli-lock.json"), "utf8"));
+    cliLock.skills.alpha.skillPath = "SKILL.md";
+    writeFileSync(dir("cli-lock.json"), JSON.stringify(cliLock));
+    const session = await planExternalBulkUpdate(buildLock());
+    let outcomes: BulkUpdateSkillOutcome[];
+    try {
+      expect(skillEntry(session.plan, "alpha")).toMatchObject({
+        state: "update",
+        skillPath: "skills/alpha/SKILL.md",
+        baseline: "unknown",
+        files: null,
+      });
+      outcomes = applyExternalBulkUpdate(session, buildLock(), {
+        includeRisky: true,
+      });
+    } finally {
+      session.dispose();
+    }
+    expect(outcomeOf(outcomes, "alpha").outcome).toBe("updated");
+    expect(installedBody("alpha")).toContain("alpha v2");
+  });
+
   test("repo 直下の skill（skillPath が SKILL.md）も計画できる", async () => {
     writeFileSync(
       join(upstreamRepo("fake/one"), "SKILL.md"),

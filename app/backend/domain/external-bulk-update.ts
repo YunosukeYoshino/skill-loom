@@ -314,6 +314,41 @@ async function skillTreeAt(
   return tree;
 }
 
+type LocatedSkill = {
+  skillPath: string;
+  headTree: string;
+  installedTree: string | null;
+  pinTree: string | null;
+};
+
+async function locateSkill(
+  clone: UpstreamClone,
+  head: string,
+  installed: Installed,
+  catalogPath: string,
+  pin: string | null
+): Promise<LocatedSkill | null> {
+  const headTree = await skillTreeAt(clone, head, installed.skillPath);
+  if (headTree) {
+    const folder = skillMdFolderPath(installed.skillPath);
+    return {
+      skillPath: installed.skillPath,
+      headTree,
+      installedTree: installed.tree,
+      pinTree: pin ? await clone.treeOf(pin, folder) : null,
+    };
+  }
+  if (catalogPath === installed.skillPath) return null;
+  const movedTree = await skillTreeAt(clone, head, catalogPath);
+  if (!movedTree) return null;
+  return {
+    skillPath: catalogPath,
+    headTree: movedTree,
+    installedTree: null,
+    pinTree: null,
+  };
+}
+
 async function planSkill(
   clone: UpstreamClone,
   source: string,
@@ -323,20 +358,21 @@ async function planSkill(
 ): Promise<SkillPlanEntry> {
   const { name, upstreamName } = target;
   if (target.vendor) return { name, state: "skipped", reason: "vendor" };
-  const { skillPath, tree: installedTree } = installedOf(
-    target,
-    source,
-    context
-  );
-  const folder = skillMdFolderPath(skillPath);
-  const headTree = await skillTreeAt(clone, head, skillPath);
-  if (!headTree) return missingPath(name, skillPath, source, head);
-
+  const installed = installedOf(target, source, context);
   const pin = context.pins[name]?.commit ?? null;
-  const pinTree = pin ? await clone.treeOf(pin, folder) : null;
+  const located = await locateSkill(
+    clone,
+    head,
+    installed,
+    target.skillPath,
+    pin
+  );
+  if (!located) return missingPath(name, installed.skillPath, source, head);
+  const { skillPath, headTree, installedTree, pinTree } = located;
   const baseTree = installedTree ?? pinTree;
   if (baseTree === headTree) return { name, state: "current" };
 
+  const folder = skillMdFolderPath(skillPath);
   const files = await changedFiles(clone, baseTree, headTree, folder);
   return {
     name,
