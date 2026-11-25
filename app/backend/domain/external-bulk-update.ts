@@ -676,16 +676,38 @@ function backupFor(
   return backup;
 }
 
+function backUpEach(
+  updates: PlannedSkillUpdate[],
+  context: ApplyContext,
+  result: SourceApply
+): PlannedSkillUpdate[] {
+  const backedUp: PlannedSkillUpdate[] = [];
+  for (const update of updates) {
+    try {
+      context.backups.set(update.name, backupSkill(update, context.backupRoot));
+      backedUp.push(update);
+    } catch (error) {
+      result.failed.push({
+        update,
+        failure: {
+          kind: "install",
+          message: `not installed because the backup failed: ${errorMessage(error)}`,
+        },
+      });
+    }
+  }
+  return backedUp;
+}
+
 function applySource(
   updates: PlannedSkillUpdate[],
   lock: Lock,
   context: ApplyContext
 ): SourceApply {
-  for (const update of updates)
-    context.backups.set(update.name, backupSkill(update, context.backupRoot));
-  const installFailures = installSource(updates, lock, context.run);
   const result: SourceApply = { updated: [], failed: [] };
-  for (const update of updates) {
+  const backedUp = backUpEach(updates, context, result);
+  const installFailures = installSource(backedUp, lock, context.run);
+  for (const update of backedUp) {
     const failure = installFailures.get(update.name) ?? verifyInstalled(update);
     if (!failure) {
       result.updated.push(update);

@@ -646,6 +646,27 @@ describe("applyExternalBulkUpdate", () => {
     rmSync(kept, { recursive: true, force: true });
   });
 
+  test("退避できない skill だけを失敗にして入れず、他の skill の更新は続ける", async () => {
+    const unreadable = dir("active", "alpha", "unreadable.txt");
+    writeFileSync(unreadable, "secret\n");
+    chmodSync(unreadable, 0o000);
+    const pinBefore = pinCommits().alpha;
+    const session = await planExternalBulkUpdate(buildLock());
+    let outcomes: BulkUpdateSkillOutcome[];
+    try {
+      outcomes = applyExternalBulkUpdate(session, buildLock());
+    } finally {
+      session.dispose();
+    }
+    expect(outcomeOf(outcomes, "alpha")).toMatchObject({
+      outcome: "failed",
+      failure: { kind: "install" },
+    });
+    expect(outcomeOf(outcomes, "json-render").outcome).toBe("updated");
+    expect(pinCommits().alpha).toBe(pinBefore);
+    expect(installedBody("alpha")).toContain("alpha v1");
+  });
+
   test("計画のあとにピンのファイルが消えたら pins-write として中身を戻す", async () => {
     const session = await planExternalBulkUpdate(buildLock());
     let outcomes: BulkUpdateSkillOutcome[];
