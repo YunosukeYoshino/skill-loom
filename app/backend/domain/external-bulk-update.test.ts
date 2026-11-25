@@ -245,7 +245,6 @@ function writePins(lock: Lock): void {
   );
 }
 
-/** 一時ディレクトリの中身を path → 内容で写す。dry-run が何も書かないことの比較に使う。 */
 function snapshot(root: string, skip: string[]): Record<string, string> {
   const out: Record<string, string> = {};
   const walk = (path: string) => {
@@ -387,6 +386,41 @@ describe("planExternalBulkUpdate", () => {
     }
   });
 
+  test("比べるフォルダは Catalog の skillPath ではなく CLI が実際に入れたフォルダ", async () => {
+    const lock = buildLock();
+    const alpha = lock.external?.alpha;
+    if (!alpha) throw new Error("fixture has no alpha");
+    alpha.skillPath = "plugins/alpha/SKILL.md";
+    const session = await planExternalBulkUpdate(lock);
+    try {
+      expect(skillEntry(session.plan, "alpha")).toMatchObject({
+        state: "update",
+        skillPath: "skills/alpha/SKILL.md",
+        files: [{ status: "M", path: "skills/alpha/SKILL.md" }],
+      });
+      const outcomes = applyExternalBulkUpdate(session, lock);
+      expect(outcomeOf(outcomes, "alpha").outcome).toBe("updated");
+    } finally {
+      session.dispose();
+    }
+  });
+
+  test("repo 直下の skill（skillPath が SKILL.md）も計画できる", async () => {
+    const cliLock = JSON.parse(readFileSync(dir("cli-lock.json"), "utf8"));
+    cliLock.skills.alpha.skillPath = "SKILL.md";
+    writeFileSync(dir("cli-lock.json"), JSON.stringify(cliLock));
+    const session = await planExternalBulkUpdate(buildLock());
+    try {
+      expect(skillEntry(session.plan, "alpha")).toMatchObject({
+        state: "update",
+        skillPath: "SKILL.md",
+        commits: 1,
+      });
+    } finally {
+      session.dispose();
+    }
+  });
+
   test("vendor が上書きしている skill は上流が変わっても更新対象にしない", async () => {
     const session = await planExternalBulkUpdate(buildLock());
     try {
@@ -465,6 +499,31 @@ describe("applyExternalBulkUpdate", () => {
     expect(oneCalls.filter((line) => !line.includes('"react"'))).toHaveLength(
       1
     );
+  });
+
+  test("差分が読めない skill は中身を確かめられないので risky と同じく保留する", async () => {
+    const cliLock = JSON.parse(readFileSync(dir("cli-lock.json"), "utf8"));
+    cliLock.skills.alpha.skillFolderHash = "f".repeat(40);
+    writeFileSync(dir("cli-lock.json"), JSON.stringify(cliLock));
+    const pinBefore = pinCommits().alpha;
+    const session = await planExternalBulkUpdate(buildLock());
+    let outcomes: BulkUpdateSkillOutcome[];
+    try {
+      expect(skillEntry(session.plan, "alpha")).toMatchObject({
+        state: "update",
+        files: null,
+        baseline: "installed",
+      });
+      outcomes = applyExternalBulkUpdate(session, buildLock());
+    } finally {
+      session.dispose();
+    }
+    expect(outcomeOf(outcomes, "alpha")).toMatchObject({
+      outcome: "held",
+      reason: "unknown-diff",
+    });
+    expect(pinCommits().alpha).toBe(pinBefore);
+    expect(installedBody("alpha")).toContain("alpha v1");
   });
 
   test("risky を許せばスクリプトが変わった skill も更新する", async () => {

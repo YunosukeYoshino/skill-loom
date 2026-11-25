@@ -7,6 +7,7 @@ import {
   applyExternalBulkUpdate,
   type BulkUpdateSkillOutcome,
   externalBulkUpdateExitCode,
+  holdReason,
   type ExternalBulkUpdatePlan,
   type ExternalBulkUpdateSession,
   planExitCode,
@@ -73,7 +74,7 @@ function rangeText(update: PlannedSkillUpdate): string {
 }
 
 const isHeld = (update: PlannedSkillUpdate, includeRisky: boolean) =>
-  update.risky.length > 0 && !includeRisky;
+  !includeRisky && holdReason(update) !== null;
 
 function fileLines(update: PlannedSkillUpdate): string[] {
   if (update.files === null)
@@ -145,7 +146,7 @@ export function formatPlanText(
   return [
     "External update plan:",
     ...plan.sources.flatMap((source) => sourceLines(source, includeRisky)),
-    `Summary: ${summary.update} to update, ${summary.held} held (risky files changed), ${summary.current} current, ${summary.vendor} vendor override, ${summary.failed} failed`,
+    `Summary: ${summary.update} to update, ${summary.held} held (risky or unknown changes), ${summary.current} current, ${summary.vendor} vendor override, ${summary.failed} failed`,
   ];
 }
 
@@ -168,7 +169,7 @@ export function formatOutcomesText(
     ...namesLine(
       outcomes,
       "held",
-      "Held (risky files changed; review, then re-run with --include-risky)"
+      "Held (risky or unknown changes; review, then re-run with --include-risky)"
     ),
     ...outcomes.flatMap((row) =>
       row.outcome === "failed"

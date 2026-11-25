@@ -157,7 +157,7 @@ describe("plan text", () => {
       `fake/one  HEAD bbbbbbbbbbbb  pins: aaaaaaaaaaaa`,
       "  update   alpha  aaaaaaaaaaaa..bbbbbbbbbbbb (2 commits)",
       "      M skills/alpha/SKILL.md",
-      "  update   json-render (as react)  unpinned..bbbbbbbbbbbb (1 commit)",
+      "  hold     json-render (as react)  unpinned..bbbbbbbbbbbb (1 commit)",
       "      files unknown (baseline: unknown)",
       "  hold     tool  aaaaaaaaaaaa..bbbbbbbbbbbb (2 commits)",
       "      M skills/tool/run.sh  [risky]",
@@ -167,7 +167,7 @@ describe("plan text", () => {
       "  failed   gone [fetch] git clone failed",
       "fake/three  HEAD bbbbbbbbbbbb  pins: bbbbbbbbbbbb",
       "  current  1 skill(s)",
-      "Summary: 2 to update, 1 held (risky files changed), 2 current, 1 vendor override, 1 failed",
+      "Summary: 1 to update, 2 held (risky or unknown changes), 2 current, 1 vendor override, 1 failed",
     ]);
   });
 
@@ -196,7 +196,7 @@ describe("formatOutcomesText", () => {
     ];
     expect(formatOutcomesText(outcomes)).toEqual([
       "Updated: alpha",
-      "Held (risky files changed; review, then re-run with --include-risky): tool",
+      "Held (risky or unknown changes; review, then re-run with --include-risky): tool",
       "Failed [install] omega: exit 1",
     ]);
   });
@@ -219,7 +219,7 @@ describe("reportExternalUpdatePlan", () => {
     expect(out).toHaveLength(1);
     expect(JSON.parse(out[0] ?? "")).toMatchObject({
       mode: "plan",
-      summary: { update: 2, held: 1, failed: 1 },
+      summary: { update: 1, held: 2, failed: 1 },
     });
   });
 });

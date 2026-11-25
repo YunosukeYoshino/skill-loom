@@ -113,9 +113,17 @@ export type ExternalBulkUpdateSession = {
   dispose(): void;
 };
 
+export type HoldReason = "risky" | "unknown-diff";
+
+/** 確かめずに入れてはいけない更新の理由。差分が読めないものは中身を確かめられないので risky と同じく止める。 */
+export function holdReason(update: PlannedSkillUpdate): HoldReason | null {
+  if (update.files === null) return "unknown-diff";
+  return update.risky.length > 0 ? "risky" : null;
+}
+
 export type BulkUpdateSkillOutcome =
   | { name: string; source: string; outcome: "updated"; commit: string }
-  | { name: string; source: string; outcome: "held"; reason: "risky" }
+  | { name: string; source: string; outcome: "held"; reason: HoldReason }
   | {
       name: string;
       source: string;
@@ -136,7 +144,6 @@ const RISKY_EXTENSIONS =
 const RISKY_SEGMENTS = /(^|\/)(scripts|bin|hooks)\//;
 const EXECUTABLE_MODES = new Set(["100755", "120000"]);
 
-/** 読み込まれるだけでなく実行されうるファイル。人が差分を見るまで自動では入れない。 */
 function isRiskyChange(change: UpstreamFileChange): boolean {
   if (change.status === "D") return false;
   return (
@@ -237,14 +244,36 @@ type PlanContext = {
   globalLock: Record<string, GlobalLockEntry>;
 };
 
-function installedTreeOf(
+type Installed = { skillPath: string; tree: string | null };
+
+function installedOf(
   target: PlanTarget,
   source: string,
   context: PlanContext
-): string | null {
-  const installed = context.globalLock[target.upstreamName];
-  if (!sameSource(installed?.source, source)) return null;
-  return installed?.skillFolderHash || null;
+): Installed {
+  const entry = context.globalLock[target.upstreamName];
+  if (!entry || !sameSource(entry.source, source))
+    return { skillPath: target.skillPath, tree: null };
+  return {
+    skillPath: entry.skillPath || target.skillPath,
+    tree: entry.skillFolderHash || null,
+  };
+}
+
+function missingPath(
+  name: string,
+  skillPath: string,
+  source: string,
+  head: string
+): SkillPlanEntry {
+  return {
+    name,
+    state: "failed",
+    failure: {
+      kind: "missing-path",
+      message: `${skillPath} is not in ${source}@${head.slice(0, 12)}`,
+    },
+  };
 }
 
 async function changedFiles(
@@ -282,23 +311,19 @@ async function planSkill(
   head: string,
   context: PlanContext
 ): Promise<SkillPlanEntry> {
-  const { name, upstreamName, skillPath } = target;
+  const { name, upstreamName } = target;
   if (target.vendor) return { name, state: "skipped", reason: "vendor" };
+  const { skillPath, tree: installedTree } = installedOf(
+    target,
+    source,
+    context
+  );
   const folder = skillMdFolderPath(skillPath);
   const headTree = await clone.treeOf(head, folder);
-  if (!headTree)
-    return {
-      name,
-      state: "failed",
-      failure: {
-        kind: "missing-path",
-        message: `${skillPath} is not in ${source}@${head.slice(0, 12)}`,
-      },
-    };
+  if (!headTree) return missingPath(name, skillPath, source, head);
 
   const pin = context.pins[name]?.commit ?? null;
   const pinTree = pin ? await clone.treeOf(pin, folder) : null;
-  const installedTree = installedTreeOf(target, source, context);
   const baseTree = installedTree ?? pinTree;
   if (baseTree === headTree) return { name, state: "current" };
 
@@ -388,7 +413,6 @@ async function mapWithWorkers<T, R>(
   return results;
 }
 
-/** 計画の内部状態。適用は計画で作った clone と、退避先の作業ディレクトリを使う。 */
 type SessionInternals = {
   workspace: string;
   clones: Map<string, UpstreamClone>;
@@ -459,7 +483,6 @@ function backupSkill(update: PlannedSkillUpdate, backupRoot: string): Backup {
   };
 }
 
-/** CLI lock の 1 エントリを退避した値へ戻す。他のエントリと CLI が持つ他のキーは触らない。 */
 function restoreCliEntry(key: string, entry: GlobalLockEntry | undefined) {
   const path = globalLockFile();
   if (!existsSync(path)) return;
@@ -482,7 +505,6 @@ function restoreSkill(backup: Backup): void {
   restoreCliEntry(backup.upstreamName, backup.cliEntry);
 }
 
-/** 計画した commit の SKILL.md と入った SKILL.md の内容ハッシュが同じか。CLI lock に tree が無いときの確かめ方。 */
 function sameSkillMd(
   update: PlannedSkillUpdate,
   clone: UpstreamClone | undefined,
@@ -615,16 +637,11 @@ function failedOutcome(
   };
 }
 
-/**
- * 計画を適用する。適用は直列で、source ごとに `skills add` を 1 回だけ呼ぶ
- * （CLI が `~/.agents/.skill-lock.json` を書くので、並べると互いの書き込みを消す）。
- */
 type Triage = {
   ready: PlannedSkillUpdate[];
   settled: BulkUpdateSkillOutcome[];
 };
 
-/** 計画の段階で決まる結果（失敗・保留）と、これから入れる skill に分ける。 */
 function triageSource(source: SourcePlan, includeRisky: boolean): Triage {
   const triage: Triage = { ready: [], settled: [] };
   for (const entry of source.skills) {
@@ -633,12 +650,13 @@ function triageSource(source: SourcePlan, includeRisky: boolean): Triage {
         failedOutcome({ ...entry, source: source.source }, entry.failure)
       );
     if (entry.state !== "update") continue;
-    if (entry.risky.length > 0 && !includeRisky)
+    const reason = includeRisky ? null : holdReason(entry);
+    if (reason)
       triage.settled.push({
         name: entry.name,
         source: entry.source,
         outcome: "held",
-        reason: "risky",
+        reason,
       });
     else triage.ready.push(entry);
   }
@@ -699,7 +717,6 @@ export function applyExternalBulkUpdate(
   return [...outcomes, ...commitPins(updated, lock, backups)];
 }
 
-/** 成功した分のピンを進める。書けなければ中身も戻し、ピンと中身を食い違わせない。 */
 function commitPins(
   updated: PlannedSkillUpdate[],
   lock: Lock,

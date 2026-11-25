@@ -163,7 +163,7 @@ export class UpstreamClone {
       "--count",
       `${from}..${to}`,
       "--",
-      folder,
+      folder || ".",
     ]);
     if (result.code !== 0)
       throw new UpstreamGitError(`git rev-list failed: ${result.stderr}`);
