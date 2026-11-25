@@ -86,6 +86,13 @@ export function presetsDir(): string {
   );
 }
 
+export function projectsDir(): string {
+  return envPath(
+    "MY_SKILLS_PROJECTS_DIR",
+    join(homedir(), ".agents", "skill-projects")
+  );
+}
+
 // ---- deck ----
 
 export function projectDecksDir(): string {

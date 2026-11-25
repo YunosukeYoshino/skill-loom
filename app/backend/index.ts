@@ -14,6 +14,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ServerWebSocket, Subprocess } from "bun";
 import { Hono } from "hono";
+import { createProjectRoutes } from "./projectRoutes";
 import { APPLY_BUSY_MESSAGE, releaseApply, tryAcquireApply } from "./applyLock";
 import { ignoreFile, lockFile, projectDecksDir } from "./domain/config";
 import {
@@ -398,6 +399,7 @@ const app = new Hono();
 // cross-site からの状態変更（任意スキルの導入など）を /api 全体で拒む。
 app.use("/api/*", localRequestGuard);
 app.route("/api/skill", createSkillRoutes());
+app.route("/api/projects", createProjectRoutes());
 
 // ---- 移植済みルート ----
 

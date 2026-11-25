@@ -64,3 +64,60 @@ describe("api.externalSources", () => {
     await expect(api.externalSources()).resolves.toEqual(payload);
   });
 });
+
+describe("project API", () => {
+  test("空一覧と差分プレビューの JSON を保持する", async () => {
+    globalThis.fetch = mock(
+      async (path) =>
+        new Response(
+          JSON.stringify(
+            String(path).endsWith("preview")
+              ? {
+                  skill: "alpha",
+                  diff: "-local\n+source",
+                  revision: "current",
+                  requiresConfirmation: true,
+                }
+              : { projects: [], inventory: [], decks: [] }
+          ),
+          { headers: { "Content-Type": "application/json" } }
+        )
+    ) as unknown as typeof fetch;
+    expect(await api.projects()).toEqual({
+      projects: [],
+      inventory: [],
+      decks: [],
+    });
+    expect(await api.projectSkillPreview("work", "alpha")).toMatchObject({
+      diff: "-local\n+source",
+      requiresConfirmation: true,
+    });
+  });
+  test("更新で確認済み revision を送信する", async () => {
+    const fetcher = mock(async (_path: unknown, init?: RequestInit) => {
+      expect(JSON.parse(init!.body as string)).toEqual({
+        force: true,
+        revision: "reviewed",
+        confirm: true,
+      });
+      return new Response("{}", {
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    globalThis.fetch = fetcher as unknown as typeof fetch;
+    await api.projectSkill("work", "alpha", "update", true, "reviewed");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  test("確認前の更新エラーを伝える", async () => {
+    globalThis.fetch = mock(
+      async () =>
+        new Response('{"message":"Review the diff"}', {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        })
+    ) as unknown as typeof fetch;
+    await expect(api.projectSkill("work", "alpha", "update")).rejects.toThrow(
+      "Review the diff"
+    );
+  });
+});
