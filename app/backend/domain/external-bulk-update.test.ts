@@ -286,6 +286,8 @@ beforeEach(() => {
   writeFileSync(dir("cli.log"), "");
   setEnv("MY_SKILLS_CATALOG_DIR", sandbox);
   setEnv("MY_SKILLS_CATALOG_EXPLICIT", "0");
+  setEnv("GIT_CONFIG_GLOBAL", "/dev/null");
+  setEnv("GIT_CONFIG_NOSYSTEM", "1");
   setEnv("MY_SKILLS_ACTIVE_DIR", dir("active"));
   setEnv("MY_SKILLS_ARCHIVE_DIR", dir("archive"));
   setEnv("MY_SKILLS_CLAUDE_SKILLS_DIR", dir("claude-skills"));
