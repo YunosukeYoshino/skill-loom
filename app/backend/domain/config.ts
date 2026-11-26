@@ -40,6 +40,11 @@ export function lockFile(): string {
   return catalogFile("MY_SKILLS_LOCK_FILE", "skills.lock.json");
 }
 
+/** External / vendor の commit を記録する sidecar。Catalog の `scripts/lock_pins.py` と同じ書式で書く。 */
+export function lockPinsFile(): string {
+  return catalogFile("MY_SKILLS_LOCK_PINS_FILE", "skills.lock.pins.json");
+}
+
 export function ignoreFile(): string {
   return catalogFile("MY_SKILLS_IGNORE_FILE", ".skills-ignore.json");
 }

@@ -38,6 +38,7 @@ import { draftRows, promoteDrafts } from "./domain/drafts";
 import {
   difference,
   ignoredSkills,
+  type Lock,
   loadLock,
   type Selection,
   sortNames,
@@ -50,6 +51,17 @@ import {
   externalSourceSummary,
   runExternalSkillUpdate,
 } from "./domain/external";
+import {
+  type ExternalBulkUpdateSession,
+  planExternalBulkUpdate,
+} from "./domain/external-bulk-update";
+import {
+  applyExternalUpdatePlan,
+  type BulkUpdateIo,
+  EXTERNAL_UPDATE_ALL_USAGE,
+  parseExternalUpdateAllArgs,
+  reportExternalUpdatePlan,
+} from "./externalBulkUpdateCli";
 import {
   backupActiveToLast,
   computePresetApplyPlan,
@@ -419,6 +431,48 @@ function cmdExternalUpdate(argv: string[]): number {
   return 0;
 }
 
+const bulkUpdateIo: BulkUpdateIo = {
+  json: jsonMode,
+  out: (line) => console.log(line),
+  err: (line) => console.error(line),
+  confirm: (yes) => confirmProceed(yes),
+  run: runCommand,
+};
+
+async function planFromCatalog(
+  source: string | null
+): Promise<{ lock: Lock; session: ExternalBulkUpdateSession } | number> {
+  try {
+    const lock = loadLock();
+    return { lock, session: await planExternalBulkUpdate(lock, source) };
+  } catch (error) {
+    return failFromError(error, "check the Catalog lock via status --json");
+  }
+}
+
+/**
+ * 既定は計画だけ（何も書かない）。`--apply` で初めて skills CLI を呼び、ピンを進める。
+ * 終了コードは失敗の種類ごとのビットの OR。
+ */
+async function cmdExternalUpdateAll(argv: string[]): Promise<number> {
+  const args = parseExternalUpdateAllArgs(argv);
+  if (!args) return cliError("invalid arguments", EXTERNAL_UPDATE_ALL_USAGE);
+  const planned = await planFromCatalog(args.source);
+  if (typeof planned === "number") return planned;
+  try {
+    return args.apply
+      ? applyExternalUpdatePlan(
+          planned.session,
+          planned.lock,
+          args,
+          bulkUpdateIo
+        )
+      : reportExternalUpdatePlan(planned.session.plan, args, bulkUpdateIo);
+  } finally {
+    planned.session.dispose();
+  }
+}
+
 // fallow-ignore-next-line complexity
 async function cmdExternal(argv: string[]): Promise<number> {
   const [subcommand, ...rest] = argv;
@@ -432,7 +486,10 @@ async function cmdExternal(argv: string[]): Promise<number> {
       );
     return cmdExternalPreview(rest[0]);
   }
-  if (subcommand === "update") return cmdExternalUpdate(rest);
+  if (subcommand === "update")
+    return rest.includes("--all")
+      ? await cmdExternalUpdateAll(rest)
+      : cmdExternalUpdate(rest);
   return cliError(
     "invalid choice",
     "usage: skill-loom external {list,check,preview,update} ...",
