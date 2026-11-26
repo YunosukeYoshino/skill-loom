@@ -608,6 +608,25 @@ describe("applyExternalBulkUpdate", () => {
     expect(installedBody("alpha")).toContain("alpha v1");
   });
 
+  test("適用で入ったものが計画と別の tree なら（取得元の食い違いや計画後の上流の変化）戻し、ピンを動かさない", async () => {
+    const pinBefore = pinCommits().alpha;
+    const session = await planExternalBulkUpdate(buildLock());
+    let outcomes: BulkUpdateSkillOutcome[];
+    try {
+      writeSkill("fake/one", "alpha", "alpha from another fetch");
+      commit("fake/one", "alpha moved after planning");
+      outcomes = applyExternalBulkUpdate(session, buildLock());
+    } finally {
+      session.dispose();
+    }
+    const alpha = outcomeOf(outcomes, "alpha");
+    if (alpha.outcome !== "failed") throw new Error("alpha must fail");
+    expect(alpha.failure.kind).toBe("verify");
+    expect(alpha.failure.message).toContain("is not planned");
+    expect(pinCommits().alpha).toBe(pinBefore);
+    expect(installedBody("alpha")).toContain("alpha v1");
+  });
+
   test("CLI lock に tree が記録されなければ確かめられないので戻し、ピンを動かさない", async () => {
     setEnv("FAKE_NO_HASH_SKILLS", "alpha");
     const pinBefore = pinCommits().alpha;
