@@ -667,6 +667,26 @@ describe("applyExternalBulkUpdate", () => {
     rmSync(kept, { recursive: true, force: true });
   });
 
+  test("戻せなかった skill のバックアップは作業場所から外へ移すので、後片付けで唯一の複製が消えない", async () => {
+    setEnv("TMPDIR", dir("tmp"));
+    setEnv("FAKE_SKIP_SKILLS", "delta");
+    writeFileSync(dir("active", "delta", ".trash-fails"), "");
+    const session = await planExternalBulkUpdate(buildLock());
+    let leftInWorkspace: string[];
+    try {
+      applyExternalBulkUpdate(session, buildLock());
+      leftInWorkspace = readdirSync(dir("tmp")).filter(
+        (entry) =>
+          entry.startsWith("skill-loom-bulk-update-") &&
+          !entry.startsWith("skill-loom-bulk-update-kept-") &&
+          readdirSync(join(dir("tmp"), entry, "backup")).includes("delta")
+      );
+    } finally {
+      session.dispose();
+    }
+    expect(leftInWorkspace).toEqual([]);
+  });
+
   test("退避できない skill だけを失敗にして入れず、他の skill の更新は続ける", async () => {
     const unreadable = dir("active", "alpha", "unreadable.txt");
     writeFileSync(unreadable, "secret\n");

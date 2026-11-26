@@ -571,6 +571,14 @@ function restoreSkill(backup: Backup): void {
   restoreCliEntry(backup.upstreamName, backup.cliEntry);
 }
 
+function moveOutOfWorkspace(from: string, to: string): void {
+  try {
+    renameSync(from, to);
+  } catch {
+    cpSync(from, to, { recursive: true, verbatimSymlinks: true });
+  }
+}
+
 function keepBackup(backup: Backup): string {
   if (!backup.dir) return "no backup (the skill was not installed before)";
   try {
@@ -578,7 +586,7 @@ function keepBackup(backup: Backup): string {
       mkdtempSync(join(tmpdir(), "skill-loom-bulk-update-kept-")),
       backup.name
     );
-    cpSync(backup.dir, kept, { recursive: true, verbatimSymlinks: true });
+    moveOutOfWorkspace(backup.dir, kept);
     return `backup kept at ${kept}`;
   } catch (error) {
     return `could not keep the backup: ${errorMessage(error)}`;
