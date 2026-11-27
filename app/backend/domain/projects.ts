@@ -49,6 +49,8 @@ import {
   writeSkillJson,
 } from "./skill-files";
 import { splitLines, unifiedDiff } from "./diff";
+import { importDraftSkill } from "./drafts";
+import { commitRepoChanges } from "../infrastructure/git";
 
 // Codex と Antigravity は .agents/skills を直接読む（skills@1.7.6）。
 const SKILL_DIRS = [".agents/skills", ".claude/skills"];
@@ -362,6 +364,23 @@ export function projectStatus(
         hash !== manifest.skills[skill]!.hash ||
         !correctLink(project, skill));
     const source = sourceFor(lock, skill);
+    let importable = !inventory.has(skill) && !unsafe && Boolean(root);
+    let importError: string | undefined;
+    if (importable) {
+      try {
+        importable = paths.filter(present).every((path) => {
+          const candidate = readableRoot(project, path);
+          return Boolean(
+            candidate &&
+            existsSync(join(candidate, "SKILL.md")) &&
+            (candidate === root || skillTreeHash(candidate) === hash)
+          );
+        });
+      } catch (error) {
+        importable = false;
+        importError = error instanceof Error ? error.message : String(error);
+      }
+    }
     const state = unsafe
       ? "conflict"
       : drifted
@@ -407,6 +426,8 @@ export function projectStatus(
       globalActive: existsSync(join(activeDir(), skill)),
       inventory: inventory.has(skill),
       available: Boolean(source),
+      importable,
+      ...(importError ? { importError } : {}),
       locations,
       sourceVersion: manifest.skills[skill]?.sourceVersion ?? null,
     };
@@ -687,4 +708,37 @@ export function projectSkillAction(
   }
   writeSkillJson(manifestPath(status.project), manifest);
   return projectStatus(name, lock);
+}
+
+export function importProjectSkill(
+  name: string,
+  skill: string,
+  lock: Lock,
+  category = "imported"
+) {
+  assertSkillName(skill);
+  const status = projectStatus(name, lock);
+  if (status.state === "missing")
+    throw new ValueError("Project directory is missing");
+  const row = status.skills.find((s) => s.name === skill);
+  if (!row?.locations.length)
+    throw new ValueError(`Missing project skill: ${skill}`);
+  if (row.inventory)
+    throw new AlreadyExistsError(`Skill already exists in Inventory: ${skill}`);
+  const roots = row.locations.map((path) =>
+    readableRoot(status.project, join(status.project.path, path))
+  );
+  if (roots.some((root) => !root)) throw new ValueError("Unsafe project skill");
+  const source = roots[0]!;
+  const hash = skillTreeHash(source);
+  if (roots.some((root) => skillTreeHash(root!) !== hash))
+    throw new ValueError(
+      "Project skill copies differ; reconcile them before import"
+    );
+  const draft = importDraftSkill(skill, source, lock, category);
+  const message = commitRepoChanges(
+    `feat: import project skill ${skill} as draft`,
+    [resolveCatalogPath(draft.repoPath)]
+  );
+  return { ...projectStatus(name, lock), importedDraft: draft, message };
 }

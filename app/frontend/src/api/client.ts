@@ -11,6 +11,7 @@ import type {
 } from "@shared/api-types";
 import type {
   Project,
+  ProjectImportResult,
   ProjectList,
   ProjectPreview,
   ProjectStatus,
@@ -73,6 +74,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  importProjectSkill: (name: string, skill: string, category = "imported") =>
+    request<ProjectImportResult>(
+      `/api/projects/${encodeURIComponent(name)}/skills/${encodeURIComponent(skill)}/import`,
+      { method: "POST", body: JSON.stringify({ category }) }
+    ),
   projects: () => request<ProjectList>("/api/projects"),
   registerProject: (name: string, path: string, deck?: string) =>
     request<Project>("/api/projects", {

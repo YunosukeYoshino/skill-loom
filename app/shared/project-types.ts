@@ -16,6 +16,8 @@ export type ProjectSkill = {
   globalActive: boolean;
   inventory: boolean;
   available: boolean;
+  importable: boolean;
+  importError?: string;
   locations: string[];
   sourceVersion: string | null;
 };
@@ -43,4 +45,14 @@ export type ProjectList = {
   projects: Project[];
   inventory: string[];
   decks: string[];
+};
+
+export type ProjectImportResult = ProjectStatus & {
+  importedDraft: {
+    name: string;
+    category: string;
+    repoPath: string;
+    description: string;
+  };
+  message: string;
 };
